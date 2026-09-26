@@ -17,6 +17,7 @@ from sqlalchemy import (
     and_,
     or_,
 )
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
@@ -83,6 +84,28 @@ weather_forecast_table = Table(
     Column("fetched_at", DateTime, nullable=False),
     schema="octopus",
 )
+
+
+def _is_missing_table_error(error: Exception) -> bool:
+    # hive-app owns weather_observation/weather_forecast and creates them
+    # via its own Schema Sync -- if hive-app has never run, these tables
+    # simply don't exist yet in the shared database (the documented
+    # "hive-app hasn't run yet" scenario in #511's acceptance criteria).
+    # MariaDB/PyMySQL raises ProgrammingError with error code 1146 ("table
+    # doesn't exist"); SQLite (this app's test fixture) raises
+    # OperationalError with a "no such table" message instead -- both are
+    # the same logical condition under different backends, so both are
+    # checked here rather than assuming one shape. Callers treat this the
+    # same as the table existing but having no rows for the query -- an
+    # empty result, not a database fault -- and fall back to the
+    # flat-average projection method.
+    orig = getattr(error, "orig", None)
+    if "no such table" in str(orig or error).lower():
+        return True
+    args = getattr(orig, "args", None)
+    if not args:
+        return False
+    return args[0] == 1146
 
 
 @dataclass
@@ -372,15 +395,20 @@ class MariaDBClient(MariaDBClientBase):
         window_start = local_day.start_of_local_day(start_date - timedelta(days=1))
         window_end = local_day.start_of_local_day(end_date + timedelta(days=1))
         wo = weather_observation_table
-        with self.session_read_scope() as session:
-            rows = (
-                session.query(wo.c.observed_at, wo.c.temp)
-                .filter(
-                    wo.c.observed_at >= window_start,
-                    wo.c.observed_at < window_end,
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(wo.c.observed_at, wo.c.temp)
+                    .filter(
+                        wo.c.observed_at >= window_start,
+                        wo.c.observed_at < window_end,
+                    )
+                    .all()
                 )
-                .all()
-            )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return {}
 
         daily_max: dict[date, float] = {}
         for observed_at, temp in rows:
@@ -408,15 +436,20 @@ class MariaDBClient(MariaDBClientBase):
         # day, per hive-app's model) -- no local-day bucketing needed here,
         # unlike weather_observation above.
         wf = weather_forecast_table
-        with self.session_read_scope() as session:
-            rows = (
-                session.query(wf.c.target_date, wf.c.max_temp)
-                .filter(
-                    wf.c.target_date >= start_date,
-                    wf.c.target_date <= end_date,
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(wf.c.target_date, wf.c.max_temp)
+                    .filter(
+                        wf.c.target_date >= start_date,
+                        wf.c.target_date <= end_date,
+                    )
+                    .all()
                 )
-                .all()
-            )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return {}
         # Same NaN/Infinity guard as read_weather_observation_daily_max_temps
         # above -- max_temp is external, cross-app input (hive-app's
         # weather_forecast), and a non-finite row must be treated as "no

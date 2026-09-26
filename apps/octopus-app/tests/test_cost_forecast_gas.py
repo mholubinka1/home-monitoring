@@ -778,3 +778,58 @@ def test_a_non_finite_training_observation_is_excluded_from_the_daily_max(
     daily_max = mariadb_client.read_weather_observation_daily_max_temps(day, day)
 
     assert daily_max == {day: 9.0}
+
+
+def test_read_weather_observation_daily_max_temps_returns_empty_when_hive_app_has_never_run(
+    mariadb_client_without_weather_tables: MariaDBClient,
+) -> None:
+    result = (
+        mariadb_client_without_weather_tables.read_weather_observation_daily_max_temps(
+            date(2026, 7, 1), date(2026, 7, 7)
+        )
+    )
+
+    assert result == {}
+
+
+def test_read_weather_forecast_max_temps_returns_empty_when_hive_app_has_never_run(
+    mariadb_client_without_weather_tables: MariaDBClient,
+) -> None:
+    result = mariadb_client_without_weather_tables.read_weather_forecast_max_temps(
+        date(2026, 7, 1), date(2026, 7, 7)
+    )
+
+    assert result == {}
+
+
+@responses.activate
+def test_gas_cost_forecast_falls_back_to_the_flat_average_when_hive_app_has_never_run(
+    mariadb_client_without_weather_tables: MariaDBClient,
+) -> None:
+    # End-to-end proof of the documented "hive-app hasn't run yet" scenario
+    # (#511's acceptance criteria) -- the weather tables don't exist at all,
+    # not merely empty, so the whole gas cost forecast must still complete
+    # by falling back to #507's flat-average method, not raise.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client_without_weather_tables.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client_without_weather_tables,
+            [_make_electricity_meter(), _make_gas_meter()],
+        )
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client_without_weather_tables.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    remaining_days = 31
+    expected_remaining = (
+        remaining_days * (Decimal("48.0") * Decimal("7.00") + Decimal("29.00")) / 100
+    )
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )
