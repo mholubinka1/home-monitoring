@@ -110,6 +110,8 @@ Extends `WeatherSource` with a `fetch_forecast()`/`persist_forecast()` verb pair
 
 ## octopus-app: weather-aware gas cost projection — [#511](https://github.com/mholubinka1/home-monitoring/issues/511)
 
+> Work complete — [PR #537](https://github.com/mholubinka1/home-monitoring/pull/537) ready to merge.
+
 **Blocked by**: #510, #507
 
 **User stories**: 4
@@ -120,11 +122,11 @@ Replaces gas's flat average-based `projected_total_cost` (from #507) with a live
 
 ### Acceptance criteria
 
-- [ ] Given historical `daily_consumption_summary`(gas) and `weather_observation` data showing a temperature/consumption relationship, when the regression is computed, then its coefficients reflect that relationship (higher consumption on colder days).
-- [ ] Given a `weather_forecast` showing a colder-than-recent-average upcoming period, when gas's `projected_total_cost` is computed, then it is higher than the flat average-based projection would have produced for the same remaining days — and vice versa for a forecast milder period.
-- [ ] Given no `weather_forecast` data exists for some or all remaining days (e.g. hive-app hasn't run yet, or Open-Meteo has been down), when the projection runs, then it falls back to #507's average-based method for those days rather than raising or silently omitting them.
-- [ ] Electricity's `projected_total_cost` computation and result are byte-for-byte unaffected.
-- [ ] Test: a hand-seeded cold-forecast day produces a higher projected total than an otherwise-identical mild-forecast day, proving the regression is actually applied, not just an average.
+- [x] Given historical `daily_consumption_summary`(gas) and `weather_observation` data showing a temperature/consumption relationship, when the regression is computed, then its coefficients reflect that relationship (higher consumption on colder days).
+- [x] Given a `weather_forecast` showing a colder-than-recent-average upcoming period, when gas's `projected_total_cost` is computed, then it is higher than the flat average-based projection would have produced for the same remaining days — and vice versa for a forecast milder period.
+- [x] Given no `weather_forecast` data exists for some or all remaining days (e.g. hive-app hasn't run yet, or Open-Meteo has been down), when the projection runs, then it falls back to #507's average-based method for those days rather than raising or silently omitting them.
+- [x] Electricity's `projected_total_cost` computation and result are byte-for-byte unaffected.
+- [x] Test: a hand-seeded cold-forecast day produces a higher projected total than an otherwise-identical mild-forecast day, proving the regression is actually applied, not just an average.
 
 ---
 
