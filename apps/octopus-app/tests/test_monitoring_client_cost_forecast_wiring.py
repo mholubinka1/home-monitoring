@@ -4,6 +4,10 @@ from decimal import Decimal
 import responses
 from sqlalchemy.orm import Session
 from tests.weather_fixtures import (
+    TRAINING_DAYS_AND_TEMPS,
+)
+from tests.weather_fixtures import mock_billing_period as _mock_billing_period
+from tests.weather_fixtures import (
     seed_daily_consumption_summary as _seed_daily_consumption_summary,
 )
 from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
@@ -25,7 +29,6 @@ ACCOUNT_ENDPOINT = "https://api.octopus.energy/v1/accounts/A-1234ABCD"
 GRID_SUPPLY_POINTS_ENDPOINT = (
     "https://api.octopus.energy/v1/industry/grid-supply-points"
 )
-GRAPHQL_ENDPOINT = "https://api.octopus.energy/v1/graphql/"
 PRODUCT_CODE = "VAR-24-10-01"
 GAS_PRODUCT_CODE = "VAR-22-11-01"
 REGION = "H"
@@ -72,47 +75,13 @@ ACCOUNT_RESPONSE = {
 GRID_SUPPLY_POINTS_RESPONSE = {"results": [{"group_id": f"_{REGION}"}]}
 
 
-def _mock_billing_period(start: str, end: str) -> None:
-    responses.add(
-        responses.POST,
-        GRAPHQL_ENDPOINT,
-        json={"data": {"obtainKrakenToken": {"token": "kraken-jwt-token"}}},
-        status=200,
-    )
-    responses.add(
-        responses.POST,
-        GRAPHQL_ENDPOINT,
-        json={
-            "data": {
-                "account": {
-                    "billingOptions": {
-                        "currentBillingPeriodStartDate": start,
-                        "currentBillingPeriodEndDate": end,
-                        "isFixed": True,
-                    }
-                }
-            }
-        },
-        status=200,
-    )
-
-
 # Same training/forecast fixture shape as test_cost_forecast_gas.py's
-# tracer-bullet test -- a perfectly linear kWh = 20 +
-# 2*heating-degree-days(max_temp) relationship over the trailing 7 days.
-# Reusing the same numbers means the test below can assert the identical
-# known-correct total (proven exact in the tracer-bullet test) rather than
-# re-deriving new arithmetic -- if it doesn't match, the real wiring
-# diverges from the already-verified regression logic.
-_TRAINING_DAYS_AND_TEMPS = [
-    (date(2026, 6, 30), 15.0, "21.0"),
-    (date(2026, 7, 1), 12.0, "27.0"),
-    (date(2026, 7, 2), 9.0, "33.0"),
-    (date(2026, 7, 3), 6.0, "39.0"),
-    (date(2026, 7, 4), 3.0, "45.0"),
-    (date(2026, 7, 5), 0.0, "51.0"),
-    (date(2026, 7, 6), -3.0, "57.0"),
-]
+# tracer-bullet test -- reusing the same numbers means the test below can
+# assert the identical known-correct total (proven exact in the
+# tracer-bullet test) rather than re-deriving new arithmetic -- if it
+# doesn't match, the real wiring diverges from the already-verified
+# regression logic.
+_TRAINING_DAYS_AND_TEMPS = TRAINING_DAYS_AND_TEMPS
 
 
 def _seed_gas_and_electricity_fixtures(s: Session) -> None:

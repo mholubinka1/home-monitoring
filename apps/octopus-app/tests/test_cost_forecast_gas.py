@@ -5,6 +5,10 @@ import responses
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from tests.weather_fixtures import (
+    TRAINING_DAYS_AND_TEMPS,
+)
+from tests.weather_fixtures import mock_billing_period as _mock_billing_period
+from tests.weather_fixtures import (
     seed_daily_consumption_summary as _seed_daily_consumption_summary,
 )
 from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
@@ -179,31 +183,6 @@ def _make_gas_meter(
     )
 
 
-def _mock_billing_period(start: str, end: str, is_fixed: bool = True) -> None:
-    responses.add(
-        responses.POST,
-        GRAPHQL_ENDPOINT,
-        json={"data": {"obtainKrakenToken": {"token": "kraken-jwt-token"}}},
-        status=200,
-    )
-    responses.add(
-        responses.POST,
-        GRAPHQL_ENDPOINT,
-        json={
-            "data": {
-                "account": {
-                    "billingOptions": {
-                        "currentBillingPeriodStartDate": start,
-                        "currentBillingPeriodEndDate": end,
-                        "isFixed": is_fixed,
-                    }
-                }
-            }
-        },
-        status=200,
-    )
-
-
 def _source(mariadb: MariaDBClient, meters: list[Meter]) -> _RealCostForecastSource:
     settings = OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test")
     return _RealCostForecastSource(
@@ -357,22 +336,7 @@ def test_a_gas_meter_added_after_construction_is_picked_up_via_refresh_meters(
     assert energies == {"E", "G"}
 
 
-# Seven trailing historical days (2026-06-30 .. 2026-07-06, the day before
-# as_of's local date of 2026-07-07) with a perfectly linear
-# kWh = 20 + 2*heating-degree-days(max_temp) relationship -- HDD uses a
-# 15.5C base, so e.g. day1's 15.0C -> HDD 0.5 -> 21.0 kWh, day7's -3.0C ->
-# HDD 18.5 -> 57.0 kWh. Flat average of these seven totals is exactly
-# 39.0 kWh/day (273.0 / 7) -- the figure #507's unweighted-average fallback
-# would use instead.
-_TRAINING_DAYS_AND_TEMPS = [
-    (date(2026, 6, 30), 15.0, "21.0"),
-    (date(2026, 7, 1), 12.0, "27.0"),
-    (date(2026, 7, 2), 9.0, "33.0"),
-    (date(2026, 7, 3), 6.0, "39.0"),
-    (date(2026, 7, 4), 3.0, "45.0"),
-    (date(2026, 7, 5), 0.0, "51.0"),
-    (date(2026, 7, 6), -3.0, "57.0"),
-]
+_TRAINING_DAYS_AND_TEMPS = TRAINING_DAYS_AND_TEMPS
 
 # Billing period (after Kraken's date-shift) runs 2026-07-06 .. 2026-08-06;
 # every remaining day from as_of's local date (2026-07-07) through the
