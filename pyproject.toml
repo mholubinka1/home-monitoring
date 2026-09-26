@@ -98,8 +98,10 @@ max-attributes = 8
 # Same facade shape as max-attributes above: each fetch/persist/read method delegates
 # one MonitoringClient operation to the underlying Octopus/MariaDB client it wraps, so
 # the method count grows by one each time a Retriever needs a new operation. Raised
-# from the default (20) to fit its current shape.
-max-public-methods = 21
+# from the default (20) to fit its current shape, then again to 24 for #511's three
+# new gas weather-regression read methods (read_daily_consumption_summary,
+# read_weather_observation_daily_max_temps, read_weather_forecast_max_temps).
+max-public-methods = 24
 
 [tool.pylint."messages control"]
 # Each disable below is a deliberate fit to this codebase's established conventions,

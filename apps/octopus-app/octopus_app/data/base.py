@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from octopus_app.common.config import ApplicationSettings
 from octopus_app.data.model import (
@@ -142,6 +142,23 @@ class MonitoringClient:
         self, product_code: str, region: str, as_of: datetime
     ) -> Rate | None:
         return self.mariadb.read_current_product_rate(product_code, region, as_of)
+
+    def read_daily_consumption_summary(
+        self, energy: Energy, start_date: date, end_date: date
+    ) -> list[ConsumptionSummary]:
+        return self.mariadb.read_daily_consumption_summary(energy, start_date, end_date)
+
+    def read_weather_observation_daily_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        return self.mariadb.read_weather_observation_daily_max_temps(
+            start_date, end_date
+        )
+
+    def read_weather_forecast_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        return self.mariadb.read_weather_forecast_max_temps(start_date, end_date)
 
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self.mariadb.write_cost_forecast(forecast)

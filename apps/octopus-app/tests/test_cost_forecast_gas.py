@@ -2,12 +2,18 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import responses
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.cost_forecast import CostForecastRetriever
 from octopus_app.data.local_day import start_of_local_day
-from octopus_app.data.model import CostForecast, DailyCostSummary, Energy
+from octopus_app.data.model import (
+    ConsumptionSummary,
+    CostForecast,
+    DailyCostSummary,
+    Energy,
+)
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.octopus.kraken import BillingPeriodClient, KrakenTransport
@@ -67,6 +73,25 @@ class _RealCostForecastSource:
         self, product_code: str, region: str, as_of: datetime
     ) -> Rate | None:
         return self._mariadb.read_current_product_rate(product_code, region, as_of)
+
+    def read_daily_consumption_summary(
+        self, energy: Energy, start_date: date, end_date: date
+    ) -> list[ConsumptionSummary]:
+        return self._mariadb.read_daily_consumption_summary(
+            energy, start_date, end_date
+        )
+
+    def read_weather_observation_daily_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        return self._mariadb.read_weather_observation_daily_max_temps(
+            start_date, end_date
+        )
+
+    def read_weather_forecast_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        return self._mariadb.read_weather_forecast_max_temps(start_date, end_date)
 
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self._mariadb.write_cost_forecast(forecast)
@@ -321,3 +346,306 @@ def test_a_gas_meter_added_after_construction_is_picked_up_via_refresh_meters(
     # If refresh() failed to call refresh_meters() first, self.meters would
     # stay at initial_meters (electricity only) and this would be {"E"}.
     assert energies == {"E", "G"}
+
+
+def _seed_daily_consumption_summary(
+    s: Session, day: date, total_kwh: str, energy: str = "G"
+) -> None:
+    s.add(
+        model.daily_consumption_summary(
+            energy=energy, date=day, total_kwh=Decimal(total_kwh)
+        )
+    )
+
+
+def _seed_weather_observation(s: Session, local_day: date, max_temp: float) -> None:
+    # Local noon, not local midnight -- keeps the observation unambiguously
+    # inside `local_day` after Europe/London bucketing regardless of which
+    # side of a UTC/BST offset boundary local midnight itself falls on.
+    observed_at = start_of_local_day(local_day) + timedelta(hours=12)
+    s.execute(
+        text(
+            "INSERT INTO weather_observation (source, observed_at, temp) "
+            "VALUES (:source, :observed_at, :temp)"
+        ),
+        {"source": "test", "observed_at": observed_at, "temp": max_temp},
+    )
+
+
+def _seed_weather_forecast(s: Session, target_date: date, max_temp: float) -> None:
+    s.execute(
+        text(
+            "INSERT INTO weather_forecast "
+            "(id, source, target_date, max_temp, fetched_at) "
+            "VALUES (:id, :source, :target_date, :max_temp, :fetched_at)"
+        ),
+        {
+            "id": f"test-forecast-{target_date.isoformat()}",
+            "source": "test",
+            "target_date": target_date,
+            "max_temp": max_temp,
+            "fetched_at": datetime(2026, 7, 7, tzinfo=UTC),
+        },
+    )
+
+
+# Seven trailing historical days (2026-06-30 .. 2026-07-06, the day before
+# as_of's local date of 2026-07-07) with a perfectly linear
+# kWh = 20 + 2*heating-degree-days(max_temp) relationship -- HDD uses a
+# 15.5C base, so e.g. day1's 15.0C -> HDD 0.5 -> 21.0 kWh, day7's -3.0C ->
+# HDD 18.5 -> 57.0 kWh. Flat average of these seven totals is exactly
+# 39.0 kWh/day (273.0 / 7) -- the figure #507's unweighted-average fallback
+# would use instead.
+_TRAINING_DAYS_AND_TEMPS = [
+    (date(2026, 6, 30), 15.0, "21.0"),
+    (date(2026, 7, 1), 12.0, "27.0"),
+    (date(2026, 7, 2), 9.0, "33.0"),
+    (date(2026, 7, 3), 6.0, "39.0"),
+    (date(2026, 7, 4), 3.0, "45.0"),
+    (date(2026, 7, 5), 0.0, "51.0"),
+    (date(2026, 7, 6), -3.0, "57.0"),
+]
+
+# Billing period (after Kraken's date-shift) runs 2026-07-06 .. 2026-08-06;
+# every remaining day from as_of's local date (2026-07-07) through the
+# period end is the window a forecast needs covering.
+_REMAINING_WINDOW_START = date(2026, 7, 7)
+_REMAINING_WINDOW_END = date(2026, 8, 6)
+
+
+def _seed_training_window(s: Session) -> None:
+    for day, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS:
+        _seed_daily_consumption_summary(s, day, kwh)
+        _seed_weather_observation(s, day, max_temp)
+
+
+def _seed_uniform_forecast(s: Session, start: date, end: date, max_temp: float) -> None:
+    day = start
+    while day <= end:
+        _seed_weather_forecast(s, day, max_temp)
+        day += timedelta(days=1)
+
+
+def _latest_gas_projected_total_cost(mariadb_client: MariaDBClient) -> Decimal:
+    with mariadb_client.session_read_scope() as session:
+        row = (
+            session.query(model.cost_forecast)
+            .filter_by(energy="G")
+            .order_by(model.cost_forecast.id.desc())
+            .first()
+        )
+    return row.projected_total_cost
+
+
+@responses.activate
+def test_a_colder_than_recent_average_forecast_raises_gas_projected_total_cost_above_the_flat_average_method(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
+        # Every remaining day gets a forecast far colder (-6.0C, HDD 21.5)
+        # than the training window's ~6.0C average, so the regression must
+        # predict noticeably more than the flat 39.0 kWh/day average for
+        # every one of those days.
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    # actual_cost_to_date: unchanged from the existing gas fixture's single
+    # elapsed day (2026-07-06) -- 48.0 kWh @ 7.00p + 29.00p standing = £3.65.
+    # remaining_days = 31 (32 total period days - 1 elapsed day).
+    # Regression predicts 20 + 2*21.5 = 63.0 kWh/day for every one of those
+    # 31 remaining days (all get a full 24h -- as_of is exact local
+    # midnight): variable_cost = 31 * 63.0 * 7.00p = 13,671.00p, standing =
+    # 31 * 29.00p = 899.00p -> remaining = £145.70 -> total £149.35.
+    # The flat-average method (39.0 kWh/day instead of 63.0) would instead
+    # produce variable_cost = 31 * 39.0 * 7.00p = 8,463.00p -> remaining =
+    # £93.62 -> total £97.27 -- strictly lower, proving the regression (not
+    # a plain average) drove this result.
+    assert gas_row.projected_total_cost == Decimal("149.35")
+
+
+@responses.activate
+def test_a_milder_forecast_produces_a_lower_gas_projected_total_cost_than_a_colder_forecast(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Same historical training window as the previous test -- proves the
+    # acceptance-criteria comparison directly: given identical history, only
+    # the forecast changes, and a strictly lower forecast temperature must
+    # never produce a strictly lower (or equal) projected cost than a milder
+    # one. If this app fell back to a flat average consumption figure
+    # instead of the weather regression, both runs below would produce the
+    # exact same projected_total_cost regardless of forecast temperature.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
+        # -6.0C, HDD 21.5 -> regression predicts 20 + 2*21.5 = 63.0 kWh/day.
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    cold_retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    cold_retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+    cold_projected_total_cost = _latest_gas_projected_total_cost(mariadb_client)
+
+    with mariadb_client.session_write_scope() as s:
+        # Replace the cold forecast with a mild one -- 18.0C is above the
+        # 15.5C HDD base temperature, so HDD is 0 for every remaining day
+        # (no heating demand at all) -- regression predicts just the
+        # intercept, 20.0 kWh/day, well below both the cold run's 63.0
+        # kWh/day and the flat 39.0 kWh/day average.
+        s.execute(text("DELETE FROM weather_forecast"))
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, 18.0)
+
+    mild_retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    mild_retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+    mild_projected_total_cost = _latest_gas_projected_total_cost(mariadb_client)
+
+    assert mild_projected_total_cost < cold_projected_total_cost
+
+
+@responses.activate
+def test_a_remaining_day_with_no_forecast_falls_back_to_the_flat_average_while_other_remaining_days_still_use_the_forecast(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Same training window/regression as the cold-forecast test above
+    # (predicts 63.0 kWh/day), but one single remaining day in the middle of
+    # the billing period has no weather_forecast row at all -- that day, and
+    # only that day, must fall back to the flat average-consumption figure
+    # (48.0 kWh/day, from the elapsed 2026-07-06 day's real 48.0 kWh -- see
+    # test_gas_projected_total_cost_uses_the_same_average_consumption_formula_as_electricity),
+    # while every other remaining day still uses the regression.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    day_missing_forecast = date(2026, 7, 20)
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
+        day = _REMAINING_WINDOW_START
+        while day <= _REMAINING_WINDOW_END:
+            if day != day_missing_forecast:
+                _seed_weather_forecast(s, day, -6.0)
+            day += timedelta(days=1)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    # 30 remaining days at the regression's 63.0 kWh/day (24h each, as_of is
+    # exact local midnight) + 1 remaining day (the one missing a forecast
+    # row) at the flat 48.0 kWh/day average, all at 7.00p/kWh, plus standing
+    # charge for all 31 remaining days.
+    regression_days = 30
+    variable_cost_pence = regression_days * Decimal("63.0") * Decimal("7.00") + Decimal(
+        "48.0"
+    ) * Decimal("7.00")
+    standing_cost_pence = 31 * Decimal("29.00")
+    expected_remaining = (variable_cost_pence + standing_cost_pence) / 100
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )
+
+
+@responses.activate
+def test_too_few_historical_training_days_falls_back_entirely_to_the_flat_average_method(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Only 3 valid (temp, kWh) training pairs -- below the regression's
+    # minimum of 5 -- even though every single remaining day has a
+    # weather_forecast row available. The guard must skip the regression
+    # entirely for the whole period, not attempt (and fail) a fit per day,
+    # so every remaining day falls back to the flat average -- identical to
+    # test_gas_projected_total_cost_uses_the_same_average_consumption_formula_as_electricity's
+    # result.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    sparse_training_days = _TRAINING_DAYS_AND_TEMPS[-3:]
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        for day, max_temp, kwh in sparse_training_days:
+            _seed_daily_consumption_summary(s, day, kwh)
+            _seed_weather_observation(s, day, max_temp)
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    remaining_days = 31
+    expected_remaining = (
+        remaining_days * (Decimal("48.0") * Decimal("7.00") + Decimal("29.00")) / 100
+    )
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )
+
+
+@responses.activate
+def test_near_identical_training_window_temperatures_falls_back_entirely_to_the_flat_average_method(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # >=5 valid pairs, but every training day is at (near enough) the exact
+    # same temperature -- degenerate HDD variance, below the regression's
+    # 0.01 epsilon. A slope fit through this would be unstable/meaningless,
+    # so the guard must skip the regression here too, even with a
+    # genuinely colder forecast that would otherwise clearly raise the
+    # projection above the flat average. Result must again match the flat
+    # average method exactly.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    uniform_temp_training_days = [
+        (date(2026, 6, 30), 10.0, "40.0"),
+        (date(2026, 7, 1), 10.0, "41.0"),
+        (date(2026, 7, 2), 10.0, "39.0"),
+        (date(2026, 7, 3), 10.0, "40.0"),
+        (date(2026, 7, 4), 10.0, "42.0"),
+        (date(2026, 7, 5), 10.0, "38.0"),
+        (date(2026, 7, 6), 10.0, "40.0"),
+    ]
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        for day, max_temp, kwh in uniform_temp_training_days:
+            _seed_daily_consumption_summary(s, day, kwh)
+            _seed_weather_observation(s, day, max_temp)
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    remaining_days = 31
+    expected_remaining = (
+        remaining_days * (Decimal("48.0") * Decimal("7.00") + Decimal("29.00")) / 100
+    )
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )

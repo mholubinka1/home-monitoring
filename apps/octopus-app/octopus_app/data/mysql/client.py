@@ -4,7 +4,18 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
 
-from sqlalchemy import and_, or_
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    and_,
+    or_,
+)
 
 from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
@@ -34,6 +45,43 @@ SUMMARIZATION_WINDOW_DAYS = 14
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
+
+# weather_observation/weather_forecast are owned by hive-app, but live in the
+# same shared `octopus` MariaDB schema this client already connects to (see
+# #511). They're declared here as plain Core Table objects against a
+# SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
+# mysql/model.py's SQLBase -- so octopus-app's own Schema Sync create_all
+# never mistakenly claims ownership of tables hive-app owns (which would risk
+# drift/ordering races between the two apps' migrations). Column shapes
+# mirror apps/hive-app/hive_app/data/mysql/model.py exactly; kept in sync by
+# hand since importing the hive_app package from octopus_app would be a
+# cross-app dependency this design deliberately avoids.
+weather_metadata = MetaData()
+
+weather_observation_table = Table(
+    "weather_observation",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("source", String(20)),
+    Column("observed_at", DateTime, nullable=False),
+    Column("temp", Float),
+    Column("humidity", Float),
+    Column("pressure", Float),
+    Column("wind_speed", Float),
+    Column("precipitation", Float),
+    schema="octopus",
+)
+
+weather_forecast_table = Table(
+    "weather_forecast",
+    weather_metadata,
+    Column("id", String(50), primary_key=True),
+    Column("source", String(20)),
+    Column("target_date", Date, nullable=False),
+    Column("max_temp", Float),
+    Column("fetched_at", DateTime, nullable=False),
+    schema="octopus",
+)
 
 
 @dataclass
@@ -281,6 +329,90 @@ class MariaDBClient(MariaDBClientBase):
             if day == today
             or bucket.row_count == local_day.expected_half_hour_count(day)
         ]
+
+    def read_daily_consumption_summary(
+        self, energy: Energy, start_date: date, end_date: date
+    ) -> list[ConsumptionSummary]:
+        # Inclusive [start_date, end_date] range read straight from the
+        # already-summarized daily_consumption_summary table -- unlike
+        # read_elapsed_billing_period_costs (which derives daily totals from
+        # raw half-hourly consumption rows), this is only ever used for the
+        # gas weather-regression's historical training window, which is
+        # always well within the summarization job's trailing coverage.
+        dcs = model.daily_consumption_summary
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(dcs)
+                .filter(
+                    dcs.energy == as_energy_char(energy),
+                    dcs.date >= start_date,
+                    dcs.date <= end_date,
+                )
+                .all()
+            )
+        return [
+            ConsumptionSummary(energy=energy, date=row.date, total_kwh=row.total_kwh)
+            for row in rows
+        ]
+
+    def read_weather_observation_daily_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        # weather_observation has no pre-aggregated daily max (unlike
+        # weather_forecast's one-row-per-target_date shape), so the max is
+        # taken here in Python across whatever observations exist for each
+        # Europe/London local day (ADR-0010) -- not the raw UTC date, to stay
+        # consistent with how every other local-day bucketing in this app
+        # works. The date range filter below is intentionally generous by a
+        # day on each side of the requested window (observations are queried
+        # by their real observed_at instant, not yet bucketed) -- correctness
+        # comes entirely from the local-day grouping in Python afterward, not
+        # from this coarse SQL-side filter.
+        window_start = local_day.start_of_local_day(start_date - timedelta(days=1))
+        window_end = local_day.start_of_local_day(end_date + timedelta(days=2))
+        wo = weather_observation_table
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(wo.c.observed_at, wo.c.temp)
+                .filter(
+                    wo.c.observed_at >= window_start,
+                    wo.c.observed_at < window_end,
+                )
+                .all()
+            )
+
+        daily_max: dict[date, float] = {}
+        for observed_at, temp in rows:
+            if temp is None:
+                continue
+            day = local_day.to_local_date(observed_at)
+            if start_date <= day <= end_date and (
+                day not in daily_max or temp > daily_max[day]
+            ):
+                daily_max[day] = temp
+        return daily_max
+
+    def read_weather_forecast_max_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        # target_date is already a plain calendar date (one row per forecast
+        # day, per hive-app's model) -- no local-day bucketing needed here,
+        # unlike weather_observation above.
+        wf = weather_forecast_table
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(wf.c.target_date, wf.c.max_temp)
+                .filter(
+                    wf.c.target_date >= start_date,
+                    wf.c.target_date <= end_date,
+                )
+                .all()
+            )
+        return {
+            target_date: max_temp
+            for target_date, max_temp in rows
+            if max_temp is not None
+        }
 
     def read_consumption_summarization_window(
         self, as_of: date
