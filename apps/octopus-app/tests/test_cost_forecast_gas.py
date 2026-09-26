@@ -6,7 +6,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from octopus_app.common.config import OctopusAPISettings
-from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.cost_forecast import (
+    CostForecastRetriever,
+    fit_gas_weather_regression,
+)
 from octopus_app.data.local_day import start_of_local_day
 from octopus_app.data.model import (
     ConsumptionSummary,
@@ -633,6 +636,64 @@ def test_near_identical_training_window_temperatures_falls_back_entirely_to_the_
             _seed_daily_consumption_summary(s, day, kwh)
             _seed_weather_observation(s, day, max_temp)
         _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    remaining_days = 31
+    expected_remaining = (
+        remaining_days * (Decimal("48.0") * Decimal("7.00") + Decimal("29.00")) / 100
+    )
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )
+
+
+def test_the_fitted_regression_coefficients_reflect_higher_consumption_on_colder_days() -> (
+    None
+):
+    # Direct unit test of the regression fit itself (AC: "its coefficients
+    # reflect that relationship") -- the end-to-end tests above only prove
+    # the *projection* comes out higher/lower via the regression, not that
+    # the fitted line's own slope is downward (more kWh for colder days).
+    # Same training data as _TRAINING_DAYS_AND_TEMPS, passed directly rather
+    # than through the database.
+    pairs = [(max_temp, Decimal(kwh)) for _, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS]
+
+    regression = fit_gas_weather_regression(pairs)
+
+    assert regression is not None
+    # A colder day (lower max_temp, higher HDD) must predict more kWh than a
+    # milder day -- i.e. slope on HDD is positive. heating_degree_days is
+    # monotonically decreasing in max_temp, so this is equivalent to
+    # predict_daily_kwh being monotonically decreasing in max_temp.
+    colder_prediction = regression.predict_daily_kwh(0.0)
+    milder_prediction = regression.predict_daily_kwh(12.0)
+    assert colder_prediction > milder_prediction
+
+
+@responses.activate
+def test_no_forecast_for_any_remaining_day_falls_back_to_the_flat_average_for_the_whole_period(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # AC: "no weather_forecast data exists for some OR ALL remaining days"
+    # -- the other fallback test above only covers a single missing day
+    # mixed in with regression days; this covers the "all" sub-case (e.g.
+    # hive-app has never run) with no weather_forecast rows seeded at all.
+    # A working regression is still fit successfully from the training
+    # window (proving this is the per-day forecast-lookup fallback, not the
+    # too-few-pairs guard from the test above), but every remaining day has
+    # nothing to predict from and must use the flat average.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
 
     retriever = CostForecastRetriever(
         _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])

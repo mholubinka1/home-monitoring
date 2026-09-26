@@ -369,7 +369,7 @@ class MariaDBClient(MariaDBClientBase):
         # comes entirely from the local-day grouping in Python afterward, not
         # from this coarse SQL-side filter.
         window_start = local_day.start_of_local_day(start_date - timedelta(days=1))
-        window_end = local_day.start_of_local_day(end_date + timedelta(days=2))
+        window_end = local_day.start_of_local_day(end_date + timedelta(days=1))
         wo = weather_observation_table
         with self.session_read_scope() as session:
             rows = (

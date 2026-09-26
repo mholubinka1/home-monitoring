@@ -105,6 +105,17 @@ def fit_gas_weather_regression(
     return GasWeatherRegression(intercept=intercept, slope=slope)
 
 
+def _decimal_from_float(value: float) -> Decimal:
+    # str(), not a bare Decimal(float): float values here (total_seconds(),
+    # the gas regression's predicted kWh) carry binary floating-point noise
+    # that Decimal(float) would capture verbatim rather than the value's
+    # printed (and intended) precision -- immaterial once rounded at the
+    # Numeric(9,2) persistence boundary today, but this is a money
+    # calculation, so the conversion is done deliberately at this one shared
+    # boundary rather than repeated ad hoc at each call site.
+    return Decimal(str(value))
+
+
 def project_daily_average_consumption(daily_totals_kwh: list[Decimal]) -> Decimal:
     if not daily_totals_kwh:
         raise ValueError(
@@ -367,11 +378,7 @@ class CostForecastRetriever:
         remaining_seconds = (period_end_boundary - as_of).total_seconds()
         if remaining_seconds <= 0:
             return None
-        # str(), not a bare Decimal(float): total_seconds() is a float, and
-        # Decimal(float) captures binary floating-point noise rather than
-        # the exact value -- immaterial once rounded at the Numeric(9,2)
-        # persistence boundary today, but this is a money calculation.
-        remaining_hours = Decimal(str(remaining_seconds)) / Decimal(3600)
+        remaining_hours = _decimal_from_float(remaining_seconds) / Decimal(3600)
         return remaining_days, remaining_hours
 
     def _project_remaining_cost(
@@ -517,11 +524,7 @@ class CostForecastRetriever:
         day_end = local_day.start_of_local_day(day + timedelta(days=1))
         window_start = max(as_of, day_start)
         day_seconds = (day_end - window_start).total_seconds()
-        # str(), not a bare Decimal(float) -- matches the
-        # Decimal(str(remaining_seconds)) pattern elsewhere in this module:
-        # total_seconds() is a float, and Decimal(float) would capture
-        # binary floating-point noise rather than the exact value.
-        return Decimal(str(day_seconds)) / Decimal(3600)
+        return _decimal_from_float(day_seconds) / Decimal(3600)
 
     def _gas_day_kwh(
         self,
@@ -532,12 +535,7 @@ class CostForecastRetriever:
     ) -> Decimal:
         max_temp = forecast_max_temps.get(day)
         if regression is not None and max_temp is not None:
-            # Decimal(str(...)), not a bare Decimal(float) -- the
-            # regression's arithmetic is plain float (fine, per #511's
-            # locked design), but money multiplication must go through
-            # Decimal at this boundary, same convention as elsewhere in this
-            # module.
-            return Decimal(str(regression.predict_daily_kwh(max_temp)))
+            return _decimal_from_float(regression.predict_daily_kwh(max_temp))
         # No forecast row for this specific day, or the regression was
         # guard-skipped for the whole period -- either way, this day falls
         # back to the same flat average every other (non-gas, non-Agile)
