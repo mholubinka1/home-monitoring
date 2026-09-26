@@ -2,8 +2,12 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import responses
-from sqlalchemy import text
 from sqlalchemy.orm import Session
+from tests.weather_fixtures import (
+    seed_daily_consumption_summary as _seed_daily_consumption_summary,
+)
+from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
+from tests.weather_fixtures import seed_weather_observation as _seed_weather_observation
 
 from octopus_app.common.config import (
     ApplicationSettings,
@@ -90,44 +94,6 @@ def _mock_billing_period(start: str, end: str) -> None:
             }
         },
         status=200,
-    )
-
-
-def _seed_daily_consumption_summary(
-    s: Session, day: date, total_kwh: str, energy: str = "G"
-) -> None:
-    s.add(
-        model.daily_consumption_summary(
-            energy=energy, date=day, total_kwh=Decimal(total_kwh)
-        )
-    )
-
-
-def _seed_weather_observation(s: Session, local_day: date, max_temp: float) -> None:
-    observed_at = start_of_local_day(local_day) + timedelta(hours=12)
-    s.execute(
-        text(
-            "INSERT INTO weather_observation (source, observed_at, temp) "
-            "VALUES (:source, :observed_at, :temp)"
-        ),
-        {"source": "test", "observed_at": observed_at, "temp": max_temp},
-    )
-
-
-def _seed_weather_forecast(s: Session, target_date: date, max_temp: float) -> None:
-    s.execute(
-        text(
-            "INSERT INTO weather_forecast "
-            "(id, source, target_date, max_temp, fetched_at) "
-            "VALUES (:id, :source, :target_date, :max_temp, :fetched_at)"
-        ),
-        {
-            "id": f"test-forecast-{target_date.isoformat()}",
-            "source": "test",
-            "target_date": target_date,
-            "max_temp": max_temp,
-            "fetched_at": datetime(2026, 7, 7, tzinfo=UTC),
-        },
     )
 
 

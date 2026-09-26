@@ -4,6 +4,11 @@ from decimal import Decimal
 import responses
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from tests.weather_fixtures import (
+    seed_daily_consumption_summary as _seed_daily_consumption_summary,
+)
+from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
+from tests.weather_fixtures import seed_weather_observation as _seed_weather_observation
 
 from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.cost_forecast import (
@@ -352,47 +357,6 @@ def test_a_gas_meter_added_after_construction_is_picked_up_via_refresh_meters(
     assert energies == {"E", "G"}
 
 
-def _seed_daily_consumption_summary(
-    s: Session, day: date, total_kwh: str, energy: str = "G"
-) -> None:
-    s.add(
-        model.daily_consumption_summary(
-            energy=energy, date=day, total_kwh=Decimal(total_kwh)
-        )
-    )
-
-
-def _seed_weather_observation(s: Session, local_day: date, max_temp: float) -> None:
-    # Local noon, not local midnight -- keeps the observation unambiguously
-    # inside `local_day` after Europe/London bucketing regardless of which
-    # side of a UTC/BST offset boundary local midnight itself falls on.
-    observed_at = start_of_local_day(local_day) + timedelta(hours=12)
-    s.execute(
-        text(
-            "INSERT INTO weather_observation (source, observed_at, temp) "
-            "VALUES (:source, :observed_at, :temp)"
-        ),
-        {"source": "test", "observed_at": observed_at, "temp": max_temp},
-    )
-
-
-def _seed_weather_forecast(s: Session, target_date: date, max_temp: float) -> None:
-    s.execute(
-        text(
-            "INSERT INTO weather_forecast "
-            "(id, source, target_date, max_temp, fetched_at) "
-            "VALUES (:id, :source, :target_date, :max_temp, :fetched_at)"
-        ),
-        {
-            "id": f"test-forecast-{target_date.isoformat()}",
-            "source": "test",
-            "target_date": target_date,
-            "max_temp": max_temp,
-            "fetched_at": datetime(2026, 7, 7, tzinfo=UTC),
-        },
-    )
-
-
 # Seven trailing historical days (2026-06-30 .. 2026-07-06, the day before
 # as_of's local date of 2026-07-07) with a perfectly linear
 # kWh = 20 + 2*heating-degree-days(max_temp) relationship -- HDD uses a
@@ -476,6 +440,49 @@ def test_a_colder_than_recent_average_forecast_raises_gas_projected_total_cost_a
     # £93.62 -> total £97.27 -- strictly lower, proving the regression (not
     # a plain average) drove this result.
     assert gas_row.projected_total_cost == Decimal("149.35")
+
+
+@responses.activate
+def test_a_mid_day_as_of_gives_the_regression_a_fractional_first_remaining_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Every other regression test uses as_of=exact local midnight, so every
+    # remaining day (including the first) gets a full 24h -- the
+    # fractional-first-day branch in _hours_remaining_in_day (as_of's own
+    # local day gets only the hours remaining until local midnight) is never
+    # exercised. This uses a 06:00 as_of instead: 18 of day 07-07's 24 hours
+    # remain (fraction 0.75).
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
+        _seed_uniform_forecast(s, _REMAINING_WINDOW_START, _REMAINING_WINDOW_END, -6.0)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    as_of = start_of_local_day(date(2026, 7, 7)) + timedelta(hours=6)
+    retriever.refresh(as_of=as_of)
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    # A mid-day as_of makes 2026-07-07 itself a still-arriving (zero real
+    # consumption seeded), gap-filled elapsed day -- standing charge only,
+    # £0.29 -- alongside the existing real elapsed day 2026-07-06 (£3.65):
+    # actual_cost_to_date = £3.94. remaining_days = 32 - 2 = 30, standing =
+    # 30 * 29.00p = 870.00p.
+    # The variable-cost loop still starts at 07-07 (as_of's own local day):
+    # its 18 remaining hours (fraction 0.75) predict 63.0 kWh/day (as in the
+    # exact-midnight test) -> 0.75 * 63.0 * 7.00p = 330.75p, plus 30 full
+    # remaining days (07-08..08-06) at 63.0 kWh/day -> 30 * 441.00p =
+    # 13,230.00p. variable_cost = 330.75 + 13,230.00 = 13,560.75p.
+    # remaining = (13,560.75 + 870.00) / 100 = £144.3075 -> total £148.2475,
+    # rounded to £148.25 by the cost_forecast table's 2-decimal-place
+    # Numeric column on persistence.
+    assert gas_row.actual_cost_to_date == Decimal("3.94")
+    assert gas_row.projected_total_cost == Decimal("148.25")
 
 
 @responses.activate
@@ -679,6 +686,28 @@ def test_the_fitted_regression_coefficients_reflect_higher_consumption_on_colder
     colder_prediction = regression.predict_daily_kwh(0.0)
     milder_prediction = regression.predict_daily_kwh(12.0)
     assert colder_prediction > milder_prediction
+
+
+def test_predicted_kwh_is_floored_at_zero_for_a_negative_fitted_intercept() -> None:
+    # A perfectly linear kWh = 5*HDD - 50 relationship over a genuinely cold
+    # training window (HDD 10..18, so every real training kWh is still
+    # non-negative) fits an intercept of -50 -- the (extrapolated) kWh at
+    # HDD=0. Without a floor, predicting for a day at or above the 15.5C
+    # base temperature (HDD=0) would return -50.0, a nonsensical negative
+    # gas consumption and thus a negative variable cost.
+    pairs = [
+        GasTrainingDay(5.5, Decimal(0)),
+        GasTrainingDay(3.5, Decimal(10)),
+        GasTrainingDay(1.5, Decimal(20)),
+        GasTrainingDay(-0.5, Decimal(30)),
+        GasTrainingDay(-2.5, Decimal(40)),
+    ]
+
+    regression = fit_gas_weather_regression(pairs)
+
+    assert regression is not None
+    assert regression.intercept == -50.0
+    assert regression.predict_daily_kwh(20.0) == 0.0
 
 
 @responses.activate

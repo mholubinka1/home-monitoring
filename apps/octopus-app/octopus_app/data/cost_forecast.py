@@ -60,7 +60,12 @@ class GasWeatherRegression:
     slope: float
 
     def predict_daily_kwh(self, max_temp: float) -> float:
-        return self.intercept + self.slope * heating_degree_days(max_temp)
+        # Floored at zero -- gas consumption can't be negative, but a fitted
+        # intercept can be (plausible with noisier real data than any
+        # fixture here triggers), which would otherwise silently produce a
+        # negative predicted kWh, and so a negative variable cost, for a
+        # mild-enough day.
+        return max(0.0, self.intercept + self.slope * heating_degree_days(max_temp))
 
 
 class GasTrainingDay(NamedTuple):
