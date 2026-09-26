@@ -3,9 +3,7 @@ from decimal import Decimal
 
 import responses
 from sqlalchemy.orm import Session
-from tests.weather_fixtures import (
-    TRAINING_DAYS_AND_TEMPS,
-)
+from tests.weather_fixtures import TRAINING_DAYS_AND_TEMPS as _TRAINING_DAYS_AND_TEMPS
 from tests.weather_fixtures import mock_billing_period as _mock_billing_period
 from tests.weather_fixtures import (
     seed_daily_consumption_summary as _seed_daily_consumption_summary,
@@ -81,7 +79,6 @@ GRID_SUPPLY_POINTS_RESPONSE = {"results": [{"group_id": f"_{REGION}"}]}
 # tracer-bullet test) rather than re-deriving new arithmetic -- if it
 # doesn't match, the real wiring diverges from the already-verified
 # regression logic.
-_TRAINING_DAYS_AND_TEMPS = TRAINING_DAYS_AND_TEMPS
 
 
 def _seed_gas_and_electricity_fixtures(s: Session) -> None:

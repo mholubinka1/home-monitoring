@@ -4,9 +4,7 @@ from decimal import Decimal
 import responses
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from tests.weather_fixtures import (
-    TRAINING_DAYS_AND_TEMPS,
-)
+from tests.weather_fixtures import TRAINING_DAYS_AND_TEMPS as _TRAINING_DAYS_AND_TEMPS
 from tests.weather_fixtures import mock_billing_period as _mock_billing_period
 from tests.weather_fixtures import (
     seed_daily_consumption_summary as _seed_daily_consumption_summary,
@@ -335,8 +333,6 @@ def test_a_gas_meter_added_after_construction_is_picked_up_via_refresh_meters(
     # stay at initial_meters (electricity only) and this would be {"E"}.
     assert energies == {"E", "G"}
 
-
-_TRAINING_DAYS_AND_TEMPS = TRAINING_DAYS_AND_TEMPS
 
 # Billing period (after Kraken's date-shift) runs 2026-07-06 .. 2026-08-06;
 # every remaining day from as_of's local date (2026-07-07) through the
