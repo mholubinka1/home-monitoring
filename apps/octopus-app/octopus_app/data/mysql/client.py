@@ -1,4 +1,5 @@
 import logging.config
+import math
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -383,7 +384,15 @@ class MariaDBClient(MariaDBClientBase):
 
         daily_max: dict[date, float] = {}
         for observed_at, temp in rows:
-            if temp is None:
+            # temp is external, cross-app input (hive-app's weather_observation,
+            # read via raw SQL -- see the module-level comment on
+            # weather_observation_table) -- a NaN/Infinity row must not
+            # silently corrupt the daily max or flow into the gas
+            # regression's fit. Treated the same as a missing observation
+            # (None), not as an error: hive-app's own weather clients guard
+            # against persisting NaN/Infinity today, but this read boundary
+            # doesn't assume that holds forever.
+            if temp is None or not math.isfinite(temp):
                 continue
             day = local_day.to_local_date(observed_at)
             if start_date <= day <= end_date and (
@@ -408,10 +417,15 @@ class MariaDBClient(MariaDBClientBase):
                 )
                 .all()
             )
+        # Same NaN/Infinity guard as read_weather_observation_daily_max_temps
+        # above -- max_temp is external, cross-app input (hive-app's
+        # weather_forecast), and a non-finite row must be treated as "no
+        # forecast for that day" (the same as a missing row), not silently
+        # fed into the gas regression's prediction.
         return {
             target_date: max_temp
             for target_date, max_temp in rows
-            if max_temp is not None
+            if max_temp is not None and math.isfinite(max_temp)
         }
 
     def read_consumption_summarization_window(

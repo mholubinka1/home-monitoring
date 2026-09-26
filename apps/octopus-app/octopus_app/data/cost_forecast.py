@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from itertools import groupby
 from logging import Logger, getLogger
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data import local_day
@@ -63,11 +63,16 @@ class GasWeatherRegression:
         return self.intercept + self.slope * heating_degree_days(max_temp)
 
 
+class GasTrainingDay(NamedTuple):
+    max_temp: float
+    total_kwh: Decimal
+
+
 def fit_gas_weather_regression(
-    pairs: list[tuple[float, Decimal]],
+    pairs: list[GasTrainingDay],
 ) -> GasWeatherRegression | None:
     """Weighted least-squares fit of daily gas kWh against heating degree
-    days, from `pairs` of (max_temp, total_kwh) ordered oldest-to-newest.
+    days, from `pairs` ordered oldest-to-newest.
 
     Hand-rolled rather than numpy/scikit-learn (per #511's locked design) --
     this is a single-feature closed-form weighted simple linear regression,
@@ -83,8 +88,8 @@ def fit_gas_weather_regression(
     if len(pairs) < GAS_REGRESSION_MIN_PAIRS:
         return None
 
-    hdds = [heating_degree_days(temp) for temp, _ in pairs]
-    kwhs = [float(kwh) for _, kwh in pairs]
+    hdds = [heating_degree_days(p.max_temp) for p in pairs]
+    kwhs = [float(p.total_kwh) for p in pairs]
     weights = [float(rank) for rank in range(1, len(pairs) + 1)]
     total_weight = sum(weights)
 
@@ -114,6 +119,10 @@ def _decimal_from_float(value: float) -> Decimal:
     # calculation, so the conversion is done deliberately at this one shared
     # boundary rather than repeated ad hoc at each call site.
     return Decimal(str(value))
+
+
+def _hours_between(start: datetime, end: datetime) -> Decimal:
+    return _decimal_from_float((end - start).total_seconds()) / Decimal(3600)
 
 
 def project_daily_average_consumption(daily_totals_kwh: list[Decimal]) -> Decimal:
@@ -375,10 +384,9 @@ class CostForecastRetriever:
         period_end_boundary = local_day.start_of_local_day(
             billing_period.end + timedelta(days=1)
         )
-        remaining_seconds = (period_end_boundary - as_of).total_seconds()
-        if remaining_seconds <= 0:
+        remaining_hours = _hours_between(as_of, period_end_boundary)
+        if remaining_hours <= 0:
             return None
-        remaining_hours = _decimal_from_float(remaining_seconds) / Decimal(3600)
         return remaining_days, remaining_hours
 
     def _project_remaining_cost(
@@ -506,25 +514,42 @@ class CostForecastRetriever:
         # Sorted ascending so fit_gas_weather_regression's rank-based
         # recency weighting assigns the oldest available pair weight 1.
         pairs = [
-            (observed_max_temps[d], kwh_by_date[d])
+            GasTrainingDay(observed_max_temps[d], kwh_by_date[d])
             for d in sorted(kwh_by_date)
             if d in observed_max_temps
         ]
-        return fit_gas_weather_regression(pairs)
+        regression = fit_gas_weather_regression(pairs)
+        # Logged here (not just left to fall silently into the flat-average
+        # path) so an operator can tell from job_run/logs alone whether
+        # today's gas projection is currently weather-driven or has quietly
+        # degraded to the average method -- e.g. hive-app stalled, or a
+        # genuinely flat weather week guard-skipped the fit.
+        if regression is None:
+            logger.info(
+                f"Gas weather regression skipped ({len(pairs)} training "
+                f"pair(s) available, window {training_start}-{training_end}) "
+                "-- falling back to the average-consumption method for the "
+                "whole remaining period."
+            )
+        else:
+            logger.info(
+                f"Gas weather regression fit from {len(pairs)} training "
+                f"pair(s) (window {training_start}-{training_end}): "
+                f"intercept={regression.intercept:.3f}, "
+                f"slope={regression.slope:.3f}."
+            )
+        return regression
 
     def _hours_remaining_in_day(self, as_of: datetime, day: date) -> Decimal:
-        # Mirrors _remaining_billing_window's own remaining_hours
-        # calculation, scoped to just this one day -- as_of's own local day
-        # gets the fractional remainder from as_of to local midnight; every
-        # later day gets a full 24 hours. max() guards against as_of landing
-        # after day_start on a day that isn't today (never happens given
-        # this method's only caller, but keeps the arithmetic honest either
-        # way).
+        # Uses the same _hours_between helper as _remaining_billing_window,
+        # scoped to just this one day -- as_of's own local day gets the
+        # fractional remainder from as_of to local midnight; every later day
+        # gets a full 24 hours. max() guards against as_of landing after
+        # day_start on a day that isn't today (never happens given this
+        # method's only caller, but keeps the arithmetic honest either way).
         day_start = local_day.start_of_local_day(day)
         day_end = local_day.start_of_local_day(day + timedelta(days=1))
-        window_start = max(as_of, day_start)
-        day_seconds = (day_end - window_start).total_seconds()
-        return _decimal_from_float(day_seconds) / Decimal(3600)
+        return _hours_between(max(as_of, day_start), day_end)
 
     def _gas_day_kwh(
         self,
@@ -560,15 +585,30 @@ class CostForecastRetriever:
         )
 
         variable_cost = Decimal(0)
+        regression_day_count = 0
         day = as_of_local_date
         while day <= billing_period_end:
             hours_remaining_in_day = self._hours_remaining_in_day(as_of, day)
             day_kwh = self._gas_day_kwh(
                 regression, forecast_max_temps, day, future_daily_kwh
             )
+            if regression is not None and day in forecast_max_temps:
+                regression_day_count += 1
             variable_cost += (
                 (hours_remaining_in_day / 24) * day_kwh * current_rate.unit_rate
             )
             day += timedelta(days=1)
 
+        # One summary line per refresh, not per day -- a per-day log for a
+        # ~31-day billing period would be noise, but an operator still needs
+        # to see, at a glance, how many of the remaining days were actually
+        # weather-driven versus quietly using the flat-average fallback
+        # (e.g. Open-Meteo's forecast horizon doesn't reach the whole
+        # billing period, or hive-app has been down).
+        total_remaining_days = (billing_period_end - as_of_local_date).days + 1
+        logger.info(
+            f"Gas variable cost: {regression_day_count}/{total_remaining_days} "
+            "remaining day(s) used the weather regression, the rest used the "
+            "flat average."
+        )
         return variable_cost

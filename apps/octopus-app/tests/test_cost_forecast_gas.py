@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.cost_forecast import (
     CostForecastRetriever,
+    GasTrainingDay,
     fit_gas_weather_regression,
 )
 from octopus_app.data.local_day import start_of_local_day
@@ -663,7 +664,10 @@ def test_the_fitted_regression_coefficients_reflect_higher_consumption_on_colder
     # the fitted line's own slope is downward (more kWh for colder days).
     # Same training data as _TRAINING_DAYS_AND_TEMPS, passed directly rather
     # than through the database.
-    pairs = [(max_temp, Decimal(kwh)) for _, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS]
+    pairs = [
+        GasTrainingDay(max_temp, Decimal(kwh))
+        for _, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS
+    ]
 
     regression = fit_gas_weather_regression(pairs)
 
@@ -710,3 +714,78 @@ def test_no_forecast_for_any_remaining_day_falls_back_to_the_flat_average_for_th
     assert (
         gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
     )
+
+
+@responses.activate
+def test_a_non_finite_forecast_temperature_falls_back_to_the_flat_average_for_that_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # weather_forecast is cross-app, hive-app-owned input read via raw SQL
+    # (mysql/client.py's read_weather_forecast_max_temps) -- a NaN row must
+    # be treated the same as a missing forecast row for that day (falling
+    # back to the flat average), not fed into the regression and silently
+    # corrupting projected_total_cost with a NaN-derived value.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    non_finite_day = date(2026, 7, 20)
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+        _seed_training_window(s)
+        day = _REMAINING_WINDOW_START
+        while day <= _REMAINING_WINDOW_END:
+            temp = float("nan") if day == non_finite_day else -6.0
+            _seed_weather_forecast(s, day, temp)
+            day += timedelta(days=1)
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(), _make_gas_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
+
+    # Same expected total as
+    # test_a_remaining_day_with_no_forecast_falls_back_to_the_flat_average_while_other_remaining_days_still_use_the_forecast
+    # -- a NaN forecast row for one day must produce an identical result to
+    # that day having no forecast row at all.
+    regression_days = 30
+    variable_cost_pence = regression_days * Decimal("63.0") * Decimal("7.00") + Decimal(
+        "48.0"
+    ) * Decimal("7.00")
+    standing_cost_pence = 31 * Decimal("29.00")
+    expected_remaining = (variable_cost_pence + standing_cost_pence) / 100
+    assert (
+        gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
+    )
+
+
+def test_a_non_finite_training_observation_is_excluded_from_the_daily_max(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # weather_observation is likewise cross-app input -- a NaN/Infinity temp
+    # among several observations for the same local day must be excluded
+    # from that day's daily-max computation, not win the MAX comparison and
+    # get selected as the training pair's temperature. Direct test of
+    # MariaDBClient.read_weather_observation_daily_max_temps itself (not the
+    # full retriever), since this is a read-boundary guard, not a
+    # regression-fitting behaviour.
+    day = date(2026, 7, 1)
+    with mariadb_client.session_write_scope() as s:
+        _seed_weather_observation(s, day, 9.0)
+        s.execute(
+            text(
+                "INSERT INTO weather_observation (source, observed_at, temp) "
+                "VALUES (:source, :observed_at, :temp)"
+            ),
+            {
+                "source": "test",
+                "observed_at": start_of_local_day(day) + timedelta(hours=18),
+                "temp": float("nan"),
+            },
+        )
+
+    daily_max = mariadb_client.read_weather_observation_daily_max_temps(day, day)
+
+    assert daily_max == {day: 9.0}
