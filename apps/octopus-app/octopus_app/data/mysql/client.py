@@ -102,10 +102,8 @@ def _is_missing_table_error(error: Exception) -> bool:
     orig = getattr(error, "orig", None)
     if "no such table" in str(orig or error).lower():
         return True
-    args = getattr(orig, "args", None)
-    if not args:
-        return False
-    return args[0] == 1146
+    code = next(iter(getattr(orig, "args", None) or ()), None)
+    return code == 1146
 
 
 @dataclass

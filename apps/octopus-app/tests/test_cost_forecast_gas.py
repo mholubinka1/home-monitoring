@@ -1,8 +1,10 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 import responses
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from tests.weather_fixtures import TRAINING_DAYS_AND_TEMPS as _TRAINING_DAYS_AND_TEMPS
 from tests.weather_fixtures import mock_billing_period as _mock_billing_period
@@ -26,7 +28,7 @@ from octopus_app.data.model import (
     Energy,
 )
 from octopus_app.data.mysql import model
-from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.mysql.client import MariaDBClient, _is_missing_table_error
 from octopus_app.data.octopus.kraken import BillingPeriodClient, KrakenTransport
 from octopus_app.data.octopus.model import (
     AgileForecastReading,
@@ -833,3 +835,60 @@ def test_gas_cost_forecast_falls_back_to_the_flat_average_when_hive_app_has_neve
     assert (
         gas_row.projected_total_cost == gas_row.actual_cost_to_date + expected_remaining
     )
+
+
+class _FakeWrappedError(Exception):
+    """Mimics SQLAlchemy's DBAPIError shape: the driver's own exception is
+    nested under `.orig`, not the wrapper itself."""
+
+    def __init__(self, orig: Exception) -> None:
+        super().__init__(str(orig))
+        self.orig = orig
+
+
+def test_is_missing_table_error_recognises_the_mariadb_error_code() -> None:
+    # PyMySQL/MariaDB signature: ProgrammingError wrapping an .orig whose
+    # .args[0] is the numeric error code 1146 ("table doesn't exist") --
+    # distinct from SQLite's message-based "no such table" signature, which
+    # every other test in this file exercises indirectly via the real
+    # SQLite-backed fixtures.
+    orig = Exception(1146, "Table 'octopus.weather_observation' doesn't exist")
+
+    assert _is_missing_table_error(_FakeWrappedError(orig)) is True
+
+
+def test_is_missing_table_error_returns_false_for_an_unrelated_database_error() -> None:
+    orig = Exception("database is locked")
+
+    assert _is_missing_table_error(_FakeWrappedError(orig)) is False
+
+
+def test_read_weather_observation_daily_max_temps_reraises_an_unrelated_database_error(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Proves the except clause doesn't swallow every OperationalError as
+    # "missing table" -- a genuine, unrelated database fault must still
+    # propagate rather than silently degrading to an empty result.
+    def _raise_unrelated_error(*args: object, **kwargs: object) -> None:
+        raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(Session, "query", _raise_unrelated_error)
+
+    with pytest.raises(OperationalError):
+        mariadb_client.read_weather_observation_daily_max_temps(
+            date(2026, 7, 1), date(2026, 7, 7)
+        )
+
+
+def test_read_weather_forecast_max_temps_reraises_an_unrelated_database_error(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise_unrelated_error(*args: object, **kwargs: object) -> None:
+        raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(Session, "query", _raise_unrelated_error)
+
+    with pytest.raises(OperationalError):
+        mariadb_client.read_weather_forecast_max_temps(
+            date(2026, 7, 1), date(2026, 7, 7)
+        )
