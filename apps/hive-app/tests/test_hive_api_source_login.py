@@ -148,4 +148,25 @@ def test_a_fresh_login_that_hits_the_sms_challenge_requires_reauth(
     assert fake_hive.login_call_count == 1
     assert not fake_hive.start_session_configs
     assert fake_hive.get_devices_call_count == 0
+
+
+def test_a_fresh_login_with_an_unrecognised_result_raises_rather_than_silently_succeeding(
+    mariadb_client: MariaDBClient, monkeypatch: Any
+) -> None:
+    # A result with neither "AuthenticationResult" nor the SMS_MFA challenge
+    # -- e.g. an unrecognised/future challenge type -- must not silently
+    # fall through: without an explicit raise here, this method would
+    # return None, and the caller would persist a HiveAuthState with an
+    # empty refresh_token as though login had succeeded, deferring the
+    # failure to a later, harder-to-diagnose resume attempt.
+    login_result = {"ChallengeName": "SOME_FUTURE_CHALLENGE"}
+    fake_hive = _FakeApyHive(login_result)
+    monkeypatch.setattr("hive_app.data.hive_client.Hive", lambda **kwargs: fake_hive)
+
+    with pytest.raises(RuntimeError):
+        HiveApiSource(_hive_settings(), mariadb_client).login()
+
+    assert fake_hive.login_call_count == 1
+    assert not fake_hive.start_session_configs
+    assert fake_hive.get_devices_call_count == 0
     assert fake_hive.create_devices_call_count == 0
