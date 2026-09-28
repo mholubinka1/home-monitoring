@@ -47,6 +47,22 @@ BEGIN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Target database `home_monitoring` already exists -- already migrated, or name collision. Aborting.';
     END IF;
+    -- `octopus` existing isn't enough -- every table below must exist too, or
+    -- CREATE DATABASE would still succeed before RENAME TABLE hit the missing
+    -- one, leaving the same dangling home_monitoring database this guard
+    -- otherwise prevents. Checked as one count against the full expected set,
+    -- not per-table, so a single query names every table missing at once via
+    -- the row count gap.
+    IF (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = 'octopus'
+          AND TABLE_NAME IN (
+              'consumption', 'agreement', 'product', 'product_rate',
+              'daily_consumption_summary', 'agile_forecast', 'cost_forecast',
+              'heating_status', 'job_run'
+          )) <> 9 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'One or more of the nine expected tables (consumption, agreement, product, product_rate, daily_consumption_summary, agile_forecast, cost_forecast, heating_status, job_run) is missing from `octopus` -- aborting before any DDL runs.';
+    END IF;
 END //
 DELIMITER ;
 

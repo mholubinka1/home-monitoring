@@ -2,6 +2,8 @@
 
 Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shared-home-monitoring-database.md), [ADR-0024](../../.agent-docs/adr/0024-docker-hub-image-name-octopus-app.md)) together, in one supervised session, against the live Pi. Do not start this until the user has explicitly confirmed the cutover window — brief downtime is expected and accepted, but it is still downtime on a live system.
 
+Every `export MYSQL_PWD=...` below must run in the same shell session as the commands that follow it — it sets nothing outside that shell. If the session breaks or you resume this runbook later (or partway, e.g. jumping straight to step 8), re-export the credential the next step needs before running it; an unset `MYSQL_PWD` fails auth cleanly rather than silently using a stale value, but it's still a confusing detour if you don't expect it.
+
 ## Pre-checks
 
 1. Confirm the cutover window with the user; this is not something to run unattended or opportunistically.
@@ -59,16 +61,11 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 
    The script (verified by `scripts/tests/test_rename_database.py` against a throwaway container) fails loudly, before any DDL runs, if `home_monitoring` already exists or `octopus` doesn't -- a rejected run never leaves a dangling `home_monitoring` database behind, so a later, real retry is always safe. It leaves `octopus` in place, empty, as the rollback path.
 
-7. Grant the app user access to the newly-created `home_monitoring` database, still as root — a `RENAME TABLE`/`CREATE DATABASE` does not carry over the app user's original grant on `octopus` to the new database name, so without this step every later step below (and the apps themselves, once restarted) fail with "Access denied":
+7. Grant the app user access to the newly-created `home_monitoring` database, still as root — a `RENAME TABLE`/`CREATE DATABASE` does not carry over the app user's original grant on `octopus` to the new database name, so without this step every later step below (and the apps themselves, once restarted) fail with "Access denied". **Both commands below are this one step — run them together, in order; skipping the second leaves the root password set for step 8, which will then fail auth as `<user>`:**
 
    ```bash
    docker exec -e MYSQL_PWD energy-monitor-db mariadb -uroot -e \
      "GRANT ALL PRIVILEGES ON home_monitoring.* TO '<user>'@'%'; FLUSH PRIVILEGES;"
-   ```
-
-   Switch `MYSQL_PWD` back to the app user's password for the rest of this runbook:
-
-   ```bash
     export MYSQL_PWD=<password>
    ```
 

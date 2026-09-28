@@ -136,3 +136,30 @@ def test_rejects_running_as_the_ordinary_app_user_and_leaves_no_dangling_databas
         "a rejected run as an under-privileged user must not leave a dangling "
         "home_monitoring database behind either"
     )
+
+
+@requires_docker
+def test_rejects_running_with_a_table_missing_from_octopus(mariadb_container):
+    """`octopus` existing isn't enough -- if even one of the nine tables Schema
+    Sync owns is missing (dropped, mid-migration, never created), CREATE DATABASE
+    would otherwise still succeed before RENAME TABLE hit the missing one,
+    leaving the same dangling home_monitoring database the other guard checks
+    exist to prevent.
+    """
+    statements = ["CREATE DATABASE octopus;"]
+    statements += [
+        f"CREATE TABLE octopus.{table} (id INT PRIMARY KEY, v INT);"
+        for table in TABLES
+        if table != "job_run"
+    ]
+    result = run_sql(mariadb_container, "\n".join(statements))
+    assert result.returncode == 0, result.stderr
+
+    result = _run_migration_script(mariadb_container)
+
+    assert result.returncode != 0
+    assert "job_run" in result.stderr
+    assert not _database_exists(mariadb_container, "home_monitoring"), (
+        "a rejected run for a missing table must not leave a dangling "
+        "home_monitoring database behind either"
+    )
