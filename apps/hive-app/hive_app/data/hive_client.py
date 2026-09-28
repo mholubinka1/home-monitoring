@@ -175,24 +175,32 @@ class HiveApiSource:
                 # device-registration challenge was transparently handled --
                 # from here it looks identical to plain success). login()
                 # already populated real tokens on hive.tokens.tokenData via
-                # its own internal updateTokens() call -- deliberately NOT
-                # routed back through startSession()/_tokens_config here:
-                # that config shape's blank id/access-token placeholders
-                # exist to *force* a refresh on the resume path (see
-                # _tokens_config's own docstring), but reusing it right after
-                # a fresh login would overwrite the real, already-valid
-                # token/accessToken login() just obtained with those blanks
-                # via updateTokens()'s "elif 'token' in tokens" branch --
-                # and since tokenCreated was just set to now(), the 90%-
-                # expiry refresh check wouldn't fire to repair that, leaving
-                # a blank bearer token on every subsequent API call. Calling
-                # getDevices() directly is the same call startSession()
-                # itself makes once its own config-driven token handling is
-                # done -- there's nothing left for startSession() to do here
-                # that getDevices() doesn't already cover, and it skips the
-                # token-touching path only the resume case actually needs.
-                await HiveApiSource._populate_devices(
-                    hive, reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE
+                # its own internal updateTokens() call. The follow-up call
+                # below is startSession() with an EXPLICITLY EMPTY config --
+                # not _tokens_config's blank-placeholder shape (that exists
+                # to *force* a refresh on the resume path, see
+                # _tokens_config's own docstring; reusing it here would
+                # overwrite the real, already-valid tokens login() just
+                # obtained via updateTokens()'s "elif 'token' in tokens"
+                # branch, with tokenCreated too fresh for the 90%-expiry
+                # refresh check to repair it -- a real bug caught in this
+                # fix's own code review). An empty config makes
+                # startSession() skip its token-processing block entirely
+                # (real tokens are already valid, nothing to set) and fall
+                # straight through to its OWN getDevices() + createDevices()
+                # sequence -- both required to populate hive.deviceList
+                # (createDevices() alone builds it; getDevices() alone does
+                # not, a second bug this fix's own code review also caught
+                # in an earlier hand-rolled reimplementation of that
+                # sequence here). Reusing the existing, already-tested
+                # _start_session/startSession() path rather than
+                # re-implementing getDevices()+createDevices() ourselves
+                # keeps this in sync with the real library's own sequence by
+                # construction, not by us keeping two copies aligned by hand.
+                await HiveApiSource._start_session(
+                    hive,
+                    session_config={},
+                    reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE,
                 )
             elif login_result.get("ChallengeName") == hive.auth.SMS_MFA_CHALLENGE:
                 # SMS_MFA with no AuthenticationResult: the account needs a
@@ -227,32 +235,24 @@ class HiveApiSource:
         own HiveReauthRequired into this repo's own exception type (see
         HiveReauthRequired's docstring) so every caller in this class
         raises/handles one consistent exception rather than duplicating this
-        try/except at each call site. session_config is always a real,
-        tokens-bearing dict now (from _tokens_config/_resume_config) -- a
-        bare hive.startSession() call with no config was the original bug
-        here (an empty config silently skips straight to getDevices() rather
-        than performing a fresh login, per HiveSession.startSession), so
-        this no longer accepts a None config at all."""
+        try/except at each call site.
+
+        session_config is a real dict, never None -- but it CAN be an
+        explicitly empty {}, which is a deliberate, different thing from the
+        original bug this class was fixed for: the original bug was calling
+        hive.startSession() (defaulting to config=None internally) as the
+        *only* login attempt, with no prior hive.login() call, so no real
+        tokens existed yet for the token-refresh path an empty config falls
+        through to. An empty {} passed here *after* a successful
+        hive.login() is correct and intentional: it skips startSession()'s
+        token/username/password/device_data-processing block (nothing to
+        set -- login() already populated real tokens), and falls straight
+        through to that method's own getDevices() + createDevices()
+        sequence, which is what actually needs to run to populate
+        hive.deviceList. See _establish_session's fresh-login branch for the
+        full reasoning."""
         try:
             await hive.startSession(session_config)
-        except ApyHiveReauthRequired as e:
-            raise HiveReauthRequired(reauth_message) from e
-
-    @staticmethod
-    async def _populate_devices(hive: Hive, reauth_message: str) -> None:
-        """Runs hive.getDevices() directly -- the same call startSession()
-        itself makes internally once its own config-driven token handling is
-        done (see HiveSession.startSession's own body). Used right after a
-        successful hive.login(): real tokens are already set on
-        hive.tokens.tokenData at that point and must not be touched again,
-        so this deliberately does not go through startSession()/
-        _tokens_config at all (see _establish_session's fresh-login branch
-        for why that would corrupt already-valid tokens). Shares
-        _start_session's ApyHiveReauthRequired translation for consistency,
-        though this path is unlikely to hit it given tokens were just
-        successfully obtained moments earlier."""
-        try:
-            await hive.getDevices("No_ID")
         except ApyHiveReauthRequired as e:
             raise HiveReauthRequired(reauth_message) from e
 
@@ -277,34 +277,28 @@ class HiveApiSource:
             await session.close()
 
     @staticmethod
-    def _tokens_config(refresh_token: str) -> dict[str, Any]:
-        # Shared by _resume_config (a persisted refresh token) and
-        # _establish_session's post-login() startSession() call (a refresh
-        # token login() just minted) -- both need this exact "tokens"
-        # sub-shape, so it's defined in exactly one place. With a "tokens"
-        # key present (even with empty id/access tokens -- only the refresh
-        # token matters here, see HiveSession.startSession/updateTokens)
-        # startSession() goes straight to getDevices(), refreshing via
+    def _resume_config(state: HiveAuthState) -> dict[str, Any]:
+        # With a "tokens" key present (even with empty id/access tokens --
+        # only the refresh token matters here, see
+        # HiveSession.startSession/updateTokens) startSession() goes
+        # straight to getDevices(), refreshing via
         # REFRESH_TOKEN_AUTH/DEVICE_SRP_AUTH as needed. It never performs a
         # fresh interactive login regardless of whether "tokens" is present
-        # or absent -- that's hive.login()'s job, not startSession()'s.
+        # or absent -- that's hive.login()'s job, not startSession()'s (see
+        # _establish_session's fresh-login branch, which calls hive.login()
+        # directly instead).
         return {
             "tokens": {
                 "token": "",  # nosec B105 -- placeholder, not a credential; see comment above
-                "refreshToken": refresh_token,
+                "refreshToken": state.refresh_token,
                 "accessToken": "",  # nosec B105 -- same as "token" above
-            }
+            },
+            "device_data": (
+                state.device_group_key,
+                state.device_key,
+                state.device_password,
+            ),
         }
-
-    @staticmethod
-    def _resume_config(state: HiveAuthState) -> dict[str, Any]:
-        session_config = HiveApiSource._tokens_config(state.refresh_token)
-        session_config["device_data"] = (
-            state.device_group_key,
-            state.device_key,
-            state.device_password,
-        )
-        return session_config
 
     @staticmethod
     def _auth_state_from_session(hive: Hive) -> HiveAuthState:
