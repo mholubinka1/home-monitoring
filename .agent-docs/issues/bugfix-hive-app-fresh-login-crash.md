@@ -16,9 +16,10 @@ real `apyhiveapi==1.0.9` library does not treat as a login trigger -- it
 silently skips straight to a token refresh with no tokens to refresh,
 crashing with `KeyError: 'refreshToken'`. Fix the fresh-login branch to call
 `hive.login()` (apyhiveapi's actual login entry point) instead: on success,
-follow up with a `startSession()` call (using a shared tokens-config builder
-factored out of the existing `_resume_config`) to populate devices; on the
-one interactive case a headless service can't complete (SMS 2FA required,
+follow up with a `startSession()` call using an explicitly empty config
+(`{}`) to populate devices without re-processing the tokens `login()` just
+obtained; on the one interactive case a headless service can't complete
+(SMS 2FA required,
 no remembered device), raise this repo's own `HiveReauthRequired` using the
 existing (currently unused) `_LOGIN_REQUIRES_SMS_MESSAGE` constant, so the
 existing ntfy re-auth alert fires. Also correct `_resume_config`'s docstring

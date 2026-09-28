@@ -21,8 +21,10 @@ already exists in the codebase for a related scenario.
 point (`Hive.login()`) instead of `Hive.startSession()` — the method it
 currently calls, which is only meant for resuming a session with already-known
 tokens, not establishing one. On success, devices are populated with a
-follow-up `startSession()` call carrying the tokens `login()` just obtained.
-On the one interactive case a headless service structurally cannot complete
+follow-up `startSession()` call passing an explicitly empty config (`{}`),
+which skips re-processing the tokens `login()` just obtained (avoiding
+clobbering them) and falls through to that method's own device-population
+logic. On the one interactive case a headless service structurally cannot complete
 (the account needs a live SMS 2FA code and has no previously-registered
 device), the existing `HiveReauthRequired`/ntfy-alert path fires cleanly,
 using a message the code already has defined for exactly this case.
@@ -34,7 +36,7 @@ using a message the code already has defined for exactly this case.
    complete that login and start polling normally, so that a fresh
    deployment works without manual intervention.
 2. As the account owner, when hive-app's first login needs a live SMS 2FA
-   code (a account with 2FA enabled and no previously-registered device), I
+   code (an account with 2FA enabled and no previously-registered device), I
    want to be notified via the existing ntfy re-auth alert, so that I know
    hive-app needs my attention rather than discovering it's silently broken.
 3. As the operator, I want this failure (and success) visible in `job_run`
