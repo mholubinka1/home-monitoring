@@ -84,15 +84,16 @@ using a message the code already has defined for exactly this case.
      existing "raise rather than guess" convention elsewhere for conditions
      with no defined recovery.
 
-- **Fixed call sequence** in `HiveApiSource._establish_session`'s fresh-login
-  branch:
+- **Fixed call sequence**, extracted into its own `HiveApiSource._fresh_login`
+  method (called from `_establish_session`'s fresh-login branch):
   1. Call `hive.login()`.
-  2. If `AuthenticationResult` is present: call `hive.startSession(config)`
-     with a tokens-bearing config (see below) so `getDevices()` runs and
-     populates `hive.deviceList`/`hive.data` — required before
-     `_fetch_heating_status`'s device-list read works. This second call
-     reuses the *existing* `ApyHiveReauthRequired` → `HiveReauthRequired`
-     translation already in `_start_session`, unchanged.
+  2. If `AuthenticationResult` is present: call `_start_session(hive,
+     session_config={}, ...)` — **not** a tokens-bearing config as originally
+     planned (see "Implementation deviation" below) — so `getDevices()` +
+     `createDevices()` run and populate `hive.deviceList`/`hive.data`,
+     required before `_fetch_heating_status`'s device-list read works. This
+     second call reuses the *existing* `ApyHiveReauthRequired` →
+     `HiveReauthRequired` translation already in `_start_session`, unchanged.
   3. If the result has `ChallengeName == SMS_MFA_CHALLENGE` and no
      `AuthenticationResult`: raise this repo's own `HiveReauthRequired`,
      using the existing `_LOGIN_REQUIRES_SMS_MESSAGE` constant (already
@@ -101,20 +102,36 @@ using a message the code already has defined for exactly this case.
      triggers for the resume-path's "device forgotten" case fires
      identically here, with a message distinguishing "first-ever login needs
      a human" from "something that used to work broke."
-  4. Anything else: no new handling — let it propagate.
+  4. Anything else `login()` *raises* propagates on its own. A *returned*
+     dict matching neither outcome above (added during code review, not
+     originally planned) raises a `RuntimeError` explicitly, rather than
+     silently returning and letting the caller persist a `HiveAuthState`
+     with an empty `refresh_token` as though login had succeeded.
 
-- **Shared tokens-config builder**: `_resume_config` already builds
-  `{"tokens": {...}, "device_data": (...)}` from a *persisted* auth state's
-  fields. The new post-`login()` `startSession()` call needs the identical
-  `"tokens"` shape, sourced from `login()`'s *just-obtained* tokens
-  (`hive.tokens.tokenData["refreshToken"]`) rather than a persisted state's
-  `refresh_token` field, and does not yet have device_data to send in this
-  path (a fresh login has no remembered device to supply here — the follow-up
-  `startSession()` call's config carries only the `"tokens"` key, not
-  `"device_data"`). Extract a small shared builder (e.g.
-  `_tokens_config(refresh_token: str) -> dict`) that both `_resume_config`
-  and this new call site use, so the "shape `startSession` needs to see real
-  tokens" logic is defined once, not duplicated with a risk of drift.
+- **Implementation deviation from the original plan (found during code
+  review, not this spec's original design)**: this spec originally called
+  for a shared `_tokens_config(refresh_token: str) -> dict` builder, used by
+  both `_resume_config` (a *persisted* refresh token) and the new
+  post-`login()` `startSession()` call (a refresh token `login()` just
+  minted), on the theory that both needed the identical
+  `{"tokens": {...}}` shape. That theory was wrong: passing that shape
+  (with blank placeholder `token`/`accessToken` values, which the *resume*
+  path deliberately uses to force a refresh) back through `startSession()`
+  right after a fresh `login()` actually **overwrites the real, already-valid
+  tokens `login()` just obtained** with those blanks — `updateTokens()`
+  applies them unconditionally, and `tokenCreated` is too fresh for the 90%-
+  expiry refresh check to repair it. An earlier version of this fix also
+  tried calling `hive.getDevices()` directly instead (to avoid touching
+  tokens at all), which turned out to be incomplete: `deviceList` is built
+  by a *separate* method, `createDevices()`, that `getDevices()` alone never
+  calls. The implemented fix instead passes an **explicitly empty `{}`**
+  config to the existing, already-tested `startSession()`/`_start_session`
+  path: an empty config skips token/username/password/device_data
+  processing entirely (nothing to set — tokens are already valid) and falls
+  straight through to that method's own correct `getDevices()` +
+  `createDevices()` sequence. No `_tokens_config` builder exists in the
+  final implementation; `_resume_config` was left as it already was,
+  building its own `{"tokens": {...}, "device_data": (...)}` shape directly.
 
 - **No change** to: `HiveAuthenticator` (its `authenticate()` branching on
   `read_auth_state()` being `None` vs. not is unaffected — this fix is
