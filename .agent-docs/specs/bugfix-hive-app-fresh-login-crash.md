@@ -175,8 +175,8 @@ using a message the code already has defined for exactly this case.
 ## Out of Scope
 
 - Any change to the resume path (`_resume`/`_resume_config`'s own behaviour
-  for an *existing* persisted auth state) beyond extracting the shared
-  tokens-config builder described above — its logic and tests are unchanged.
+  for an *existing* persisted auth state) — its logic and tests are
+  unchanged.
 - Handling `DEVICE_VERIFIER_CHALLENGE`/device-registration explicitly in
   `HiveApiSource` — `login()` already handles that internally
   (`_handleDeviceLoginChallenge`) and only surfaces to the caller as either

@@ -30,13 +30,15 @@ class _FakeApyHive:
             SMS_MFA_CHALLENGE="SMS_MFA",
         )
         self.deviceList: dict[str, Any] = {}
-        self.login_call_count = 0
-        self.get_devices_call_count = 0
-        self.create_devices_call_count = 0
         self.start_session_configs: list[dict[str, Any] | None] = []
+        # Records call order, not just counts -- proves login() genuinely
+        # precedes the follow-up startSession() (and its own getDevices()/
+        # createDevices() tail) rather than just each being called once in
+        # an unverified order. Call counts are read back via .count(...).
+        self.call_order: list[str] = []
 
     async def login(self) -> dict[str, Any]:
-        self.login_call_count += 1
+        self.call_order.append("login")
         # Mirrors the real library's own login(): on full success it calls
         # self.updateTokens(result) internally, populating tokenData before
         # returning -- callers read the refresh token back off
@@ -68,6 +70,7 @@ class _FakeApyHive:
         if config is None:
             config = {}
         self.start_session_configs.append(config)
+        self.call_order.append("startSession")
         if config != {} and "tokens" in config:
             self.tokens.tokenData["token"] = config["tokens"]["token"]
             self.tokens.tokenData["refreshToken"] = config["tokens"]["refreshToken"]
@@ -76,14 +79,14 @@ class _FakeApyHive:
         await self.createDevices()
 
     async def getDevices(self, _n_id: str) -> None:
-        self.get_devices_call_count += 1
+        self.call_order.append("getDevices")
 
     async def createDevices(self) -> dict[str, Any]:
         # Real createDevices() builds deviceList from whatever getDevices()
         # populated on self.data -- simplified here to a single climate
         # device, enough to prove HiveApiSource's own _climate_device
         # (which reads hive.deviceList.get("climate", [])) would find one.
-        self.create_devices_call_count += 1
+        self.call_order.append("createDevices")
         self.deviceList = {"climate": [{"id": "thermostat-1"}]}
         return self.deviceList
 
@@ -108,14 +111,21 @@ def test_a_fresh_login_with_no_challenge_completes_and_populates_devices(
 
     state = HiveApiSource(_hive_settings(), mariadb_client).login()
 
-    assert fake_hive.login_call_count == 1
+    # Proves login() genuinely precedes the follow-up startSession() call
+    # (and its own getDevices()/createDevices() tail) -- counts alone would
+    # pass even if a regression reversed the order, since this double's
+    # empty-config startSession() doesn't require tokens to already be set.
+    assert fake_hive.call_order == [
+        "login",
+        "startSession",
+        "getDevices",
+        "createDevices",
+    ]
     # The follow-up startSession() call is passed an explicitly empty
     # config -- proving the real tokens login() just obtained are never
     # handed back through startSession()'s token-processing block (which
     # would clobber them, see _FakeApyHive.startSession's own comment).
     assert fake_hive.start_session_configs == [{}]
-    assert fake_hive.get_devices_call_count == 1
-    assert fake_hive.create_devices_call_count == 1
     # Proves the second bug this fix's code review caught is closed too:
     # deviceList (built only by createDevices(), not getDevices() alone)
     # is actually populated, not left empty after a fresh login.
@@ -145,9 +155,8 @@ def test_a_fresh_login_that_hits_the_sms_challenge_requires_reauth(
         == "Hive login requires a live SMS 2FA code; a headless service "
         "cannot supply one."
     )
-    assert fake_hive.login_call_count == 1
+    assert fake_hive.call_order == ["login"]
     assert not fake_hive.start_session_configs
-    assert fake_hive.get_devices_call_count == 0
 
 
 def test_a_fresh_login_with_an_unrecognised_result_raises_rather_than_silently_succeeding(
@@ -166,7 +175,5 @@ def test_a_fresh_login_with_an_unrecognised_result_raises_rather_than_silently_s
     with pytest.raises(RuntimeError):
         HiveApiSource(_hive_settings(), mariadb_client).login()
 
-    assert fake_hive.login_call_count == 1
+    assert fake_hive.call_order == ["login"]
     assert not fake_hive.start_session_configs
-    assert fake_hive.get_devices_call_count == 0
-    assert fake_hive.create_devices_call_count == 0
