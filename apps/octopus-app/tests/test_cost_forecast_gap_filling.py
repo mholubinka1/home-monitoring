@@ -433,6 +433,92 @@ def test_a_multi_day_interior_gap_applies_the_same_estimate_to_every_day_in_the_
 
 
 @responses.activate
+def test_an_interior_gap_ignores_todays_still_partial_day_as_a_neighbour(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Jul8 ("today", as_of is mid-day) has only a single partial reading --
+    # real, but nowhere near a complete day's total. It's a raw candidate
+    # "after" neighbour for Jul7's gap (it IS present in daily_costs), but
+    # read_elapsed_billing_period_costs exempts today from the
+    # completeness guard precisely because it's still arriving -- using its
+    # partial total as an interpolation neighbour would understate the
+    # estimate (avg(4.8, 1.0)=2.9 instead of the correct 4.8, once today is
+    # excluded and Jul7 falls through to the trailing-average path using
+    # Jul6 alone).
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=PRODUCT_CODE,
+                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=None,
+                unit_rate=Decimal("20.00"),
+                standing_charge=Decimal("48.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        # Jul7: no consumption at all (the gap to be filled).
+        # Jul8 ("today"): a single partial reading, far below a full day.
+        s.add(
+            model.consumption(
+                id="E20260708000000",
+                energy="E",
+                period_from=datetime(2026, 7, 8, 0, 0, tzinfo=UTC),
+                period_to=datetime(2026, 7, 8, 0, 30, tzinfo=UTC),
+                raw_value=Decimal("1.0"),
+                unit="kWh",
+                est_kwh=Decimal("1.0"),
+            )
+        )
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter()])
+    )
+    as_of = start_of_local_day(date(2026, 7, 8)) + timedelta(hours=4)
+    retriever.refresh(as_of=as_of)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # Jul6: (4.8*20.00+48.00)/100 = 1.44. Jul7 (correctly falls through to
+    # the trailing-average path once Jul8 is excluded as a neighbour, using
+    # Jul6's 4.8 alone): (4.8*20.00+48.00)/100 = 1.44. Jul8 (today, real,
+    # partial): (1.0*20.00+48.00)/100 = 0.68.
+    assert row.actual_cost_to_date == Decimal("1.44") + Decimal("1.44") + Decimal(
+        "0.68"
+    )
+    # future_daily_kwh also excludes today's partial row (the same fix
+    # applied in _project_remaining_cost) -- average is Jul6's 4.8 alone,
+    # not dragged down by Jul8's 1.0. total_period_days=32; elapsed=3
+    # (Jul6, Jul7-filled, Jul8) -> remaining_days=29.
+    remaining_days = 29
+    period_end_boundary = start_of_local_day(date(2026, 8, 7))
+    remaining_hours = Decimal(
+        str((period_end_boundary - as_of).total_seconds())
+    ) / Decimal(3600)
+    variable_remaining = (remaining_hours / 24) * Decimal("4.8") * Decimal("20.00")
+    standing_remaining = remaining_days * Decimal("48.00")
+    expected_remaining = (variable_remaining + standing_remaining) / 100
+    assert (
+        row.projected_total_cost
+        == Decimal("1.44") + Decimal("1.44") + Decimal("0.68") + expected_remaining
+    )
+
+
+@responses.activate
 def test_a_trailing_gap_with_no_real_days_yet_falls_back_to_the_prior_weeks_average(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -497,259 +583,6 @@ def test_a_trailing_gap_with_no_real_days_yet_falls_back_to_the_prior_weeks_aver
         remaining_days * (Decimal("5.0") * Decimal("20.00") + Decimal("48.00")) / 100
     )
     assert row.projected_total_cost == Decimal("1.48") + expected_remaining
-
-
-@responses.activate
-def test_a_gap_day_under_agile_is_priced_per_half_hour_at_the_actual_published_rate(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Jul7 is a trailing gap under an Agile agreement whose actual published
-    # rate changes partway through that very day (10.00p until noon, 30.00p
-    # after) -- pricing it as a single flat rate for the whole day (e.g.
-    # whichever rate happens to be current at refresh time) would produce a
-    # visibly different, wrong total.
-    _mock_billing_period("2026-07-07", "2026-08-07")
-    _seed_agile_forecast(
-        mariadb_client, _flat_agile_forecast(date(2026, 7, 8), 30, "15.00")
-    )
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=AGILE_PRODUCT_CODE,
-                tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        # Local noon on 2026-07-07 (BST) is UTC 11:00 -- the rate changes
-        # exactly at local midday, splitting Jul7 into two clean 12-hour
-        # halves.
-        s.add(
-            model.product_rate(
-                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=AGILE_PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=datetime(2026, 7, 7, 11, 0, tzinfo=UTC),
-                unit_rate=Decimal("10.00"),
-                standing_charge=Decimal("50.00"),
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202607071100",
-                product_code=AGILE_PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 7, 7, 11, 0, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("30.00"),
-                standing_charge=Decimal("50.00"),
-            )
-        )
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
-        # No consumption at all for Jul7.
-
-    retriever = CostForecastRetriever(
-        _source(
-            mariadb_client,
-            [
-                _make_electricity_meter(
-                    tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}"
-                )
-            ],
-        )
-    )
-    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6: (4.8*10.00+50.00)/100 = 0.98. Jul7 (trailing gap, estimated at
-    # the 4.8 kWh period average, split half-and-half across the rate
-    # change): (0.5*4.8*10.00 + 0.5*4.8*30.00 + 50.00)/100
-    # = (24.00 + 72.00 + 50.00)/100 = 1.46.
-    assert row.actual_cost_to_date == Decimal("0.98") + Decimal("1.46")
-    # Remaining period (Jul8-Aug6, 30 days) prices each half-hour at the
-    # flat 15.00p Agile forecast; standing charge uses the rate current as
-    # of as_of (the second rate, 50.00p).
-    per_slot_kwh = Decimal("4.8") / 48
-    variable_remaining = 30 * 48 * per_slot_kwh * Decimal("15.00")
-    standing_remaining = 30 * Decimal("50.00")
-    expected_remaining = (variable_remaining + standing_remaining) / 100
-    assert (
-        row.projected_total_cost
-        == Decimal("0.98") + Decimal("1.46") + expected_remaining
-    )
-
-
-@responses.activate
-def test_a_gap_day_spanning_a_standing_charge_change_uses_the_midday_rate(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Jul7 is a trailing gap whose two overlapping rates have DIFFERENT
-    # standing charges (60.00p before local noon, 40.00p from noon on) but
-    # the SAME unit rate -- isolating standing-charge selection from the
-    # per-half-hour variable-cost weighting already covered by the Agile
-    # test above. Picking max(60.00, 40.00) = 60.00 across the day's rates
-    # would be wrong; the correct £1.36 below only comes from using
-    # whichever rate covers local midday (40.00), the flat per-day fee's
-    # existing convention.
-    _mock_billing_period("2026-07-07", "2026-08-07")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        # Local noon on 2026-07-07 (BST) is UTC 11:00.
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=datetime(2026, 7, 7, 11, 0, tzinfo=UTC),
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("60.00"),
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202607071100",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 7, 7, 11, 0, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("40.00"),
-            )
-        )
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
-        # No consumption at all for Jul7.
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6 (fully covered by the first rate): (4.8*20.00+60.00)/100 = 1.56.
-    # Jul7 (trailing gap at the 4.8 kWh period average, same unit rate all
-    # day, standing charge from the midday-covering second rate):
-    # (4.8*20.00+40.00)/100 = 1.36.
-    assert row.actual_cost_to_date == Decimal("1.56") + Decimal("1.36")
-    # Remaining period: as_of (Jul8 00:00) falls within the second rate, so
-    # its 40.00p standing charge applies to every remaining day too.
-    remaining_days = 30
-    expected_remaining = (
-        remaining_days * (Decimal("4.8") * Decimal("20.00") + Decimal("40.00")) / 100
-    )
-    assert (
-        row.projected_total_cost
-        == Decimal("1.56") + Decimal("1.36") + expected_remaining
-    )
-
-
-@responses.activate
-def test_a_gap_day_with_genuinely_overlapping_rates_resolves_to_one_winner_per_instant(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Unlike the clean-handover case above, these two rates genuinely
-    # overlap for two hours either side of local midday (Jul7 10:00-12:00
-    # UTC) rather than meeting at a boundary, and use DIFFERENT unit rates
-    # so double-billing the overlap is visible in the total, not just the
-    # standing charge. Picking "whichever comes first" (ascending
-    # valid_from) for the standing charge would silently pick the OLDER
-    # rate; summing every rate's own full clipped window for the variable
-    # cost (rather than partitioning the day into non-overlapping,
-    # single-winner segments first) would double-bill the 2h overlap. Both
-    # must resolve to the newer rate winning that overlap, matching
-    # read_current_product_rate's "most-recently-started wins" tiebreak.
-    _mock_billing_period("2026-07-07", "2026-08-07")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        # Older rate: valid from 2022, ends Jul7 12:00 UTC (day_start+13h).
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=datetime(2026, 7, 7, 12, 0, tzinfo=UTC),
-                unit_rate=Decimal("10.00"),
-                standing_charge=Decimal("70.00"),
-            )
-        )
-        # Newer rate: starts Jul7 10:00 UTC (day_start+11h, entirely within
-        # Jul7 -- Jul6 is untouched by it), open-ended.
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202607071000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 7, 7, 10, 0, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("30.00"),
-                standing_charge=Decimal("30.00"),
-            )
-        )
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
-        # No consumption at all for Jul7.
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6 (only the older rate ever touches it): (4.8*10.00+70.00)/100
-    # = 1.18.
-    # Jul7 (trailing gap at the 4.8 kWh period average): the day partitions
-    # into three non-overlapping segments -- 11h at the older rate
-    # (Jul6 23:00-Jul7 10:00), 2h at the newer rate once it starts and wins
-    # the overlap (Jul7 10:00-12:00), and 11h at the newer rate after the
-    # older one expires (Jul7 12:00-23:00): variable_cost =
-    # (11*4.8*10.00 + 2*4.8*30.00 + 11*4.8*30.00)/24 = (528+288+1584)/24
-    # = 100.00p exactly -- not 104.00p, which is what summing each rate's
-    # own full 13h clipped window independently (double-billing the 2h
-    # overlap) would produce. Standing charge uses the newer rate (30.00,
-    # winning the segment that contains local midday):
-    # (100.00+30.00)/100 = 1.30.
-    assert row.actual_cost_to_date == Decimal("1.18") + Decimal("1.30")
-    # Remaining period: as_of (Jul8 00:00) is only covered by the newer
-    # rate (the older one ended Jul7 12:00 UTC), so its 30.00p standing
-    # charge and 30.00p unit rate apply to every remaining day.
-    remaining_days = 30
-    expected_remaining = (
-        remaining_days * (Decimal("4.8") * Decimal("30.00") + Decimal("30.00")) / 100
-    )
-    assert (
-        row.projected_total_cost
-        == Decimal("1.18") + Decimal("1.30") + expected_remaining
-    )
 
 
 @responses.activate

@@ -342,9 +342,19 @@ class CostForecastRetriever:
         # day (accepted tradeoff: a billing period is at most ~31 days and
         # gap days are rare, so this never approaches a scale where batching
         # the lookup would be worth the complexity).
-        present_days = sorted(d.date for d in daily_costs)
-        present_day_set = set(present_days)
-        kwh_by_present_day = {d.date: d.total_kwh for d in daily_costs}
+        present_day_set = {d.date for d in daily_costs}
+        # as_of's own local date is exempt from the day-completeness guard
+        # (see read_elapsed_billing_period_costs) precisely because it's
+        # still arriving -- a real but partial row, not a finished day's
+        # total. present_day_set still includes it (so it's never itself
+        # re-estimated as a gap), but it's excluded from the candidates
+        # _estimate_gap_day_kwh averages or interpolates OTHER gap days
+        # from, or its partial-so-far total would understate them. Its own
+        # actual (partial) cost is untouched -- still in daily_costs/filled.
+        as_of_local_date = local_day.to_local_date(as_of)
+        average_candidates = [d for d in daily_costs if d.date != as_of_local_date]
+        present_days = sorted(d.date for d in average_candidates)
+        kwh_by_present_day = {d.date: d.total_kwh for d in average_candidates}
         filled = list(daily_costs)
         day = billing_period_start
         while local_day.start_of_local_day(day) < as_of:
@@ -581,12 +591,23 @@ class CostForecastRetriever:
         # day) don't represent real observed usage -- letting them count as
         # zero-kWh days here would drag the projection down every time a
         # recent day hasn't fully settled yet, which per the observed
-        # settlement lag is common, not rare. Falls back to the full
-        # (unfiltered) list on the rare day-one-of-a-billing-period case
-        # where every elapsed day so far is gap-filled -- there's no real
-        # day to prefer yet, and an empty list would raise below rather
-        # than produce a (rough, self-correcting) forecast.
-        real_daily_totals = [d.total_kwh for d in daily_costs if not d.is_gap_filled]
+        # settlement lag is common, not rare. as_of's own local date is
+        # excluded too, for the same reason _estimate_gap_day_kwh excludes
+        # it: read_elapsed_billing_period_costs exempts it from the
+        # completeness guard precisely because it's still partial, so it
+        # would otherwise silently understate this average every single
+        # refresh (the daily job always runs mid-day). Falls back to the
+        # full (unfiltered, today included) list on the rare
+        # day-one-of-a-billing-period case where every elapsed day so far
+        # is gap-filled or still-partial -- there's no complete day to
+        # prefer yet, and an empty list would raise below rather than
+        # produce a (rough, self-correcting) forecast.
+        as_of_local_date = local_day.to_local_date(as_of)
+        real_daily_totals = [
+            d.total_kwh
+            for d in daily_costs
+            if not d.is_gap_filled and d.date != as_of_local_date
+        ]
         future_daily_kwh = project_daily_average_consumption(
             real_daily_totals or [d.total_kwh for d in daily_costs]
         )
