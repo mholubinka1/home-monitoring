@@ -143,6 +143,11 @@ class MonitoringClient:
     ) -> Rate | None:
         return self.mariadb.read_current_product_rate(product_code, region, as_of)
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self.mariadb.read_product_rates_for_local_day(product_code, region, day)
+
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]:

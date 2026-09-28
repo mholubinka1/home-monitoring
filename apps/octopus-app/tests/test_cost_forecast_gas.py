@@ -87,6 +87,11 @@ class _RealCostForecastSource:
     ) -> Rate | None:
         return self._mariadb.read_current_product_rate(product_code, region, as_of)
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self._mariadb.read_product_rates_for_local_day(product_code, region, day)
+
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]:
@@ -431,12 +436,18 @@ def test_a_mid_day_as_of_gives_the_regression_a_fractional_first_remaining_day(
         gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
 
     # A mid-day as_of makes 2026-07-07 itself a still-arriving (zero real
-    # consumption seeded), gap-filled elapsed day -- standing charge only,
-    # £0.29 -- alongside the existing real elapsed day 2026-07-06 (£3.65):
-    # actual_cost_to_date = £3.94. remaining_days = 32 - 2 = 30, standing =
-    # 30 * 29.00p = 870.00p.
-    # The variable-cost loop still starts at 07-07 (as_of's own local day):
-    # its 18 remaining hours (fraction 0.75) predict 63.0 kWh/day (as in the
+    # consumption seeded) elapsed day -- but as_of's own local date is
+    # always gap-filled standing-charge-only (never an estimated variable
+    # cost), regardless of what interior/trailing estimate it would
+    # otherwise resolve to: the variable-cost loop below already covers the
+    # whole of today's not-yet-metered usage via its own fractional-hours
+    # term, so adding an estimate here too would double-count it (see
+    # _fill_zero_consumption_days). 07-06: (48.0*7.00+29.00)/100 = £3.65;
+    # 07-07 (standing-charge-only): 29.00p = £0.29 -> actual_cost_to_date
+    # = £3.94. remaining_days = 32 - 2 = 30, standing = 30 * 29.00p =
+    # 870.00p.
+    # The variable-cost loop starts at 07-07 (as_of's own local day): its
+    # 18 remaining hours (fraction 0.75) predict 63.0 kWh/day (as in the
     # exact-midnight test) -> 0.75 * 63.0 * 7.00p = 330.75p, plus 30 full
     # remaining days (07-08..08-06) at 63.0 kWh/day -> 30 * 441.00p =
     # 13,230.00p. variable_cost = 330.75 + 13,230.00 = 13,560.75p.

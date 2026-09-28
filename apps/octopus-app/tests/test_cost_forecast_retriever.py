@@ -9,7 +9,12 @@ from octopus_app.common.config import OctopusAPISettings
 from octopus_app.common.exceptions import APIError
 from octopus_app.data.cost_forecast import CostForecastRetriever
 from octopus_app.data.local_day import start_of_local_day
-from octopus_app.data.model import CostForecast, DailyCostSummary, Energy
+from octopus_app.data.model import (
+    ConsumptionSummary,
+    CostForecast,
+    DailyCostSummary,
+    Energy,
+)
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.octopus.kraken import BillingPeriodClient, KrakenTransport
@@ -69,6 +74,18 @@ class _RealCostForecastSource:
         self, product_code: str, region: str, as_of: datetime
     ) -> Rate | None:
         return self._mariadb.read_current_product_rate(product_code, region, as_of)
+
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self._mariadb.read_product_rates_for_local_day(product_code, region, day)
+
+    def read_daily_consumption_summary(
+        self, energy: Energy, start_date: date, end_date: date
+    ) -> list[ConsumptionSummary]:
+        return self._mariadb.read_daily_consumption_summary(
+            energy, start_date, end_date
+        )
 
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self._mariadb.write_cost_forecast(forecast)
@@ -571,187 +588,6 @@ def test_agile_tariff_remaining_days_beyond_the_forecast_horizon_uses_tiling(
 
 
 @responses.activate
-def test_a_zero_consumption_elapsed_day_still_contributes_its_standing_charge(
-    mariadb_client: MariaDBClient,
-) -> None:
-    _mock_billing_period("2026-07-07", "2026-08-07")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("48.00"),
-            )
-        )
-        # Jul 6 has a full, complete day of consumption; Jul 7 (also
-        # elapsed, as_of = Jul 8) has none at all -- no consumption row to
-        # join a standing charge through, so it must be filled in
-        # independently.
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6: (4.8*20.00 + 48.00)/100 = 1.44; Jul7 (zero kWh): 48.00/100 = 0.48
-    assert row.actual_cost_to_date == Decimal("1.92")
-    # future_daily_kwh excludes the gap-filled Jul7 (zero real consumption,
-    # not a representative "usage" day) -- average is just Jul6's 4.8, not
-    # avg([4.8, 0.0]) = 2.4. total_period_days = Jul6..Aug6 inclusive = 32;
-    # remaining_days = 32 - 2 elapsed days = 30.
-    remaining_days = 30
-    expected_remaining = (
-        remaining_days * (Decimal("4.8") * Decimal("20.00") + Decimal("48.00")) / 100
-    )
-    assert row.projected_total_cost == Decimal("1.92") + expected_remaining
-
-
-@responses.activate
-def test_a_lag_incomplete_elapsed_day_gets_the_same_gap_fill_as_a_true_zero_day(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Distinct from the true-zero-consumption case above: Jul7 here has
-    # real rows (10 of 48) -- Octopus's settlement lag, not an empty day.
-    # It must still be excluded and gap-filled identically, and its
-    # (large, if wrongly included) partial total must not leak into the
-    # projection average.
-    _mock_billing_period("2026-07-07", "2026-08-07")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("48.00"),
-            )
-        )
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
-        # Only 10 of 48 slots have arrived for Jul7 -- each a large 5.0 kWh,
-        # so an incorrect implementation that let this leak into the
-        # average would produce a visibly inflated projection.
-        jul7_start = start_of_local_day(date(2026, 7, 7))
-        for slot in range(10):
-            s.add(
-                model.consumption(
-                    id=f"E{(jul7_start + timedelta(minutes=30 * slot)).strftime('%Y%m%d%H%M%S')}",
-                    energy="E",
-                    period_from=jul7_start + timedelta(minutes=30 * slot),
-                    period_to=jul7_start + timedelta(minutes=30 * (slot + 1)),
-                    raw_value=Decimal("5.0"),
-                    unit="kWh",
-                    est_kwh=Decimal("5.0"),
-                )
-            )
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6: (4.8*20.00 + 48.00)/100 = 1.44; Jul7 (incomplete, gap-filled):
-    # 48.00/100 = 0.48 -- Jul7's real 50.0 kWh so far never counted.
-    assert row.actual_cost_to_date == Decimal("1.92")
-    # future_daily_kwh excludes the gap-filled Jul7 -- average is just
-    # Jul6's 4.8, not a number inflated by Jul7's partial 50.0 kWh.
-    remaining_days = 30
-    expected_remaining = (
-        remaining_days * (Decimal("4.8") * Decimal("20.00") + Decimal("48.00")) / 100
-    )
-    assert row.projected_total_cost == Decimal("1.92") + expected_remaining
-
-
-@responses.activate
-def test_the_only_elapsed_day_being_gap_filled_still_produces_a_forecast(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Day 1 of a billing period, run early (04:00) before that day's own
-    # consumption has arrived at all -- the only elapsed day is gap-filled
-    # (zero real kWh), so filtering gap-filled days out of the projection
-    # average would otherwise leave nothing to average, raising instead of
-    # producing a (admittedly rough) forecast.
-    _mock_billing_period("2026-07-07", "2026-08-07")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("48.00"),
-            )
-        )
-        # No consumption at all for Jul 6.
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-    retriever.refresh(as_of=datetime(2026, 7, 6, 4, 0, tzinfo=UTC))
-
-    with mariadb_client.session_read_scope() as session:
-        row = session.query(model.cost_forecast).one()
-
-    # Jul6 (zero kWh, gap-filled): 48.00/100 = 0.48.
-    assert row.actual_cost_to_date == Decimal("0.48")
-    # No real day to average -- falls back to the gap-filled day itself
-    # (0 kWh) rather than raising, matching pre-guard behavior for this
-    # bootstrapping case.
-    remaining_days = 31
-    expected_remaining = (
-        remaining_days * (Decimal(0) * Decimal("20.00") + Decimal("48.00")) / 100
-    )
-    assert row.projected_total_cost == Decimal("0.48") + expected_remaining
-
-
-@responses.activate
 def test_no_current_product_rate_raises_a_clear_error(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -800,79 +636,6 @@ def test_no_current_product_rate_raises_a_clear_error(
 
     with pytest.raises(RuntimeError, match="[Nn]o product_rate found"):
         retriever.refresh(as_of=datetime(2026, 7, 7, tzinfo=UTC))
-
-
-@responses.activate
-def test_no_product_rate_for_a_zero_consumption_elapsed_day_raises_and_writes_no_row(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # A missing rate for a gap-filled (zero-consumption) elapsed day must
-    # fail the whole refresh, not silently omit that day's standing charge
-    # from actual_cost_to_date -- money calculations shouldn't quietly
-    # produce a plausible-but-wrong number, matching this file's established
-    # "raise rather than guess" philosophy elsewhere (e.g. the current-rate
-    # lookup in _project_remaining_cost).
-    _mock_billing_period("2026-07-07", "2026-07-11")
-
-    with mariadb_client.session_write_scope() as s:
-        s.add(
-            model.agreement(
-                id="E20220101000000",
-                energy="E",
-                product_code=PRODUCT_CODE,
-                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
-                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        )
-        # Rate A covers Jul6's real consumption; rate B covers as_of (Jul8
-        # 00:00) so the *remaining-cost* lookup succeeds -- but neither
-        # covers Jul7 12:00 (the gap-fill's midday lookup for Jul7, which
-        # has zero consumption rows), isolating the gap-fill path's own
-        # rate lookup from the already-tested remaining-cost lookup.
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=datetime(2026, 7, 6, 12, 0, tzinfo=UTC),
-                unit_rate=Decimal("20.00"),
-                standing_charge=Decimal("48.00"),
-            )
-        )
-        s.add(
-            model.product_rate(
-                id=f"{PRODUCT_CODE}_{REGION}_202607071300",
-                product_code=PRODUCT_CODE,
-                region=REGION,
-                valid_from=datetime(2026, 7, 7, 13, 0, tzinfo=UTC),
-                valid_to=None,
-                unit_rate=Decimal("22.00"),
-                standing_charge=Decimal("48.00"),
-            )
-        )
-        s.add(
-            model.consumption(
-                id="E20260706000000",
-                energy="E",
-                period_from=datetime(2026, 7, 6, 0, 0, tzinfo=UTC),
-                period_to=datetime(2026, 7, 6, 0, 30, tzinfo=UTC),
-                raw_value=Decimal("2.0"),
-                unit="kWh",
-                est_kwh=Decimal("2.0"),
-            )
-        )
-
-    retriever = CostForecastRetriever(
-        _source(mariadb_client, [_make_electricity_meter()])
-    )
-
-    with pytest.raises(RuntimeError, match="[Nn]o product_rate found"):
-        retriever.refresh(as_of=datetime(2026, 7, 8, tzinfo=UTC))
-
-    with mariadb_client.session_read_scope() as session:
-        assert session.query(model.cost_forecast).count() == 0
 
 
 @responses.activate
