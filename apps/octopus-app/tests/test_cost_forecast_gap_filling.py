@@ -662,16 +662,20 @@ def test_a_gap_day_spanning_a_standing_charge_change_uses_the_midday_rate(
 
 
 @responses.activate
-def test_a_gap_day_with_genuinely_overlapping_rates_picks_the_newer_standing_charge(
+def test_a_gap_day_with_genuinely_overlapping_rates_resolves_to_one_winner_per_instant(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Unlike the clean-handover case above, these two rates genuinely
     # overlap for two hours either side of local midday (Jul7 10:00-12:00
-    # UTC) rather than meeting at a boundary -- both cover midday, so
-    # picking "whichever comes first" (ascending valid_from, the query's own
-    # order) would silently pick the OLDER rate. The newer one must win,
-    # matching read_current_product_rate's own "most-recently-started wins"
-    # tiebreak for overlapping rows.
+    # UTC) rather than meeting at a boundary, and use DIFFERENT unit rates
+    # so double-billing the overlap is visible in the total, not just the
+    # standing charge. Picking "whichever comes first" (ascending
+    # valid_from) for the standing charge would silently pick the OLDER
+    # rate; summing every rate's own full clipped window for the variable
+    # cost (rather than partitioning the day into non-overlapping,
+    # single-winner segments first) would double-bill the 2h overlap. Both
+    # must resolve to the newer rate winning that overlap, matching
+    # read_current_product_rate's "most-recently-started wins" tiebreak.
     _mock_billing_period("2026-07-07", "2026-08-07")
 
     with mariadb_client.session_write_scope() as s:
@@ -693,7 +697,7 @@ def test_a_gap_day_with_genuinely_overlapping_rates_picks_the_newer_standing_cha
                 region=REGION,
                 valid_from=datetime(2022, 1, 1, tzinfo=UTC),
                 valid_to=datetime(2026, 7, 7, 12, 0, tzinfo=UTC),
-                unit_rate=Decimal("20.00"),
+                unit_rate=Decimal("10.00"),
                 standing_charge=Decimal("70.00"),
             )
         )
@@ -706,7 +710,7 @@ def test_a_gap_day_with_genuinely_overlapping_rates_picks_the_newer_standing_cha
                 region=REGION,
                 valid_from=datetime(2026, 7, 7, 10, 0, tzinfo=UTC),
                 valid_to=None,
-                unit_rate=Decimal("20.00"),
+                unit_rate=Decimal("30.00"),
                 standing_charge=Decimal("30.00"),
             )
         )
@@ -721,25 +725,30 @@ def test_a_gap_day_with_genuinely_overlapping_rates_picks_the_newer_standing_cha
     with mariadb_client.session_read_scope() as session:
         row = session.query(model.cost_forecast).one()
 
-    # Jul6 (only the older rate ever touches it): (4.8*20.00+70.00)/100
-    # = 1.66.
-    # Jul7 (trailing gap at the 4.8 kWh period average): the older rate
-    # covers 13h of the day (Jul6 23:00-Jul7 12:00) and the newer rate
-    # covers 13h too (Jul7 10:00-23:00), a genuine 2-hour double-covered
-    # window -- variable_cost = (13/24)*4.8*20.00 * 2 = 104.00p. Standing
-    # charge uses the newer rate (30.00, later valid_from) despite the
-    # older one also covering midday: (104.00+30.00)/100 = 1.34.
-    assert row.actual_cost_to_date == Decimal("1.66") + Decimal("1.34")
+    # Jul6 (only the older rate ever touches it): (4.8*10.00+70.00)/100
+    # = 1.18.
+    # Jul7 (trailing gap at the 4.8 kWh period average): the day partitions
+    # into three non-overlapping segments -- 11h at the older rate
+    # (Jul6 23:00-Jul7 10:00), 2h at the newer rate once it starts and wins
+    # the overlap (Jul7 10:00-12:00), and 11h at the newer rate after the
+    # older one expires (Jul7 12:00-23:00): variable_cost =
+    # (11*4.8*10.00 + 2*4.8*30.00 + 11*4.8*30.00)/24 = (528+288+1584)/24
+    # = 100.00p exactly -- not 104.00p, which is what summing each rate's
+    # own full 13h clipped window independently (double-billing the 2h
+    # overlap) would produce. Standing charge uses the newer rate (30.00,
+    # winning the segment that contains local midday):
+    # (100.00+30.00)/100 = 1.30.
+    assert row.actual_cost_to_date == Decimal("1.18") + Decimal("1.30")
     # Remaining period: as_of (Jul8 00:00) is only covered by the newer
     # rate (the older one ended Jul7 12:00 UTC), so its 30.00p standing
-    # charge and 20.00p unit rate apply to every remaining day.
+    # charge and 30.00p unit rate apply to every remaining day.
     remaining_days = 30
     expected_remaining = (
-        remaining_days * (Decimal("4.8") * Decimal("20.00") + Decimal("30.00")) / 100
+        remaining_days * (Decimal("4.8") * Decimal("30.00") + Decimal("30.00")) / 100
     )
     assert (
         row.projected_total_cost
-        == Decimal("1.66") + Decimal("1.34") + expected_remaining
+        == Decimal("1.18") + Decimal("1.30") + expected_remaining
     )
 
 

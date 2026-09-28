@@ -2,7 +2,7 @@ import logging.config
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from itertools import groupby
+from itertools import groupby, pairwise
 from logging import Logger, getLogger
 from typing import NamedTuple, Protocol
 
@@ -415,7 +415,16 @@ class CostForecastRetriever:
         )
         day_start = local_day.start_of_local_day(day)
         day_end = local_day.start_of_local_day(day + timedelta(days=1))
-        if not self._fully_covers_day(rates, day_start, day_end):
+        # Rates can genuinely overlap (a documented, if rare, upstream data
+        # anomaly) -- rather than resolving that two different ways (dedupe
+        # for the standing charge, sum-everything for the variable cost,
+        # silently double-billing the overlapping window), the day is
+        # partitioned up front into non-overlapping segments, each already
+        # resolved to its single winning rate. Both the standing charge and
+        # the variable cost read from this one partition, so they can never
+        # again disagree about which rate covers which instant.
+        segments = self._day_segments(rates, day_start, day_end)
+        if not self._segments_fully_cover_day(segments, day_start, day_end):
             raise RuntimeError(
                 f"No product_rate found for {agreement.product_code} "
                 f"on {day} -- cannot compute actual_cost_to_date "
@@ -423,43 +432,8 @@ class CostForecastRetriever:
                 "estimated variable cost."
             )
 
-        # Standing charge is a flat per-day fee, not prorated (see
-        # _remaining_billing_window) -- so on the rare day a tariff renewal
-        # changes it mid-day, the rate covering local midday is used as the
-        # day's single charge, matching the pre-existing midday-lookup
-        # convention this replaced, rather than max() across every rate
-        # touching the day (which would pick whichever happens to be larger,
-        # an arbitrary and unreviewed choice for a money calculation). Ties
-        # (two rates both covering midday, a genuine overlap rather than a
-        # clean handover) resolve to the most-recently-started one, the same
-        # "most-recently-started wins" convention read_current_product_rate
-        # already uses for its own overlapping-row tiebreak.
-        midday = day_start + timedelta(hours=12)
-        standing_rate = max(
-            (
-                rate
-                for rate in rates
-                if rate.valid_from <= midday
-                and (rate.valid_to is None or midday < rate.valid_to)
-            ),
-            key=lambda rate: rate.valid_from,
-            default=None,
-        )
-        if standing_rate is None:
-            raise RuntimeError(
-                f"No product_rate covers local midday for {agreement.product_code} "
-                f"on {day} despite full-day coverage -- overlapping product_rate "
-                "rows must be contiguous and non-overlapping."
-            )
-        standing_charge = standing_rate.standing_charge
-        variable_cost = Decimal(0)
-        if daily_kwh is not None:
-            for rate in rates:
-                overlap = self._day_overlap(rate, day_start, day_end)
-                if overlap is None:
-                    continue
-                overlap_hours = _hours_between(*overlap)
-                variable_cost += (overlap_hours / 24) * daily_kwh * rate.unit_rate
+        standing_charge = self._midday_standing_charge(segments, day_start)
+        variable_cost = self._segments_variable_cost(segments, daily_kwh)
 
         return DailyCostSummary(
             date=day,
@@ -467,6 +441,38 @@ class CostForecastRetriever:
             day_cost_gbp=(variable_cost + standing_charge) / 100,
             is_gap_filled=True,
         )
+
+    @staticmethod
+    def _midday_standing_charge(
+        segments: list[tuple[datetime, datetime, Rate]], day_start: datetime
+    ) -> Decimal:
+        # Standing charge is a flat per-day fee, not prorated (see
+        # _remaining_billing_window) -- so on the rare day a tariff renewal
+        # changes it mid-day, the segment covering local midday supplies the
+        # day's single charge, matching the pre-existing midday-lookup
+        # convention this replaced, rather than max() across every rate
+        # touching the day (which would pick whichever happens to be larger,
+        # an arbitrary and unreviewed choice for a money calculation). No
+        # fallback needed on the lookup below: segments are contiguous and
+        # gapless once _segments_fully_cover_day has passed (the caller's
+        # precondition), so midday is provably inside exactly one of them.
+        midday = day_start + timedelta(hours=12)
+        _, _, standing_rate = next(
+            segment for segment in segments if segment[0] <= midday < segment[1]
+        )
+        return standing_rate.standing_charge
+
+    @staticmethod
+    def _segments_variable_cost(
+        segments: list[tuple[datetime, datetime, Rate]], daily_kwh: Decimal | None
+    ) -> Decimal:
+        if daily_kwh is None:
+            return Decimal(0)
+        variable_cost = Decimal(0)
+        for segment_start, segment_end, rate in segments:
+            segment_hours = _hours_between(segment_start, segment_end)
+            variable_cost += (segment_hours / 24) * daily_kwh * rate.unit_rate
+        return variable_cost
 
     @staticmethod
     def _day_overlap(
@@ -479,18 +485,45 @@ class CostForecastRetriever:
         return overlap_start, overlap_end
 
     @classmethod
-    def _fully_covers_day(
+    def _day_segments(
         cls, rates: list[Rate], day_start: datetime, day_end: datetime
+    ) -> list[tuple[datetime, datetime, Rate]]:
+        # Partitions [day_start, day_end) into non-overlapping segments, each
+        # assigned a single winning rate -- the one with the latest
+        # valid_from among every rate whose (day-clipped) window fully
+        # spans that segment ("most-recently-started wins", the same
+        # tiebreak read_current_product_rate already uses for its own
+        # overlapping-row lookup). A stretch no rate's window fully spans
+        # produces no segment at all, surfacing as a gap for
+        # _segments_fully_cover_day to catch.
+        clipped = [
+            (overlap[0], overlap[1], rate)
+            for rate in rates
+            if (overlap := cls._day_overlap(rate, day_start, day_end)) is not None
+        ]
+        boundaries = sorted({day_start, day_end, *(b for c in clipped for b in c[:2])})
+        segments: list[tuple[datetime, datetime, Rate]] = []
+        for segment_start, segment_end in pairwise(boundaries):
+            covering = [
+                c for c in clipped if c[0] <= segment_start and segment_end <= c[1]
+            ]
+            if not covering:
+                continue
+            winner = max(covering, key=lambda c: c[2].valid_from)
+            segments.append((segment_start, segment_end, winner[2]))
+        return segments
+
+    @staticmethod
+    def _segments_fully_cover_day(
+        segments: list[tuple[datetime, datetime, Rate]],
+        day_start: datetime,
+        day_end: datetime,
     ) -> bool:
-        covered_until = day_start
-        for rate in sorted(rates, key=lambda r: r.valid_from):
-            overlap = cls._day_overlap(rate, day_start, day_end)
-            if overlap is None or overlap[0] > covered_until:
-                break
-            covered_until = max(covered_until, overlap[1])
-            if covered_until >= day_end:
-                return True
-        return False
+        if not segments or segments[0][0] != day_start or segments[-1][1] != day_end:
+            return False
+        return all(
+            segments[i][1] == segments[i + 1][0] for i in range(len(segments) - 1)
+        )
 
     def _remaining_billing_window(
         self,
