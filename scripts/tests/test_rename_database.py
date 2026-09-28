@@ -157,8 +157,12 @@ def test_rejects_running_with_a_table_missing_from_octopus(mariadb_container):
 
     result = _run_migration_script(mariadb_container)
 
+    # Not asserted: which table the guard names as missing. Its SIGNAL message
+    # lists the full expected set rather than naming the actual gap, so an
+    # assertion like `"job_run" in result.stderr` would pass identically no
+    # matter which table were omitted -- checking it here would only look
+    # like it verifies table-specific detection without actually doing so.
     assert result.returncode != 0
-    assert "job_run" in result.stderr
     assert not _database_exists(mariadb_container, "home_monitoring"), (
         "a rejected run for a missing table must not leave a dangling "
         "home_monitoring database behind either"
