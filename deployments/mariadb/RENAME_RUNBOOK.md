@@ -132,7 +132,32 @@ If anything above looks wrong before step 11 (CI/image flip) has happened:
 
 - Revert `config.yml`/`hive-config.yml` back to `mariadb.database: octopus`.
 - Revert the Pi's `docker-compose.yml` changes.
-- **As root** (same as steps 6-7 — the app user cannot run any of this): `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the eleven tables listed in step 5 (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
+- **As root** (same as steps 6-7 — the app user cannot run any of this), reverse the rename as **one combined `RENAME TABLE` statement**, not a loop of individual ones — MariaDB treats a single multi-table `RENAME TABLE` as atomic (verified: a deliberately-failing rename left the source database completely untouched), so this either fully succeeds or leaves `home_monitoring` exactly as the forward migration left it, never partially reversed:
+
+  ```bash
+  docker exec -e MYSQL_PWD energy-monitor-db mariadb -uroot -e \
+    "RENAME TABLE
+       home_monitoring.consumption               TO octopus.consumption,
+       home_monitoring.agreement                 TO octopus.agreement,
+       home_monitoring.product                   TO octopus.product,
+       home_monitoring.product_rate              TO octopus.product_rate,
+       home_monitoring.daily_consumption_summary TO octopus.daily_consumption_summary,
+       home_monitoring.agile_forecast            TO octopus.agile_forecast,
+       home_monitoring.cost_forecast             TO octopus.cost_forecast,
+       home_monitoring.heating_status            TO octopus.heating_status,
+       home_monitoring.weather_observation       TO octopus.weather_observation,
+       home_monitoring.weather_forecast          TO octopus.weather_forecast,
+       home_monitoring.job_run                   TO octopus.job_run;"
+  ```
+
+  Before running `DROP DATABASE home_monitoring;`, confirm it actually has zero tables left — if the statement above failed, `home_monitoring` still holds some or all of the renamed tables, and dropping it would destroy them instead of the empty shell this check expects:
+
+  ```bash
+  docker exec -e MYSQL_PWD energy-monitor-db mariadb -uroot -e \
+    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='home_monitoring';"
+  ```
+
+  That must print `0`. If it doesn't, stop — do not run `DROP DATABASE` — and restore from the step-4 backup instead. Once confirmed empty: `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
 - Restart the containers against the restored `octopus` state.
 
 If the CI/image flip (step 11) has already merged, the image name can stay flipped independently of the database rollback — they are not coupled once step 11 has run; only revert `DOCKER_IMAGE` too if the new image itself is the problem.
