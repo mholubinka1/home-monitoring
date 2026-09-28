@@ -43,42 +43,29 @@ requires_docker = pytest.mark.skipif(
 )
 
 
-def run_sql(container_name: str, sql_text: str) -> subprocess.CompletedProcess:
-    """Run `sql_text` against `container_name`'s root connection, no database selected."""
-    return subprocess.run(
-        [
-            "docker",
-            "exec",
-            "-i",
-            container_name,
-            "mariadb",
-            "-uroot",
-            f"-p{_ROOT_PASSWORD}",
-        ],
-        input=sql_text,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-
-
-def query(
-    container_name: str, database: str, sql_text: str
+def run_sql(
+    container_name: str, sql_text: str, database: str | None = None
 ) -> subprocess.CompletedProcess:
-    """Run a query against a specific database, returning tab-separated output with a header row."""
+    """Run `sql_text` (via stdin) against `container_name`'s root connection.
+
+    With `database`, the connection selects that database first, same as running
+    `mariadb <database>` interactively -- the returned output includes a tab-separated
+    header row for any `SELECT`.
+    """
+    argv = [
+        "docker",
+        "exec",
+        "-i",
+        container_name,
+        "mariadb",
+        "-uroot",
+        f"-p{_ROOT_PASSWORD}",
+    ]
+    if database is not None:
+        argv.append(database)
     return subprocess.run(
-        [
-            "docker",
-            "exec",
-            container_name,
-            "mariadb",
-            "-uroot",
-            f"-p{_ROOT_PASSWORD}",
-            database,
-            "-e",
-            sql_text,
-        ],
+        argv,
+        input=sql_text,
         capture_output=True,
         text=True,
         timeout=30,

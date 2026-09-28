@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .conftest import TABLES, query, requires_docker, run_sql
+from .conftest import TABLES, requires_docker, run_sql
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "rename_database.sql"
 
@@ -23,18 +23,30 @@ def _run_migration_script(container_name: str):
 
 
 def _table_names(container_name: str, database: str) -> set[str]:
-    result = query(
+    result = run_sql(
         container_name,
-        "information_schema",
         f"SELECT TABLE_NAME FROM TABLES WHERE TABLE_SCHEMA='{database}';",
+        database="information_schema",
     )
     assert result.returncode == 0, result.stderr
     lines = result.stdout.strip().splitlines()[1:]  # drop header row
     return set(lines)
 
 
+def _database_exists(container_name: str, database: str) -> bool:
+    result = run_sql(
+        container_name,
+        f"SELECT SCHEMA_NAME FROM SCHEMATA WHERE SCHEMA_NAME='{database}';",
+        database="information_schema",
+    )
+    assert result.returncode == 0, result.stderr
+    return len(result.stdout.strip().splitlines()) > 1
+
+
 def _row_count(container_name: str, database: str, table: str) -> int:
-    result = query(container_name, database, f"SELECT COUNT(*) FROM {table};")
+    result = run_sql(
+        container_name, f"SELECT COUNT(*) FROM {table};", database=database
+    )
     assert result.returncode == 0, result.stderr
     return int(result.stdout.strip().splitlines()[1])
 
@@ -73,4 +85,21 @@ def test_rejects_running_with_no_source_database(mariadb_container):
 
     assert result.returncode != 0
     assert "octopus" in result.stderr
-    assert _table_names(mariadb_container, "home_monitoring") == set()
+    assert not _database_exists(mariadb_container, "home_monitoring"), (
+        "a failed run must not leave a dangling home_monitoring database behind -- "
+        "it would falsely block a later, real retry with 'already exists'"
+    )
+
+
+@requires_docker
+def test_recovers_after_a_failed_run_once_the_source_database_is_created(
+    mariadb_container,
+):
+    failed_run = _run_migration_script(mariadb_container)
+    assert failed_run.returncode != 0
+
+    _seed_octopus(mariadb_container)
+    retry = _run_migration_script(mariadb_container)
+
+    assert retry.returncode == 0, retry.stderr
+    assert _table_names(mariadb_container, "home_monitoring") == set(TABLES)

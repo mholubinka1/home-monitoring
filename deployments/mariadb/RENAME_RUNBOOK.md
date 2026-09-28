@@ -14,47 +14,53 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 
    (adjust service names to match the Pi's actual compose file).
 
-3. Take a full backup regardless of the rename script below:
+3. Export the MariaDB credentials once as environment variables, rather than passing `--password=<password>` on each command below — a CLI-argument password is visible to anyone with `ps` access or in shell history. `mariadb`/`mariadb-dump` read `MYSQL_USER`/`MYSQL_PWD` automatically. A leading space before `export` keeps the line itself out of shell history on shells with `HISTCONTROL=ignorespace` set:
 
    ```bash
-   docker exec energy-monitor-db mariadb-dump --user=<user> --password=<password> octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
+    export MYSQL_USER=<user> MYSQL_PWD=<password>
    ```
 
-4. Record current row counts per table for the post-migration check:
+4. Take a full backup regardless of the rename script below:
 
    ```bash
-   docker exec energy-monitor-db mariadb --user=<user> --password=<password> octopus -e \
+   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb-dump octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
+   ```
+
+5. Record current row counts per table, to check against after the migration:
+
+   ```bash
+   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb octopus -e \
      "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='octopus';"
    ```
 
 ## Database rename
 
-5. Copy `scripts/rename_database.sql` onto the Pi (or pipe it over SSH) and run it against the live MariaDB container:
+6. Copy `scripts/rename_database.sql` onto the Pi (or pipe it over SSH) and run it against the live MariaDB container:
 
    ```bash
-   docker exec -i energy-monitor-db mariadb --user=<user> --password=<password> < scripts/rename_database.sql
+   docker exec -i -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb < scripts/rename_database.sql
    ```
 
-   The script (verified by `scripts/tests/test_rename_database.py` against a throwaway container) fails loudly if `home_monitoring` already exists or `octopus` doesn't. It leaves `octopus` in place, empty, as the rollback path.
+   The script (verified by `scripts/tests/test_rename_database.py` against a throwaway container) fails loudly, before any DDL runs, if `home_monitoring` already exists or `octopus` doesn't -- a rejected run never leaves a dangling `home_monitoring` database behind, so a later, real retry is always safe. It leaves `octopus` in place, empty, as the rollback path.
 
-6. Verify row counts in `home_monitoring` match the pre-migration counts from step 4:
+7. Verify row counts in `home_monitoring` match the pre-migration counts from step 5:
 
    ```bash
-   docker exec energy-monitor-db mariadb --user=<user> --password=<password> home_monitoring -e \
+   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb home_monitoring -e \
      "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='home_monitoring';"
    ```
 
 ## Config and image cutover
 
-7. Update the Pi's live `config.yml` and `hive-config.yml` (`mariadb.database`) from `octopus` to `home_monitoring`.
+8. Update the Pi's live `config.yml` and `hive-config.yml` (`mariadb.database`) from `octopus` to `home_monitoring`.
 
-8. Update the Pi's own `/home/pi/git/pi-desktop/docker/docker-compose.yml`:
+9. Update the Pi's own `/home/pi/git/pi-desktop/docker/docker-compose.yml`:
    - `MARIADB_DATABASE: octopus` → `home_monitoring`.
    - `image: mholubinka1/octopus-monitoring:latest` → `image: mholubinka1/octopus-app:latest`.
 
-9. Flip `.github/workflows/ci-arm64.yml`'s `DOCKER_IMAGE` env var from `octopus-monitoring` to `octopus-app`, merge, and confirm CI has pushed at least one build under the new name before continuing (otherwise step 10 has nothing to pull).
+10. Flip `.github/workflows/ci-arm64.yml`'s `DOCKER_IMAGE` env var from `octopus-monitoring` to `octopus-app`, merge, and confirm CI has pushed at least one build under the new name before continuing (otherwise step 11 has nothing to pull).
 
-10. Restart both containers on the Pi:
+11. Restart both containers on the Pi:
 
     ```bash
     docker compose -f /home/pi/git/pi-desktop/docker/docker-compose.yml up -d energy-monitor hive-app mariadb
@@ -62,25 +68,25 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 
 ## Verification
 
-11. Confirm both apps are writing to `home_monitoring`, not `octopus` — check for a fresh, successful `job_run` row:
+12. Confirm both apps are writing to `home_monitoring`, not `octopus` — check for a fresh, successful `job_run` row:
 
     ```bash
-    docker exec energy-monitor-db mariadb --user=<user> --password=<password> home_monitoring -e \
+    docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb home_monitoring -e \
       "SELECT * FROM job_run ORDER BY id DESC LIMIT 5;"
     ```
 
-12. Tail both containers' logs for a normal startup cycle (Schema Sync running cleanly, no connection errors) before calling this done.
+13. Tail both containers' logs for a normal startup cycle (Schema Sync running cleanly, no connection errors) before calling this done.
 
 ## Rollback
 
-If anything above looks wrong before step 9 (CI/image flip) has happened:
+If anything above looks wrong before step 10 (CI/image flip) has happened:
 
 - Revert `config.yml`/`hive-config.yml` back to `mariadb.database: octopus`.
 - Revert the Pi's `docker-compose.yml` changes.
 - `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the nine tables (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;`.
 - Restart the containers against the restored `octopus` state.
 
-If the CI/image flip (step 9) has already merged, the image name can stay flipped independently of the database rollback — they are not coupled once step 9 has run; only revert `DOCKER_IMAGE` too if the new image itself is the problem.
+If the CI/image flip (step 10) has already merged, the image name can stay flipped independently of the database rollback — they are not coupled once step 10 has run; only revert `DOCKER_IMAGE` too if the new image itself is the problem.
 
 ## Later, separate step (not part of this runbook)
 

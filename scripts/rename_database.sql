@@ -9,8 +9,43 @@
 --
 -- Usage: mariadb --user=<user> --password=<password> < scripts/rename_database.sql
 --
+-- Note: CREATE DATABASE/PROCEDURE and RENAME TABLE are DDL, which MariaDB
+-- commits implicitly and cannot roll back as a unit -- there is no
+-- transactional wrapper that would make this atomic across all statements.
+-- The guard below exists precisely because of that: if `octopus` were
+-- missing, CREATE DATABASE would still succeed before RENAME TABLE failed,
+-- leaving a dangling empty `home_monitoring` that then falsely blocks any
+-- later, real retry with "already exists" -- so the precondition is
+-- checked, and rejected, before any DDL that could leave that partial
+-- state runs at all.
+--
 -- Tested by scripts/tests/test_rename_database.py against a throwaway
 -- MariaDB container.
+
+-- Defined in `mysql` since no database is selected by default on a fresh
+-- connection. Dropped first (IF EXISTS) in case a prior run aborted before
+-- its own cleanup ran -- a guard failure must not permanently break future
+-- runs.
+USE mysql;
+
+DROP PROCEDURE IF EXISTS rename_database_guard;
+
+DELIMITER //
+CREATE PROCEDURE rename_database_guard()
+BEGIN
+    IF (SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'octopus') = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Source database `octopus` does not exist -- nothing to migrate.';
+    END IF;
+    IF (SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'home_monitoring') > 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Target database `home_monitoring` already exists -- already migrated, or name collision. Aborting.';
+    END IF;
+END //
+DELIMITER ;
+
+CALL rename_database_guard();
+DROP PROCEDURE rename_database_guard;
 
 CREATE DATABASE home_monitoring;
 

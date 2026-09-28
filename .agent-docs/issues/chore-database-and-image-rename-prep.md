@@ -30,14 +30,14 @@ Write an ADR deciding the Docker Hub image's target name, replacing the stale `m
 
 ### What to build
 
-A standalone SQL script (`scripts/rename_database.sql`) that renames the `octopus` database to `home_monitoring` with zero data loss, guarded against running twice or against a missing source, leaving `octopus` in place empty as the rollback path. Verified by a real automated pytest test (`scripts/tests/test_rename_database.py`) against a throwaway `mariadb:latest` container started via plain `docker` subprocess calls — three Given/When/Then scenarios (successful migration with row-count parity, already-migrated rejection, missing-source rejection), added one at a time, red before green each time. Skipped gracefully when docker isn't available locally; runs for real in CI.
+A standalone SQL script (`scripts/rename_database.sql`) that renames the `octopus` database to `home_monitoring` with zero data loss, guarded (via a stored procedure raising `SIGNAL`) against running twice or against a missing source *before* any DDL runs — so a rejected run never leaves a dangling `home_monitoring` database that would falsely block a later, real retry. Leaves `octopus` in place empty as the rollback path. Verified by a real automated pytest test (`scripts/tests/test_rename_database.py`) against a throwaway `mariadb:latest` container started via plain `docker` subprocess calls — four Given/When/Then scenarios (successful migration with row-count parity, already-migrated rejection, missing-source rejection with no dangling database left behind, and successful recovery on retry once the source exists), added one at a time, red before green each time. Skipped gracefully when docker isn't available locally; runs for real in CI.
 
 ### Acceptance criteria
 
-- [x] Script rejects running if `home_monitoring` already exists, or if `octopus` does not exist
+- [x] Script rejects running if `home_monitoring` already exists, or if `octopus` does not exist, via a precondition guard that runs *before* any DDL — a rejected run leaves no dangling `home_monitoring` database behind
 - [x] All nine tables land in `home_monitoring` with identical row counts to their `octopus` originals
 - [x] `octopus` database still exists afterward, empty of tables
-- [x] Three scenarios pass as real pytest tests against a real MariaDB container, added one at a time (red-green) rather than written in bulk upfront
+- [x] Four scenarios pass as real pytest tests against a real MariaDB container, added one at a time (red-green) rather than written in bulk upfront, including recovery on retry after a rejected run
 - [x] Test is skipped gracefully (not failed) when docker is unavailable
 - [x] `scripts/tests` is discovered by the root `pyproject.toml`'s pytest `testpaths`
 - [x] No change to any live database — this slice only adds the script, its test, and CI wiring
