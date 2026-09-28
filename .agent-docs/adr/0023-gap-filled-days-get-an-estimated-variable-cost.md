@@ -11,4 +11,6 @@ If the billing period has no real day at all yet (day one, run before Octopus ha
 
 Pricing itself uses a new `read_product_rates_for_local_day` query (every `product_rate` row overlapping the local day, overlap-weighted) rather than a single instant lookup, so Agile's half-hourly rate changes are priced correctly within a gap day instead of collapsing to one flat rate; a day not fully covered by known rates still raises, matching this module's existing "raise rather than guess" convention for money calculations. Gap-filled days remain excluded from `project_daily_average_consumption`'s input regardless of which estimate produced them — they're still not real observed usage.
 
+The standing charge itself is a flat per-day fee, not prorated by rate coverage, so on the rare day a tariff renewal changes it mid-day, `_price_gap_day` uses whichever rate covers local midday as the day's single charge — matching the pre-existing midday-lookup convention this replaced, rather than `max()` across every rate touching the day (which would pick whichever happens to be larger, an arbitrary choice for a money calculation).
+
 Applies uniformly to electricity and gas.

@@ -419,10 +419,34 @@ class CostForecastRetriever:
             raise RuntimeError(
                 f"No product_rate found for {agreement.product_code} "
                 f"on {day} -- cannot compute actual_cost_to_date "
-                "without silently omitting that day's standing charge."
+                "without silently omitting that day's standing charge or "
+                "estimated variable cost."
             )
 
-        standing_charge = max(rate.standing_charge for rate in rates)
+        # Standing charge is a flat per-day fee, not prorated (see
+        # _remaining_billing_window) -- so on the rare day a tariff renewal
+        # changes it mid-day, the rate covering local midday is used as the
+        # day's single charge, matching the pre-existing midday-lookup
+        # convention this replaced, rather than max() across every rate
+        # touching the day (which would pick whichever happens to be larger,
+        # an arbitrary and unreviewed choice for a money calculation).
+        midday = day_start + timedelta(hours=12)
+        standing_rate = next(
+            (
+                rate
+                for rate in rates
+                if rate.valid_from <= midday
+                and (rate.valid_to is None or midday < rate.valid_to)
+            ),
+            None,
+        )
+        if standing_rate is None:
+            raise RuntimeError(
+                f"No product_rate covers local midday for {agreement.product_code} "
+                f"on {day} despite full-day coverage -- overlapping product_rate "
+                "rows must be contiguous and non-overlapping."
+            )
+        standing_charge = standing_rate.standing_charge
         variable_cost = Decimal(0)
         if daily_kwh is not None:
             for rate in rates:
