@@ -87,6 +87,11 @@ class _RealCostForecastSource:
     ) -> Rate | None:
         return self._mariadb.read_current_product_rate(product_code, region, as_of)
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self._mariadb.read_product_rates_for_local_day(product_code, region, day)
+
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]:
@@ -431,20 +436,23 @@ def test_a_mid_day_as_of_gives_the_regression_a_fractional_first_remaining_day(
         gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
 
     # A mid-day as_of makes 2026-07-07 itself a still-arriving (zero real
-    # consumption seeded), gap-filled elapsed day -- standing charge only,
-    # £0.29 -- alongside the existing real elapsed day 2026-07-06 (£3.65):
-    # actual_cost_to_date = £3.94. remaining_days = 32 - 2 = 30, standing =
-    # 30 * 29.00p = 870.00p.
-    # The variable-cost loop still starts at 07-07 (as_of's own local day):
+    # consumption seeded), gap-filled elapsed day -- a trailing gap (no real
+    # day settles after it yet), so it's estimated at this period's own
+    # real-day average: 2026-07-06's 48.0 kWh, at the same 7.00p/29.00p
+    # rate -- (48.0*7.00 + 29.00)/100 = £3.65, alongside the existing real
+    # elapsed day 2026-07-06 (£3.65): actual_cost_to_date = £7.30.
+    # remaining_days = 32 - 2 = 30, standing = 30 * 29.00p = 870.00p.
+    # The variable-cost loop still starts at 07-07 (as_of's own local day,
+    # independent of how that day's *elapsed* cost above was estimated):
     # its 18 remaining hours (fraction 0.75) predict 63.0 kWh/day (as in the
     # exact-midnight test) -> 0.75 * 63.0 * 7.00p = 330.75p, plus 30 full
     # remaining days (07-08..08-06) at 63.0 kWh/day -> 30 * 441.00p =
     # 13,230.00p. variable_cost = 330.75 + 13,230.00 = 13,560.75p.
-    # remaining = (13,560.75 + 870.00) / 100 = £144.3075 -> total £148.2475,
-    # rounded to £148.25 by the cost_forecast table's 2-decimal-place
+    # remaining = (13,560.75 + 870.00) / 100 = £144.3075 -> total £151.6075,
+    # rounded to £151.61 by the cost_forecast table's 2-decimal-place
     # Numeric column on persistence.
-    assert gas_row.actual_cost_to_date == Decimal("3.94")
-    assert gas_row.projected_total_cost == Decimal("148.25")
+    assert gas_row.actual_cost_to_date == Decimal("7.30")
+    assert gas_row.projected_total_cost == Decimal("151.61")
 
 
 @responses.activate

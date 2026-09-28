@@ -1,0 +1,14 @@
+# Gap-filled billing days get an estimated variable cost, not just the standing charge
+
+Previously, a billing day with no complete consumption data (zero rows, or a strictly-past day still missing rows to the [day-completeness guard](0009-day-completeness-guard-standing-charge-fallback.md)) contributed only its standing charge to `actual_cost_to_date` — its variable (unit-rate) cost was silently omitted, understating the running total for as long as the gap persisted. `CostForecastRetriever._fill_zero_consumption_days` now estimates that day's kWh and prices it at the rate(s) actually published for that specific day, so the gap contributes a full (estimated, `is_gap_filled=True`) cost instead.
+
+Two distinct gap shapes get different estimates:
+
+- **Interior** — a later real day already exists in the billing period (data has resumed after the gap): estimate = average of the real day immediately before and immediately after the gap span, applied to every day in a multi-day span alike (not a linear interpolation across it).
+- **Trailing** — nothing has settled after the gap yet: estimate = this period's own real-day average (`future_daily_kwh`, the same figure the remaining-days projection already uses).
+
+If the billing period has no real day at all yet (day one, run before Octopus has returned anything), the estimate falls back to the average of the trailing week (`BOOTSTRAP_WINDOW_DAYS = 7`) immediately before the period started, read from `daily_consumption_summary`. If even that history doesn't exist (a brand-new account), the day falls back to the pre-existing standing-charge-only behaviour — there's nothing to estimate from.
+
+Pricing itself uses a new `read_product_rates_for_local_day` query (every `product_rate` row overlapping the local day, overlap-weighted) rather than a single instant lookup, so Agile's half-hourly rate changes are priced correctly within a gap day instead of collapsing to one flat rate; a day not fully covered by known rates still raises, matching this module's existing "raise rather than guess" convention for money calculations. Gap-filled days remain excluded from `project_daily_average_consumption`'s input regardless of which estimate produced them — they're still not real observed usage.
+
+Applies uniformly to electricity and gas.

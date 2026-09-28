@@ -246,6 +246,43 @@ class MariaDBClient(MariaDBClientBase):
             standing_charge=row.standing_charge,
         )
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        # Every product_rate row overlapping the local day -- one row for a
+        # standard/fixed tariff (a single rate typically spans the whole
+        # agreement), up to ~48 for Agile (one row per half-hour slot). Used
+        # to price an estimated gap-filled day at the rate(s) actually
+        # published for that specific day, rather than a single instant.
+        day_start = local_day.start_of_local_day(day)
+        day_end = local_day.start_of_local_day(day + timedelta(days=1))
+        pr = model.product_rate
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(pr)
+                .filter(
+                    pr.product_code == product_code,
+                    pr.region == region,
+                    pr.valid_from < day_end,
+                    or_(pr.valid_to.is_(None), pr.valid_to > day_start),
+                )
+                .order_by(pr.valid_from)
+                .all()
+            )
+        # DATETIME columns come back tz-naive regardless of backend -- every
+        # value stored here is UTC by convention (see read_agile_forecast),
+        # reattached here so callers can compare directly against
+        # local_day's tz-aware day_start/day_end boundaries.
+        return [
+            Rate(
+                valid_from=row.valid_from.replace(tzinfo=UTC),
+                valid_to=row.valid_to.replace(tzinfo=UTC) if row.valid_to else None,
+                unit_rate=row.unit_rate,
+                standing_charge=row.standing_charge,
+            )
+            for row in rows
+        ]
+
     def read_agile_forecast(
         self, region: str, as_of: datetime
     ) -> list[AgileForecastReading]:

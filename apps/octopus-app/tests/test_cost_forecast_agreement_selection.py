@@ -67,6 +67,11 @@ class _RealCostForecastSource:
     ) -> Rate | None:
         return self._mariadb.read_current_product_rate(product_code, region, as_of)
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self._mariadb.read_product_rates_for_local_day(product_code, region, day)
+
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self._mariadb.write_cost_forecast(forecast)
 

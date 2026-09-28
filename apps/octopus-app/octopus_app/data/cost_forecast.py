@@ -29,6 +29,11 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 TILE_SOURCE_WINDOW_DAYS = 7
 HALF_HOURS_PER_DAY = 48
 
+# Bootstrap fallback for a trailing gap day when the current billing period
+# has no real day at all yet (see ADR-0023) -- averages the trailing week of
+# already-summarized consumption immediately before the period started.
+BOOTSTRAP_WINDOW_DAYS = 7
+
 # Gas weather regression (#511): a live-computed, nothing-persisted linear
 # regression of daily gas kWh against heating degree days, recomputed fresh
 # on every refresh() run -- deliberately NOT applied to electricity, which
@@ -196,6 +201,10 @@ class CostForecastSource(MeterSource, Protocol):
         self, product_code: str, region: str, as_of: datetime
     ) -> Rate | None: ...
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]: ...
+
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]: ...
@@ -258,7 +267,7 @@ class CostForecastRetriever:
             elapsed_start, as_of, self._client.region_code, energy
         )
         daily_costs = self._fill_zero_consumption_days(
-            billing_period.start, as_of, agreement, daily_costs
+            energy, billing_period.start, as_of, agreement, daily_costs
         )
         actual_cost_to_date = sum((d.day_cost_gbp for d in daily_costs), Decimal(0))
 
@@ -315,45 +324,134 @@ class CostForecastRetriever:
 
     def _fill_zero_consumption_days(
         self,
+        energy: Energy,
         billing_period_start: date,
         as_of: datetime,
         agreement: Agreement,
         daily_costs: list[DailyCostSummary],
     ) -> list[DailyCostSummary]:
-        # A day with zero consumption rows produces no row from the join in
-        # read_elapsed_billing_period_costs -- there's no consumption row to
-        # join a standing charge through. The standing charge still accrues
-        # for that day regardless of usage, so it's filled in here from
-        # whichever product_rate applied at that day's midday. One query per
-        # missing day (accepted tradeoff: a billing period is at most ~31
-        # days and zero-consumption days are rare, so this never approaches
-        # a scale where batching the lookup would be worth the complexity).
-        present_days = {d.date for d in daily_costs}
+        # A day with zero consumption rows, or a strictly-past day still
+        # missing some of its half-hourly rows (settlement lag), produces no
+        # row from the join in read_elapsed_billing_period_costs -- there's
+        # no consumption row to join a rate through. Rather than reporting
+        # standing-charge-only for that day (see ADR-0023), an estimated
+        # variable cost is priced in too: interpolated from real
+        # neighbouring days when data has already resumed after the gap
+        # ("interior"), or projected from an average when it hasn't
+        # ("trailing") -- see _estimate_gap_day_kwh. One query per missing
+        # day (accepted tradeoff: a billing period is at most ~31 days and
+        # gap days are rare, so this never approaches a scale where batching
+        # the lookup would be worth the complexity).
+        present_days = sorted(d.date for d in daily_costs)
+        present_day_set = set(present_days)
+        kwh_by_present_day = {d.date: d.total_kwh for d in daily_costs}
         filled = list(daily_costs)
         day = billing_period_start
         while local_day.start_of_local_day(day) < as_of:
-            if day not in present_days:
-                midday = local_day.start_of_local_day(day) + timedelta(hours=12)
-                rate = self._client.read_current_product_rate(
-                    agreement.product_code, self._client.region_code, midday
+            if day not in present_day_set:
+                daily_kwh = self._estimate_gap_day_kwh(
+                    energy,
+                    day,
+                    present_days,
+                    kwh_by_present_day,
+                    billing_period_start,
                 )
-                if rate is None:
-                    raise RuntimeError(
-                        f"No product_rate found for {agreement.product_code} "
-                        f"on {day} -- cannot compute actual_cost_to_date "
-                        "without silently omitting that day's standing "
-                        "charge."
-                    )
-                filled.append(
-                    DailyCostSummary(
-                        date=day,
-                        total_kwh=Decimal(0),
-                        day_cost_gbp=rate.standing_charge / 100,
-                        is_gap_filled=True,
-                    )
-                )
+                filled.append(self._price_gap_day(agreement, day, daily_kwh))
             day += timedelta(days=1)
         return filled
+
+    def _estimate_gap_day_kwh(
+        self,
+        energy: Energy,
+        day: date,
+        present_days: list[date],
+        kwh_by_present_day: dict[date, Decimal],
+        billing_period_start: date,
+    ) -> Decimal | None:
+        before = next((d for d in reversed(present_days) if d < day), None)
+        after = next((d for d in present_days if d > day), None)
+
+        if after is not None:
+            # Interior gap: a later real day already exists in this period,
+            # so data has resumed -- interpolate from the real neighbour(s)
+            # either side. No earlier neighbour (this gap sits before any
+            # real day has arrived yet) simply means interpolating from the
+            # after-day alone.
+            neighbours = [kwh_by_present_day[d] for d in (before, after) if d]
+            return project_daily_average_consumption(neighbours)
+
+        if present_days:
+            # Trailing gap: nothing has settled after this day yet, but this
+            # billing period has at least one real day -- use the same
+            # period average the remaining-days projection uses.
+            return project_daily_average_consumption(
+                [kwh_by_present_day[d] for d in present_days]
+            )
+
+        # Bootstrap: not a single real day anywhere in this period yet (e.g.
+        # day one, run before Octopus has returned any consumption). Falls
+        # back to the trailing week immediately before the period started;
+        # None (ultimate fallback to standing-charge-only) only when that
+        # history doesn't exist either, e.g. a brand-new account.
+        return self._bootstrap_daily_kwh_average(energy, billing_period_start)
+
+    def _bootstrap_daily_kwh_average(
+        self, energy: Energy, billing_period_start: date
+    ) -> Decimal | None:
+        window_end = billing_period_start - timedelta(days=1)
+        window_start = window_end - timedelta(days=BOOTSTRAP_WINDOW_DAYS - 1)
+        summaries = self._client.read_daily_consumption_summary(
+            energy, window_start, window_end
+        )
+        if not summaries:
+            return None
+        return project_daily_average_consumption([s.total_kwh for s in summaries])
+
+    def _price_gap_day(
+        self, agreement: Agreement, day: date, daily_kwh: Decimal | None
+    ) -> DailyCostSummary:
+        rates = self._client.read_product_rates_for_local_day(
+            agreement.product_code, self._client.region_code, day
+        )
+        day_start = local_day.start_of_local_day(day)
+        day_end = local_day.start_of_local_day(day + timedelta(days=1))
+        if not self._fully_covers_day(rates, day_start, day_end):
+            raise RuntimeError(
+                f"No product_rate found for {agreement.product_code} "
+                f"on {day} -- cannot compute actual_cost_to_date "
+                "without silently omitting that day's standing charge."
+            )
+
+        standing_charge = max(rate.standing_charge for rate in rates)
+        variable_cost = Decimal(0)
+        if daily_kwh is not None:
+            for rate in rates:
+                overlap_start = max(rate.valid_from, day_start)
+                overlap_end = min(rate.valid_to or day_end, day_end)
+                if overlap_end <= overlap_start:
+                    continue
+                overlap_hours = _hours_between(overlap_start, overlap_end)
+                variable_cost += (overlap_hours / 24) * daily_kwh * rate.unit_rate
+
+        return DailyCostSummary(
+            date=day,
+            total_kwh=daily_kwh if daily_kwh is not None else Decimal(0),
+            day_cost_gbp=(variable_cost + standing_charge) / 100,
+            is_gap_filled=True,
+        )
+
+    @staticmethod
+    def _fully_covers_day(
+        rates: list[Rate], day_start: datetime, day_end: datetime
+    ) -> bool:
+        covered_until = day_start
+        for rate in sorted(rates, key=lambda r: r.valid_from):
+            if rate.valid_from > covered_until:
+                break
+            covered_until = max(covered_until, rate.valid_to or day_end)
+            if covered_until >= day_end:
+                return True
+        return covered_until >= day_end
 
     def _remaining_billing_window(
         self,
