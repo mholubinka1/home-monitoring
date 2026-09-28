@@ -4,6 +4,8 @@
 
 The rename is a one-time migration executed during the Pi cutover window (dump/restore, or `RENAME TABLE` into a freshly created `home_monitoring` database) — the business constraint for this whole restructure is zero data loss with brief downtime accepted, so this happens as a deliberate, supervised step rather than automatically at app startup.
 
+The migration script (`scripts/rename_database.sql`, tested by `scripts/tests/test_rename_database.py`) and the operator runbook (`deployments/mariadb/RENAME_RUNBOOK.md`) are written and verified against a throwaway MariaDB instance, ready for that confirmed cutover window; the Docker Hub image rename it pairs with is decided in [ADR-0024](0024-docker-hub-image-name-octopus-app.md).
+
 ## Considered Options
 
 - **Per-app databases on the same instance** — rejected: `job_run` (ADR-0020) is deliberately one shared table; splitting the database would force either duplicating it back across two databases (reintroducing the exact drift risk ADR-0020 removed) or cross-database queries, neither of which is worth it for two containers on one Pi.

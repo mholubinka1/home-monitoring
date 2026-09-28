@@ -14,9 +14,9 @@ Write an ADR deciding the Docker Hub image's target name, replacing the stale `m
 
 ### Acceptance criteria
 
-- [ ] New ADR under `.agent-docs/adr/` records the target image name and the rejected alternative (namespace prefix), with rationale
-- [ ] ADR cross-links ADR-0022 and states both renames execute together at the confirmed Pi cutover
-- [ ] No code, CI, or compose changes in this slice — `.github/workflows/ci-arm64.yml` and `deployments/octopus-app/docker-compose.yml` still reference `octopus-monitoring`
+- [x] New ADR under `.agent-docs/adr/` records the target image name and the rejected alternative (namespace prefix), with rationale
+- [x] ADR cross-links ADR-0022 and states both renames execute together at the confirmed Pi cutover
+- [x] No code, CI, or compose changes in this slice — `.github/workflows/ci-arm64.yml` and `deployments/octopus-app/docker-compose.yml` still reference `octopus-monitoring`
 
 ---
 
@@ -34,13 +34,13 @@ A standalone SQL script (`scripts/rename_database.sql`) that renames the `octopu
 
 ### Acceptance criteria
 
-- [ ] Script rejects running if `home_monitoring` already exists, or if `octopus` does not exist
-- [ ] All nine tables land in `home_monitoring` with identical row counts to their `octopus` originals
-- [ ] `octopus` database still exists afterward, empty of tables
-- [ ] Three scenarios pass as real pytest tests against a real MariaDB container, added one at a time (red-green) rather than written in bulk upfront
-- [ ] Test is skipped gracefully (not failed) when docker is unavailable
-- [ ] `scripts/tests` is discovered by the root `pyproject.toml`'s pytest `testpaths`
-- [ ] No change to any live database — this slice only adds the script, its test, and CI wiring
+- [x] Script rejects running if `home_monitoring` already exists, or if `octopus` does not exist
+- [x] All nine tables land in `home_monitoring` with identical row counts to their `octopus` originals
+- [x] `octopus` database still exists afterward, empty of tables
+- [x] Three scenarios pass as real pytest tests against a real MariaDB container, added one at a time (red-green) rather than written in bulk upfront
+- [x] Test is skipped gracefully (not failed) when docker is unavailable
+- [x] `scripts/tests` is discovered by the root `pyproject.toml`'s pytest `testpaths`
+- [x] No change to any live database — this slice only adds the script, its test, and CI wiring
 
 ---
 
@@ -58,11 +58,11 @@ An operator-facing runbook covering the full confirmed-cutover procedure end-to-
 
 ### Acceptance criteria
 
-- [ ] Runbook lists explicit pre-checks (both containers stopped, backup taken) before any destructive step
-- [ ] Runbook's happy path references the migration script from the prior slice by its actual path
-- [ ] Runbook covers both renames (database and image) as one combined session, matching ADR-0022's "together, not staggered" decision
-- [ ] Runbook includes a rollback section covering both the database and the image/config reference
-- [ ] Runbook is reviewed for accuracy against the actual scripts/paths it references (no placeholder paths left in)
+- [x] Runbook lists explicit pre-checks (both containers stopped, backup taken) before any destructive step
+- [x] Runbook's happy path references the migration script from the prior slice by its actual path
+- [x] Runbook covers both renames (database and image) as one combined session, matching ADR-0022's "together, not staggered" decision
+- [x] Runbook includes a rollback section covering both the database and the image/config reference
+- [x] Runbook is reviewed for accuracy against the actual scripts/paths it references (no placeholder paths left in)
 
 ---
 
@@ -80,11 +80,11 @@ Update `data/mariadb/init.sql`'s `CREATE DATABASE IF NOT EXISTS octopus;` to `ho
 
 ### Acceptance criteria
 
-- [ ] `data/mariadb/init.sql` creates `home_monitoring`, not `octopus`
-- [ ] `deployments/mariadb/docker-compose.yml`'s `MARIADB_DATABASE` is `home_monitoring`
-- [ ] `docker compose -f deployments/mariadb/docker-compose.yml config` and the combined `deployments/docker-compose.yml` still validate
-- [ ] No other compose file changes in this slice
-- [ ] Existing test suite passes unchanged (no application code touched)
+- [x] `data/mariadb/init.sql` creates `home_monitoring`, not `octopus`
+- [x] `deployments/mariadb/docker-compose.yml`'s `MARIADB_DATABASE` is `home_monitoring`
+- [x] `docker compose -f deployments/mariadb/docker-compose.yml config` and the combined `deployments/docker-compose.yml` still validate
+- [x] No other compose file changes in this slice
+- [x] Existing test suite passes unchanged (no application code touched)
 
 ---
 
@@ -102,9 +102,9 @@ Update `.agent-docs/context.md`'s deferred-rename mentions and ADR-0022 to refer
 
 ### Acceptance criteria
 
-- [ ] `.agent-docs/context.md`'s two deferred-rename mentions reference the new ADR and the completed prep artifacts
-- [ ] ADR-0022 links to the migration script and runbook by path
-- [ ] Neither doc claims the cutover itself has happened
+- [x] `.agent-docs/context.md`'s two deferred-rename mentions reference the new ADR and the completed prep artifacts
+- [x] ADR-0022 links to the migration script and runbook by path
+- [x] Neither doc claims the cutover itself has happened
 
 ---
 
@@ -122,7 +122,7 @@ Nothing until the user explicitly confirms the cutover window. When confirmed: r
 
 ### Acceptance criteria
 
-- [ ] Not started until the user explicitly confirms the cutover window
+- [x] Not started until the user explicitly confirms the cutover window
 - [ ] Backup taken and verified before any destructive step
 - [ ] Live Pi database successfully renamed with verified row counts, `octopus` left intact as a rollback path
 - [ ] CI publishes the new image name; Pi's live compose file updated to pull it
