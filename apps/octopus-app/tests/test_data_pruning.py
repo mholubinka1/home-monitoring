@@ -1,6 +1,10 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+from sqlalchemy.orm import Session
+
+from common.exceptions import MariaDBError
 from octopus_app.data.model import Consumption, Unit
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
@@ -124,3 +128,15 @@ def test_data_pruner_run_deletes_expired_consumption_and_rates_but_never_agreeme
     assert remaining_agreements[0].valid_from == old_agreement.valid_from.replace(
         tzinfo=None
     )
+
+
+def test_prune_consumption_older_than_wraps_a_database_failure_as_a_mariadb_error(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise_unrelated_error(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(Session, "query", _raise_unrelated_error)
+
+    with pytest.raises(MariaDBError):
+        mariadb_client.prune_consumption_older_than(datetime(2026, 1, 1, tzinfo=UTC))
