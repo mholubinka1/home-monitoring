@@ -1,5 +1,7 @@
 # Issues: chore-database-and-image-rename-prep
 
+> Prep work complete (#542-546) — PR ready to merge. #547 (execute the Pi cutover) stays open and explicitly blocked on user confirmation and #549 (a new prerequisite discovered during review: the MariaDB schema is hardcoded rather than config-driven).
+
 ## Record the Docker Hub image target name (ADR)
 
 **GitHub issue**: #542
