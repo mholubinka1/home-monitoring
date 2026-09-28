@@ -14,22 +14,22 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 
    (adjust service names to match the Pi's actual compose file).
 
-3. Export the MariaDB credentials once as environment variables, rather than passing `--password=<password>` on each command below — a CLI-argument password is visible to anyone with `ps` access or in shell history. `mariadb`/`mariadb-dump` read `MYSQL_USER`/`MYSQL_PWD` automatically. A leading space before `export` keeps the line itself out of shell history on shells with `HISTCONTROL=ignorespace` set:
+3. Export the MariaDB password once as an environment variable, rather than passing `--password=<password>` on each command below — a CLI-argument password is visible to anyone with `ps` access or in shell history. `mariadb`/`mariadb-dump` read `MYSQL_PWD` for the password automatically, but there is no equivalent env var for the username — the client falls back to the OS login name if `-u`/`--user` is omitted, so the username is still passed explicitly below (it isn't sensitive). A leading space before `export` keeps the line itself out of shell history on shells with `HISTCONTROL=ignorespace` set:
 
    ```bash
-    export MYSQL_USER=<user> MYSQL_PWD=<password>
+    export MYSQL_PWD=<password>
    ```
 
 4. Take a full backup regardless of the rename script below:
 
    ```bash
-   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb-dump octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
+   docker exec -e MYSQL_PWD energy-monitor-db mariadb-dump -u<user> octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
    ```
 
 5. Record current row counts per table, to check against after the migration:
 
    ```bash
-   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb octopus -e \
+   docker exec -e MYSQL_PWD energy-monitor-db mariadb -u<user> octopus -e \
      "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='octopus';"
    ```
 
@@ -38,7 +38,7 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 6. Copy `scripts/rename_database.sql` onto the Pi (or pipe it over SSH) and run it against the live MariaDB container:
 
    ```bash
-   docker exec -i -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb < scripts/rename_database.sql
+   docker exec -i -e MYSQL_PWD energy-monitor-db mariadb -u<user> < scripts/rename_database.sql
    ```
 
    The script (verified by `scripts/tests/test_rename_database.py` against a throwaway container) fails loudly, before any DDL runs, if `home_monitoring` already exists or `octopus` doesn't -- a rejected run never leaves a dangling `home_monitoring` database behind, so a later, real retry is always safe. It leaves `octopus` in place, empty, as the rollback path.
@@ -46,7 +46,7 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 7. Verify row counts in `home_monitoring` match the pre-migration counts from step 5:
 
    ```bash
-   docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb home_monitoring -e \
+   docker exec -e MYSQL_PWD energy-monitor-db mariadb -u<user> home_monitoring -e \
      "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='home_monitoring';"
    ```
 
@@ -71,7 +71,7 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 12. Confirm both apps are writing to `home_monitoring`, not `octopus` — check for a fresh, successful `job_run` row:
 
     ```bash
-    docker exec -e MYSQL_PWD -e MYSQL_USER energy-monitor-db mariadb home_monitoring -e \
+    docker exec -e MYSQL_PWD energy-monitor-db mariadb -u<user> home_monitoring -e \
       "SELECT * FROM job_run ORDER BY id DESC LIMIT 5;"
     ```
 
