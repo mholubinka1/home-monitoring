@@ -156,11 +156,50 @@ class HiveApiSource:
         so this state-is-None branching lives in exactly one place."""
         if state is None:
             logger.info("No persisted Hive auth state -- starting interactive login.")
-            await HiveApiSource._start_session(
-                hive,
-                session_config=None,
-                reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE,
-            )
+            # hive.startSession() (the old fresh-login call here) is NOT a
+            # fresh-login entry point -- per apyhiveapi's own
+            # HiveSession.startSession, an empty/omitted config skips its
+            # entire tokens/username/password/device_data-handling block
+            # (config == {}) and falls straight through to getDevices(),
+            # which then fails trying to refresh tokens that were never
+            # obtained. hive.login() is the library's actual dedicated
+            # fresh-login entry point (HiveSession.login): it drives a real
+            # Cognito USER_SRP_AUTH handshake and, on success, populates
+            # hive.tokens.tokenData itself via its own internal
+            # updateTokens() call -- but it does not call getDevices(), so
+            # deviceList/data are still empty until the startSession() call
+            # below runs.
+            login_result = await hive.login()
+            if "AuthenticationResult" in login_result:
+                # Full success (this also covers the case where an internal
+                # device-registration challenge was transparently handled --
+                # from here it looks identical to plain success). Tokens are
+                # already on hive.tokens.tokenData; a follow-up
+                # startSession() populates deviceList/data (getDevices())
+                # from them, going through the existing _start_session
+                # helper so ApyHiveReauthRequired is translated the same way
+                # as every other call site.
+                await HiveApiSource._start_session(
+                    hive,
+                    session_config=HiveApiSource._tokens_config(
+                        hive.tokens.tokenData["refreshToken"]
+                    ),
+                    reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE,
+                )
+            elif login_result.get("ChallengeName") == hive.auth.SMS_MFA_CHALLENGE:
+                # SMS_MFA with no AuthenticationResult: the account needs a
+                # live SMS 2FA code and (fresh login, no remembered device)
+                # has no device fallback available. login() itself doesn't
+                # raise for this -- it just returns the raw challenge dict --
+                # so this is the only place that can turn it into the
+                # reauth-required signal callers already handle.
+                raise HiveReauthRequired(_LOGIN_REQUIRES_SMS_MESSAGE)
+            # Any other shape (HiveInvalidUsername/HiveInvalidPassword/
+            # HiveApiError/HiveInvalidDeviceAuthentication/
+            # HiveUnknownConfiguration from login() itself, or an
+            # unrecognised challenge) has no defined recovery here -- let
+            # the resulting KeyError/TypeError/whatever propagate rather
+            # than guess at handling for it.
         else:
             logger.info(
                 "Persisted Hive auth state found -- resuming via token/device "
@@ -174,18 +213,20 @@ class HiveApiSource:
 
     @staticmethod
     async def _start_session(
-        hive: Hive, session_config: dict[str, Any] | None, reauth_message: str
+        hive: Hive, session_config: dict[str, Any], reauth_message: str
     ) -> None:
-        """Runs hive.startSession(), translating apyhiveapi's own
-        HiveReauthRequired into this repo's own exception type (see
+        """Runs hive.startSession(session_config), translating apyhiveapi's
+        own HiveReauthRequired into this repo's own exception type (see
         HiveReauthRequired's docstring) so every caller in this class
-        raises/handles one consistent exception rather than duplicating
-        this try/except at each call site."""
+        raises/handles one consistent exception rather than duplicating this
+        try/except at each call site. session_config is always a real,
+        tokens-bearing dict now (from _tokens_config/_resume_config) -- a
+        bare hive.startSession() call with no config was the original bug
+        here (an empty config silently skips straight to getDevices() rather
+        than performing a fresh login, per HiveSession.startSession), so
+        this no longer accepts a None config at all."""
         try:
-            if session_config is None:
-                await hive.startSession()
-            else:
-                await hive.startSession(session_config)
+            await hive.startSession(session_config)
         except ApyHiveReauthRequired as e:
             raise HiveReauthRequired(reauth_message) from e
 
@@ -210,25 +251,34 @@ class HiveApiSource:
             await session.close()
 
     @staticmethod
-    def _resume_config(state: HiveAuthState) -> dict[str, Any]:
+    def _tokens_config(refresh_token: str) -> dict[str, Any]:
+        # Shared by _resume_config (a persisted refresh token) and
+        # _establish_session's post-login() startSession() call (a refresh
+        # token login() just minted) -- both need this exact "tokens"
+        # sub-shape, so it's defined in exactly one place. With a "tokens"
+        # key present (even with empty id/access tokens -- only the refresh
+        # token matters here, see HiveSession.startSession/updateTokens)
+        # startSession() goes straight to getDevices(), refreshing via
+        # REFRESH_TOKEN_AUTH/DEVICE_SRP_AUTH as needed. It never performs a
+        # fresh interactive login regardless of whether "tokens" is present
+        # or absent -- that's hive.login()'s job, not startSession()'s.
         return {
-            # startSession() only performs a full interactive login when no
-            # "tokens" key is present in config; with one present (even with
-            # empty id/access tokens -- only the refresh token matters here,
-            # see HiveSession.startSession/updateTokens) it goes straight to
-            # getDevices(), refreshing via REFRESH_TOKEN_AUTH/DEVICE_SRP_AUTH
-            # as needed rather than a fresh USER_SRP_AUTH login.
             "tokens": {
                 "token": "",  # nosec B105 -- placeholder, not a credential; see comment above
-                "refreshToken": state.refresh_token,
+                "refreshToken": refresh_token,
                 "accessToken": "",  # nosec B105 -- same as "token" above
-            },
-            "device_data": (
-                state.device_group_key,
-                state.device_key,
-                state.device_password,
-            ),
+            }
         }
+
+    @staticmethod
+    def _resume_config(state: HiveAuthState) -> dict[str, Any]:
+        session_config = HiveApiSource._tokens_config(state.refresh_token)
+        session_config["device_data"] = (
+            state.device_group_key,
+            state.device_key,
+            state.device_password,
+        )
+        return session_config
 
     @staticmethod
     def _auth_state_from_session(hive: Hive) -> HiveAuthState:
