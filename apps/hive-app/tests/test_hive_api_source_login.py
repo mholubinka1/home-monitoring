@@ -30,6 +30,7 @@ class _FakeApyHive:
         )
         self.deviceList: dict[str, Any] = {}
         self.login_call_count = 0
+        self.get_devices_call_count = 0
         self.start_session_configs: list[dict[str, Any] | None] = []
 
     async def login(self) -> dict[str, Any]:
@@ -48,13 +49,25 @@ class _FakeApyHive:
         return self._login_result
 
     async def startSession(self, config: dict[str, Any] | None = None) -> None:
-        # Mirrors the real library's own startSession: a "tokens" key in
-        # config is what populates real tokens (see HiveSession.
-        # updateTokens's "elif 'token' in tokens" branch, reached via this
-        # shape).
+        # Mirrors the real library's own startSession/updateTokens exactly,
+        # including the real (surprising) behaviour that caught the
+        # production bug this test suite exists to catch: a "tokens" key
+        # present but with blank "token"/"accessToken" placeholders (the
+        # shape _tokens_config/_resume_config build for the *resume* path)
+        # unconditionally OVERWRITES tokenData's existing token/accessToken
+        # with those blanks (see HiveSession.updateTokens's "elif 'token' in
+        # tokens" branch) -- it does not merge or skip blanks. If production
+        # code ever again routes a fresh-login's real tokens back through
+        # this method with that placeholder shape, this fake will actually
+        # clobber them here too, the same way the real library does.
         self.start_session_configs.append(config)
         if config and "tokens" in config:
+            self.tokens.tokenData["token"] = config["tokens"]["token"]
             self.tokens.tokenData["refreshToken"] = config["tokens"]["refreshToken"]
+            self.tokens.tokenData["accessToken"] = config["tokens"]["accessToken"]
+
+    async def getDevices(self, _n_id: str) -> None:
+        self.get_devices_call_count += 1
 
 
 def _hive_settings() -> HiveSettings:
@@ -78,9 +91,21 @@ def test_a_fresh_login_with_no_challenge_completes_and_populates_devices(
     state = HiveApiSource(_hive_settings(), mariadb_client).login()
 
     assert fake_hive.login_call_count == 1
-    assert fake_hive.start_session_configs == [
-        {"tokens": {"token": "", "refreshToken": "refresh-tok", "accessToken": ""}}
-    ]
+    # Devices are populated via a direct getDevices() call, NOT by routing
+    # back through startSession() -- see _populate_devices's docstring for
+    # why. Asserting this negatively (start_session_configs is empty) is as
+    # important as the positive getDevices assertion below: it's exactly
+    # what proves the real tokens login() just obtained were never handed
+    # back to startSession()'s config-driven updateTokens() and clobbered.
+    assert not fake_hive.start_session_configs
+    assert fake_hive.get_devices_call_count == 1
+    # The regression this test suite exists to catch: login()'s real tokens
+    # must survive completely untouched afterward, not just refreshToken.
+    assert fake_hive.tokens.tokenData == {
+        "token": "id-tok",
+        "refreshToken": "refresh-tok",
+        "accessToken": "access-tok",
+    }
     assert state.refresh_token == "refresh-tok"
 
 
@@ -101,3 +126,4 @@ def test_a_fresh_login_that_hits_the_sms_challenge_requires_reauth(
     )
     assert fake_hive.login_call_count == 1
     assert not fake_hive.start_session_configs
+    assert fake_hive.get_devices_call_count == 0
