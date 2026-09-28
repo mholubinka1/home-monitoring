@@ -86,6 +86,34 @@ def query(
     )
 
 
+def _wait_for_real_server(container_name: str, timeout_seconds: float = 60) -> None:
+    """Wait past mariadb:latest's entrypoint, which briefly starts an internal
+    setup server (to run mysql_secure_installation-equivalent steps), shuts it
+    down, then starts the real one -- "ready for connections" appears in the
+    container's logs twice, for the setup server and then the real one. A
+    connectivity check alone can catch the setup server's brief window and
+    report ready just before it closes -- the log-count check disambiguates
+    which "ready" this is, then a connectivity check confirms the real one
+    is actually reachable.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        logs = subprocess.run(
+            ["docker", "logs", container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        ready_count = logs.stdout.count("ready for connections") + logs.stderr.count(
+            "ready for connections"
+        )
+        if ready_count >= 2 and run_sql(container_name, "SELECT 1;").returncode == 0:
+            return
+        time.sleep(1)
+    raise RuntimeError(f"MariaDB container {container_name} never became ready")
+
+
 @pytest.fixture
 def mariadb_container():
     """Start a throwaway MariaDB container, yield its name, and always tear it down."""
@@ -107,14 +135,7 @@ def mariadb_container():
         timeout=30,
     )
     try:
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            result = run_sql(name, "SELECT 1;")
-            if result.returncode == 0:
-                break
-            time.sleep(1)
-        else:
-            raise RuntimeError(f"MariaDB container {name} never became ready")
+        _wait_for_real_server(name)
         yield name
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
