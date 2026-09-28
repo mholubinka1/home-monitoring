@@ -662,6 +662,88 @@ def test_a_gap_day_spanning_a_standing_charge_change_uses_the_midday_rate(
 
 
 @responses.activate
+def test_a_gap_day_with_genuinely_overlapping_rates_picks_the_newer_standing_charge(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Unlike the clean-handover case above, these two rates genuinely
+    # overlap for two hours either side of local midday (Jul7 10:00-12:00
+    # UTC) rather than meeting at a boundary -- both cover midday, so
+    # picking "whichever comes first" (ascending valid_from, the query's own
+    # order) would silently pick the OLDER rate. The newer one must win,
+    # matching read_current_product_rate's own "most-recently-started wins"
+    # tiebreak for overlapping rows.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=PRODUCT_CODE,
+                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        # Older rate: valid from 2022, ends Jul7 12:00 UTC (day_start+13h).
+        s.add(
+            model.product_rate(
+                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 7, 7, 12, 0, tzinfo=UTC),
+                unit_rate=Decimal("20.00"),
+                standing_charge=Decimal("70.00"),
+            )
+        )
+        # Newer rate: starts Jul7 10:00 UTC (day_start+11h, entirely within
+        # Jul7 -- Jul6 is untouched by it), open-ended.
+        s.add(
+            model.product_rate(
+                id=f"{PRODUCT_CODE}_{REGION}_202607071000",
+                product_code=PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 7, 7, 10, 0, tzinfo=UTC),
+                valid_to=None,
+                unit_rate=Decimal("20.00"),
+                standing_charge=Decimal("30.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        # No consumption at all for Jul7.
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter()])
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 8)))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # Jul6 (only the older rate ever touches it): (4.8*20.00+70.00)/100
+    # = 1.66.
+    # Jul7 (trailing gap at the 4.8 kWh period average): the older rate
+    # covers 13h of the day (Jul6 23:00-Jul7 12:00) and the newer rate
+    # covers 13h too (Jul7 10:00-23:00), a genuine 2-hour double-covered
+    # window -- variable_cost = (13/24)*4.8*20.00 * 2 = 104.00p. Standing
+    # charge uses the newer rate (30.00, later valid_from) despite the
+    # older one also covering midday: (104.00+30.00)/100 = 1.34.
+    assert row.actual_cost_to_date == Decimal("1.66") + Decimal("1.34")
+    # Remaining period: as_of (Jul8 00:00) is only covered by the newer
+    # rate (the older one ended Jul7 12:00 UTC), so its 30.00p standing
+    # charge and 20.00p unit rate apply to every remaining day.
+    remaining_days = 30
+    expected_remaining = (
+        remaining_days * (Decimal("4.8") * Decimal("20.00") + Decimal("30.00")) / 100
+    )
+    assert (
+        row.projected_total_cost
+        == Decimal("1.66") + Decimal("1.34") + expected_remaining
+    )
+
+
+@responses.activate
 def test_an_interior_gap_before_any_real_day_interpolates_from_the_later_day_alone(
     mariadb_client: MariaDBClient,
 ) -> None:

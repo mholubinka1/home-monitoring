@@ -429,16 +429,21 @@ class CostForecastRetriever:
         # day's single charge, matching the pre-existing midday-lookup
         # convention this replaced, rather than max() across every rate
         # touching the day (which would pick whichever happens to be larger,
-        # an arbitrary and unreviewed choice for a money calculation).
+        # an arbitrary and unreviewed choice for a money calculation). Ties
+        # (two rates both covering midday, a genuine overlap rather than a
+        # clean handover) resolve to the most-recently-started one, the same
+        # "most-recently-started wins" convention read_current_product_rate
+        # already uses for its own overlapping-row tiebreak.
         midday = day_start + timedelta(hours=12)
-        standing_rate = next(
+        standing_rate = max(
             (
                 rate
                 for rate in rates
                 if rate.valid_from <= midday
                 and (rate.valid_to is None or midday < rate.valid_to)
             ),
-            None,
+            key=lambda rate: rate.valid_from,
+            default=None,
         )
         if standing_rate is None:
             raise RuntimeError(
@@ -450,11 +455,10 @@ class CostForecastRetriever:
         variable_cost = Decimal(0)
         if daily_kwh is not None:
             for rate in rates:
-                overlap_start = max(rate.valid_from, day_start)
-                overlap_end = min(rate.valid_to or day_end, day_end)
-                if overlap_end <= overlap_start:
+                overlap = self._day_overlap(rate, day_start, day_end)
+                if overlap is None:
                     continue
-                overlap_hours = _hours_between(overlap_start, overlap_end)
+                overlap_hours = _hours_between(*overlap)
                 variable_cost += (overlap_hours / 24) * daily_kwh * rate.unit_rate
 
         return DailyCostSummary(
@@ -465,17 +469,28 @@ class CostForecastRetriever:
         )
 
     @staticmethod
+    def _day_overlap(
+        rate: Rate, day_start: datetime, day_end: datetime
+    ) -> tuple[datetime, datetime] | None:
+        overlap_start = max(rate.valid_from, day_start)
+        overlap_end = min(rate.valid_to or day_end, day_end)
+        if overlap_end <= overlap_start:
+            return None
+        return overlap_start, overlap_end
+
+    @classmethod
     def _fully_covers_day(
-        rates: list[Rate], day_start: datetime, day_end: datetime
+        cls, rates: list[Rate], day_start: datetime, day_end: datetime
     ) -> bool:
         covered_until = day_start
         for rate in sorted(rates, key=lambda r: r.valid_from):
-            if rate.valid_from > covered_until:
+            overlap = cls._day_overlap(rate, day_start, day_end)
+            if overlap is None or overlap[0] > covered_until:
                 break
-            covered_until = max(covered_until, rate.valid_to or day_end)
+            covered_until = max(covered_until, overlap[1])
             if covered_until >= day_end:
                 return True
-        return covered_until >= day_end
+        return False
 
     def _remaining_billing_window(
         self,
