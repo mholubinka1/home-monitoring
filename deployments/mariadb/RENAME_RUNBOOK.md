@@ -28,19 +28,33 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
    docker exec -e MYSQL_PWD energy-monitor-db mariadb-dump -u<user> octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
    ```
 
-5. Record current row counts per table, to check against after the migration:
+5. Record current row counts per table, to check against after the migration — an exact `COUNT(*)` per table, not `INFORMATION_SCHEMA.TABLES.TABLE_ROWS`, which for InnoDB is a statistics estimate that can drift even when nothing is actually wrong:
 
    ```bash
    docker exec -e MYSQL_PWD energy-monitor-db mariadb -u<user> octopus -e \
-     "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='octopus';"
+     "SELECT 'consumption', COUNT(*) FROM consumption UNION ALL
+      SELECT 'agreement', COUNT(*) FROM agreement UNION ALL
+      SELECT 'product', COUNT(*) FROM product UNION ALL
+      SELECT 'product_rate', COUNT(*) FROM product_rate UNION ALL
+      SELECT 'daily_consumption_summary', COUNT(*) FROM daily_consumption_summary UNION ALL
+      SELECT 'agile_forecast', COUNT(*) FROM agile_forecast UNION ALL
+      SELECT 'cost_forecast', COUNT(*) FROM cost_forecast UNION ALL
+      SELECT 'heating_status', COUNT(*) FROM heating_status UNION ALL
+      SELECT 'job_run', COUNT(*) FROM job_run;"
    ```
 
 ## Database rename
 
-6. Copy `scripts/rename_database.sql` onto the Pi (or pipe it over SSH) and run it against the live MariaDB container **as root** (see step 3 — the app user cannot run this):
+6. Switch `MYSQL_PWD` to the root credential from step 3, same reasoning as before — never pass it as a CLI argument either:
 
    ```bash
-   docker exec -i -e MYSQL_PWD=<root password> energy-monitor-db mariadb -uroot < scripts/rename_database.sql
+    export MYSQL_PWD=<root password>
+   ```
+
+   Copy `scripts/rename_database.sql` onto the Pi (or pipe it over SSH) and run it against the live MariaDB container **as root** (see step 3 — the app user cannot run this):
+
+   ```bash
+   docker exec -i -e MYSQL_PWD energy-monitor-db mariadb -uroot < scripts/rename_database.sql
    ```
 
    The script (verified by `scripts/tests/test_rename_database.py` against a throwaway container) fails loudly, before any DDL runs, if `home_monitoring` already exists or `octopus` doesn't -- a rejected run never leaves a dangling `home_monitoring` database behind, so a later, real retry is always safe. It leaves `octopus` in place, empty, as the rollback path.
@@ -48,15 +62,29 @@ Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shar
 7. Grant the app user access to the newly-created `home_monitoring` database, still as root — a `RENAME TABLE`/`CREATE DATABASE` does not carry over the app user's original grant on `octopus` to the new database name, so without this step every later step below (and the apps themselves, once restarted) fail with "Access denied":
 
    ```bash
-   docker exec -e MYSQL_PWD=<root password> energy-monitor-db mariadb -uroot -e \
+   docker exec -e MYSQL_PWD energy-monitor-db mariadb -uroot -e \
      "GRANT ALL PRIVILEGES ON home_monitoring.* TO '<user>'@'%'; FLUSH PRIVILEGES;"
    ```
 
-8. Verify row counts in `home_monitoring` match the pre-migration counts from step 5:
+   Switch `MYSQL_PWD` back to the app user's password for the rest of this runbook:
+
+   ```bash
+    export MYSQL_PWD=<password>
+   ```
+
+8. Verify row counts in `home_monitoring` match the pre-migration counts from step 5 — an exact `COUNT(*)` per table, not `INFORMATION_SCHEMA.TABLES.TABLE_ROWS`, which for InnoDB is a statistics estimate that can drift even when nothing is actually wrong:
 
    ```bash
    docker exec -e MYSQL_PWD energy-monitor-db mariadb -u<user> home_monitoring -e \
-     "SELECT TABLE_NAME, TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='home_monitoring';"
+     "SELECT 'consumption', COUNT(*) FROM consumption UNION ALL
+      SELECT 'agreement', COUNT(*) FROM agreement UNION ALL
+      SELECT 'product', COUNT(*) FROM product UNION ALL
+      SELECT 'product_rate', COUNT(*) FROM product_rate UNION ALL
+      SELECT 'daily_consumption_summary', COUNT(*) FROM daily_consumption_summary UNION ALL
+      SELECT 'agile_forecast', COUNT(*) FROM agile_forecast UNION ALL
+      SELECT 'cost_forecast', COUNT(*) FROM cost_forecast UNION ALL
+      SELECT 'heating_status', COUNT(*) FROM heating_status UNION ALL
+      SELECT 'job_run', COUNT(*) FROM job_run;"
    ```
 
 ## Config and image cutover
@@ -92,7 +120,7 @@ If anything above looks wrong before step 11 (CI/image flip) has happened:
 
 - Revert `config.yml`/`hive-config.yml` back to `mariadb.database: octopus`.
 - Revert the Pi's `docker-compose.yml` changes.
-- `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the nine tables (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
+- **As root** (same as steps 6-7 — the app user cannot run any of this): `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the nine tables (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
 - Restart the containers against the restored `octopus` state.
 
 If the CI/image flip (step 11) has already merged, the image name can stay flipped independently of the database rollback — they are not coupled once step 11 has run; only revert `DOCKER_IMAGE` too if the new image itself is the problem.
