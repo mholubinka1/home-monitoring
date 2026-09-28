@@ -18,8 +18,10 @@ def _seed_octopus(container_name: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def _run_migration_script(container_name: str):
-    return run_sql(container_name, SCRIPT_PATH.read_text(encoding="utf-8"))
+def _run_migration_script(container_name: str, **run_sql_kwargs):
+    return run_sql(
+        container_name, SCRIPT_PATH.read_text(encoding="utf-8"), **run_sql_kwargs
+    )
 
 
 def _table_names(container_name: str, database: str) -> set[str]:
@@ -103,3 +105,34 @@ def test_recovers_after_a_failed_run_once_the_source_database_is_created(
 
     assert retry.returncode == 0, retry.stderr
     assert _table_names(mariadb_container, "home_monitoring") == set(TABLES)
+
+
+@requires_docker
+def test_rejects_running_as_the_ordinary_app_user_and_leaves_no_dangling_database(
+    mariadb_container,
+):
+    """Documents a real constraint (verified against actual MariaDB privilege
+    behaviour, not assumed): an app user granted access to only its own database
+    (the shape `MARIADB_USER` gets from `deployments/mariadb/docker-compose.yml`)
+    cannot run this script -- `USE mysql`, `CREATE DATABASE`, and a cross-database
+    `RENAME TABLE` all need broader privileges. RENAME_RUNBOOK.md documents running
+    this as root instead. If a future change made the script work for a lesser
+    user, the runbook's root-only instruction would need to change too -- this
+    test exists so that change doesn't slip through unnoticed.
+    """
+    _seed_octopus(mariadb_container)
+    run_sql(
+        mariadb_container,
+        "CREATE USER 'app_user'@'%' IDENTIFIED BY 'app_password'; "
+        "GRANT ALL PRIVILEGES ON octopus.* TO 'app_user'@'%'; FLUSH PRIVILEGES;",
+    )
+
+    result = _run_migration_script(
+        mariadb_container, user="app_user", password="app_password"
+    )
+
+    assert result.returncode != 0
+    assert not _database_exists(mariadb_container, "home_monitoring"), (
+        "a rejected run as an under-privileged user must not leave a dangling "
+        "home_monitoring database behind either"
+    )

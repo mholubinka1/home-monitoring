@@ -7,7 +7,13 @@
 -- `octopus` in place, empty, as the rollback path -- this script never
 -- drops it.
 --
--- Usage: mariadb --user=<user> --password=<password> < scripts/rename_database.sql
+-- Requires MariaDB root (USE mysql, CREATE DATABASE, and a cross-database
+-- RENAME TABLE all need privileges beyond an app user's own
+-- GRANT ... ON octopus.* grant) -- see deployments/mariadb/RENAME_RUNBOOK.md
+-- for the full procedure, including granting the app user access to the
+-- new database name afterward (a rename does not carry a grant over).
+--
+-- Usage: export MYSQL_PWD=<root password>; mariadb --user=root < scripts/rename_database.sql
 --
 -- Note: CREATE DATABASE/PROCEDURE and RENAME TABLE are DDL, which MariaDB
 -- commits implicitly and cannot roll back as a unit -- there is no

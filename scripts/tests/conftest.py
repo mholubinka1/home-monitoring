@@ -49,13 +49,18 @@ requires_docker = pytest.mark.skipif(
 
 
 def run_sql(
-    container_name: str, sql_text: str, database: str | None = None
+    container_name: str,
+    sql_text: str,
+    database: str | None = None,
+    user: str = "root",
+    password: str = _ROOT_PASSWORD,
 ) -> subprocess.CompletedProcess:
-    """Run `sql_text` (via stdin) against `container_name`'s root connection.
+    """Run `sql_text` (via stdin) against `container_name`, connecting as `user`.
 
-    With `database`, the connection selects that database first, same as running
-    `mariadb <database>` interactively -- the returned output includes a tab-separated
-    header row for any `SELECT`.
+    Defaults to the throwaway container's root account. With `database`, the
+    connection selects that database first, same as running `mariadb <database>`
+    interactively -- the returned output includes a tab-separated header row for
+    any `SELECT`.
     """
     argv = [
         "docker",
@@ -63,8 +68,8 @@ def run_sql(
         "-i",
         container_name,
         "mariadb",
-        "-uroot",
-        f"-p{_ROOT_PASSWORD}",
+        f"-u{user}",
+        f"-p{password}",
     ]
     if database is not None:
         argv.append(database)
