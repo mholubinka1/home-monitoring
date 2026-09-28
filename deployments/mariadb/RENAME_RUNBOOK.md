@@ -24,11 +24,20 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
 
    Separately, obtain the MariaDB **root** credential too — steps 6 and 7 below need it. The app user (`MARIADB_USER`) is scoped by grant to its own database only (`GRANT ALL PRIVILEGES ON octopus.*`), so it cannot run the migration script (`USE mysql`, `CREATE DATABASE`, and a cross-database `RENAME TABLE` all require broader privileges) or grant itself access to the new database name afterward. `deployments/mariadb/docker-compose.yml` sets `MARIADB_RANDOM_ROOT_PASSWORD: 1`, which the official image only ever reveals once, in the container's logs, at its very first startup (`docker logs energy-monitor-db 2>&1 | grep "GENERATED ROOT PASSWORD"`) — if that log line has since rotated out, or the Pi's actual (separately-synced, not-this-file) compose config manages root differently, resolve root access through however the Pi's live setup actually handles it before continuing; this runbook cannot assume a specific mechanism it hasn't observed on the real instance.
 
-4. Take a full backup regardless of the rename script below:
+4. Take a full backup regardless of the rename script below, and verify it before continuing — a redirect alone doesn't check `mariadb-dump` actually succeeded, and a failed connection or a full disk can leave an empty or truncated file while the rest of this runbook proceeds as if the backup were good:
 
    ```bash
    docker exec -e MYSQL_PWD energy-monitor-db mariadb-dump -u<user> octopus > octopus-backup-$(date +%Y%m%d%H%M%S).sql
+   echo "exit code: $?"
    ```
+
+   Stop here if the exit code above is not `0`. Then confirm the file is non-empty and actually contains the expected tables, not just present:
+
+   ```bash
+   grep -c '^CREATE TABLE' octopus-backup-*.sql
+   ```
+
+   That must print `11` (one `CREATE TABLE` per table this runbook renames — see step 5's list). Stop and re-run the backup if it doesn't.
 
 5. Record current row counts per table, to check against after the migration — an exact `COUNT(*)` per table, not `INFORMATION_SCHEMA.TABLES.TABLE_ROWS`, which for InnoDB is a statistics estimate that can drift even when nothing is actually wrong:
 
@@ -42,6 +51,8 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
       SELECT 'agile_forecast', COUNT(*) FROM agile_forecast UNION ALL
       SELECT 'cost_forecast', COUNT(*) FROM cost_forecast UNION ALL
       SELECT 'heating_status', COUNT(*) FROM heating_status UNION ALL
+      SELECT 'weather_observation', COUNT(*) FROM weather_observation UNION ALL
+      SELECT 'weather_forecast', COUNT(*) FROM weather_forecast UNION ALL
       SELECT 'job_run', COUNT(*) FROM job_run;"
    ```
 
@@ -81,10 +92,14 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
       SELECT 'agile_forecast', COUNT(*) FROM agile_forecast UNION ALL
       SELECT 'cost_forecast', COUNT(*) FROM cost_forecast UNION ALL
       SELECT 'heating_status', COUNT(*) FROM heating_status UNION ALL
+      SELECT 'weather_observation', COUNT(*) FROM weather_observation UNION ALL
+      SELECT 'weather_forecast', COUNT(*) FROM weather_forecast UNION ALL
       SELECT 'job_run', COUNT(*) FROM job_run;"
    ```
 
 ## Config and image cutover
+
+**Do not start this section until [#549](https://github.com/mholubinka1/home-monitoring/issues/549) is closed.** Every SQLAlchemy model across all three packages currently hardcodes `schema="octopus"` in its `__table_args__` — updating `config.yml`'s `mariadb.database` value alone does **not** retarget the apps: MariaDB treats "schema" and "database" as the same thing, and SQLAlchemy's `Table(schema=...)` fully qualifies every generated query regardless of which database the connection string defaults to. Run as documented below before #549 lands, the apps would keep reading and writing `octopus.*` after this step, and Schema Sync could recreate empty tables there — the cutover would not actually take effect. #549 makes the schema config-driven; once it's merged, step 9 below is accurate.
 
 9. Update the Pi's live `config.yml` and `hive-config.yml` (`mariadb.database`) from `octopus` to `home_monitoring`.
 
@@ -117,7 +132,7 @@ If anything above looks wrong before step 11 (CI/image flip) has happened:
 
 - Revert `config.yml`/`hive-config.yml` back to `mariadb.database: octopus`.
 - Revert the Pi's `docker-compose.yml` changes.
-- **As root** (same as steps 6-7 — the app user cannot run any of this): `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the nine tables (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
+- **As root** (same as steps 6-7 — the app user cannot run any of this): `RENAME TABLE home_monitoring.<t> TO octopus.<t>` for each of the eleven tables listed in step 5 (the reverse of `scripts/rename_database.sql`), then `DROP DATABASE home_monitoring;` and `REVOKE ALL PRIVILEGES ON home_monitoring.* FROM '<user>'@'%';` (the grant from step 7).
 - Restart the containers against the restored `octopus` state.
 
 If the CI/image flip (step 11) has already merged, the image name can stay flipped independently of the database rollback — they are not coupled once step 11 has run; only revert `DOCKER_IMAGE` too if the new image itself is the problem.

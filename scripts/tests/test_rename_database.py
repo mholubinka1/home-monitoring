@@ -8,14 +8,25 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "rename_database.sql"
 
 
 def _seed_octopus(container_name: str) -> None:
+    """Seed every table with a distinct row count (table N gets N+1 rows), so a
+    regression that loses rows from any one table -- not just the couple a
+    smaller seed would happen to cover -- changes that table's count and fails
+    the row-count assertions below.
+    """
     statements = ["CREATE DATABASE octopus;"]
     statements += [
         f"CREATE TABLE octopus.{table} (id INT PRIMARY KEY, v INT);" for table in TABLES
     ]
-    statements.append("INSERT INTO octopus.consumption VALUES (1,1),(2,2),(3,3);")
-    statements.append("INSERT INTO octopus.job_run VALUES (1,1);")
+    for index, table in enumerate(TABLES):
+        row_count = index + 1
+        values = ", ".join(f"({row_id},{row_id})" for row_id in range(1, row_count + 1))
+        statements.append(f"INSERT INTO octopus.{table} VALUES {values};")
     result = run_sql(container_name, "\n".join(statements))
     assert result.returncode == 0, result.stderr
+
+
+def _expected_row_counts() -> dict[str, int]:
+    return {table: index + 1 for index, table in enumerate(TABLES)}
 
 
 def _run_migration_script(container_name: str, **run_sql_kwargs):
@@ -64,8 +75,10 @@ def test_migrates_all_tables_with_row_counts_preserved_and_octopus_left_empty(
     assert result.returncode == 0, result.stderr
     assert _table_names(mariadb_container, "home_monitoring") == set(TABLES)
     assert _table_names(mariadb_container, "octopus") == set()
-    assert _row_count(mariadb_container, "home_monitoring", "consumption") == 3
-    assert _row_count(mariadb_container, "home_monitoring", "job_run") == 1
+    for table, expected_count in _expected_row_counts().items():
+        assert (
+            _row_count(mariadb_container, "home_monitoring", table) == expected_count
+        ), f"row count mismatch for {table}"
 
 
 @requires_docker
@@ -78,7 +91,7 @@ def test_rejects_running_again_against_an_already_migrated_instance(mariadb_cont
 
     assert second_run.returncode != 0
     assert "home_monitoring" in second_run.stderr
-    assert _row_count(mariadb_container, "home_monitoring", "consumption") == 3
+    assert _row_count(mariadb_container, "home_monitoring", "consumption") == 1
 
 
 @requires_docker
@@ -140,7 +153,7 @@ def test_rejects_running_as_the_ordinary_app_user_and_leaves_no_dangling_databas
 
 @requires_docker
 def test_rejects_running_with_a_table_missing_from_octopus(mariadb_container):
-    """`octopus` existing isn't enough -- if even one of the nine tables Schema
+    """`octopus` existing isn't enough -- if even one of the eleven tables Schema
     Sync owns is missing (dropped, mid-migration, never created), CREATE DATABASE
     would otherwise still succeed before RENAME TABLE hit the missing one,
     leaving the same dangling home_monitoring database the other guard checks

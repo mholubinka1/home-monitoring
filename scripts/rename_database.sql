@@ -58,10 +58,10 @@ BEGIN
           AND TABLE_NAME IN (
               'consumption', 'agreement', 'product', 'product_rate',
               'daily_consumption_summary', 'agile_forecast', 'cost_forecast',
-              'heating_status', 'job_run'
-          )) <> 9 THEN
+              'heating_status', 'weather_observation', 'weather_forecast', 'job_run'
+          )) <> 11 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'One or more of the nine expected tables (consumption, agreement, product, product_rate, daily_consumption_summary, agile_forecast, cost_forecast, heating_status, job_run) is missing from `octopus` -- aborting before any DDL runs.';
+            SET MESSAGE_TEXT = 'One or more of the eleven expected tables (consumption, agreement, product, product_rate, daily_consumption_summary, agile_forecast, cost_forecast, heating_status, weather_observation, weather_forecast, job_run) is missing from `octopus` -- aborting before any DDL runs.';
     END IF;
 END //
 DELIMITER ;
@@ -80,6 +80,8 @@ RENAME TABLE
     octopus.agile_forecast            TO home_monitoring.agile_forecast,
     octopus.cost_forecast             TO home_monitoring.cost_forecast,
     octopus.heating_status            TO home_monitoring.heating_status,
+    octopus.weather_observation       TO home_monitoring.weather_observation,
+    octopus.weather_forecast          TO home_monitoring.weather_forecast,
     octopus.job_run                   TO home_monitoring.job_run;
 
 -- `octopus` is intentionally left in place, now empty -- do not DROP it here.

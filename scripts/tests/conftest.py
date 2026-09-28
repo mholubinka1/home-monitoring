@@ -30,6 +30,8 @@ TABLES = [
     "agile_forecast",
     "cost_forecast",
     "heating_status",
+    "weather_observation",
+    "weather_forecast",
     "job_run",
 ]
 
