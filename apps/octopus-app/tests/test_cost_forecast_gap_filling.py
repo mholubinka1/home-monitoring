@@ -519,6 +519,78 @@ def test_an_interior_gap_ignores_todays_still_partial_day_as_a_neighbour(
 
 
 @responses.activate
+def test_todays_own_gap_is_never_given_an_estimated_variable_cost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Jul7 ("today", as_of is mid-day) has no consumption at all -- a
+    # genuine gap, not just a partial neighbour. It would otherwise resolve
+    # to a trailing-gap estimate (Jul6's 4.8 kWh average) and get priced for
+    # a full 24h, but _project_remaining_cost's remaining_hours ALREADY
+    # covers the whole of today's not-yet-metered variable cost via its own
+    # fractional-hours term -- estimating it again here would double-count
+    # it. as_of's own local date must always fall back to standing-charge-
+    # only, regardless of what its interior/trailing estimate would
+    # otherwise have been.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=PRODUCT_CODE,
+                tariff_code=f"E-1R-{PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=None,
+                unit_rate=Decimal("20.00"),
+                standing_charge=Decimal("48.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        # No consumption at all for Jul7 ("today").
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter()])
+    )
+    as_of = start_of_local_day(date(2026, 7, 7)) + timedelta(hours=6)
+    retriever.refresh(as_of=as_of)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # Jul6: (4.8*20.00+48.00)/100 = 1.44. Jul7 (today, standing-charge-only,
+    # NOT the 4.8 kWh trailing-average estimate it would otherwise resolve
+    # to): 48.00/100 = 0.48.
+    assert row.actual_cost_to_date == Decimal("1.44") + Decimal("0.48")
+    # future_daily_kwh excludes the gap-filled Jul7 -- average is Jul6's 4.8
+    # alone. total_period_days=32; elapsed=2 (Jul6, Jul7) -> remaining_days
+    # =30. remaining_hours spans from as_of (mid-Jul7) through the period
+    # end -- this is the ONLY place Jul7's remaining variable cost is
+    # counted.
+    remaining_days = 30
+    period_end_boundary = start_of_local_day(date(2026, 8, 7))
+    remaining_hours = Decimal(
+        str((period_end_boundary - as_of).total_seconds())
+    ) / Decimal(3600)
+    variable_remaining = (remaining_hours / 24) * Decimal("4.8") * Decimal("20.00")
+    standing_remaining = remaining_days * Decimal("48.00")
+    expected_remaining = (variable_remaining + standing_remaining) / 100
+    assert (
+        row.projected_total_cost
+        == Decimal("1.44") + Decimal("0.48") + expected_remaining
+    )
+
+
+@responses.activate
 def test_a_trailing_gap_with_no_real_days_yet_falls_back_to_the_prior_weeks_average(
     mariadb_client: MariaDBClient,
 ) -> None:

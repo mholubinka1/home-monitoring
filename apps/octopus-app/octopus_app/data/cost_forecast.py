@@ -359,12 +359,29 @@ class CostForecastRetriever:
         day = billing_period_start
         while local_day.start_of_local_day(day) < as_of:
             if day not in present_day_set:
-                daily_kwh = self._estimate_gap_day_kwh(
-                    energy,
-                    day,
-                    present_days,
-                    kwh_by_present_day,
-                    billing_period_start,
+                # as_of's own local date, when it has no consumption rows at
+                # all (as opposed to a real-but-partial row, the case
+                # excluded above), is still priced standing-charge-only
+                # here -- never with an estimated variable cost.
+                # _project_remaining_cost's remaining_hours already spans
+                # from as_of through the rest of the billing period, which
+                # for a same-day gap already covers the whole of today's
+                # not-yet-metered variable cost; estimating it again here
+                # would double-count it (see _remaining_billing_window's
+                # "remaining_hours ... includes the rest of today" comment
+                # -- that logic assumes a same-day daily_costs row reflects
+                # only what's actually been metered so far, which a full
+                # variable-cost estimate here would violate).
+                daily_kwh = (
+                    None
+                    if day == as_of_local_date
+                    else self._estimate_gap_day_kwh(
+                        energy,
+                        day,
+                        present_days,
+                        kwh_by_present_day,
+                        billing_period_start,
+                    )
                 )
                 filled.append(self._price_gap_day(agreement, day, daily_kwh))
             day += timedelta(days=1)
