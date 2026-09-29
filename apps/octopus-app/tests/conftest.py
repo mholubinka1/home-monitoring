@@ -9,16 +9,12 @@ from octopus_app.data.mysql.model import SQLBase
 
 @pytest.fixture
 def mariadb_client(monkeypatch: pytest.MonkeyPatch) -> MariaDBClient:
-    """A MariaDBClient backed by an in-memory SQLite database.
-
-    Tables are declared with schema="octopus" for real MariaDB, which SQLite
-    has no equivalent for, so the schema is translated away for this engine.
-    """
+    """A MariaDBClient backed by an in-memory SQLite database."""
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     SQLBase.metadata.create_all(engine)
     # weather_observation/weather_forecast are hive-app-owned tables read
     # cross-app by octopus-app's gas cost regression (see #511) -- declared
@@ -56,7 +52,7 @@ def mariadb_client_without_weather_tables(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     SQLBase.metadata.create_all(engine)
 
     monkeypatch.setattr(

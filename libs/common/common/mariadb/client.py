@@ -102,7 +102,7 @@ class MariaDBClientBase:
     def _create_all_tolerating_concurrent_creation(self, engine: Engine) -> None:
         """create_all's own checkfirst existence check and the CREATE TABLE
         statement it issues aren't atomic -- if octopus-app and hive-app
-        (which share octopus.job_run, see the job_run model's own comment in
+        (which share the job_run table, see the job_run model's own comment in
         common/mariadb/model.py) both start against a freshly-
         initialized database at the same time, both can see that table as
         absent and race to create it, with the loser's CREATE TABLE failing

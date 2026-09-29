@@ -1,5 +1,4 @@
 import logging
-from typing import ClassVar
 
 import pytest
 from sqlalchemy import Column, DateTime, Integer, String, create_engine, inspect, text
@@ -20,7 +19,6 @@ _StrippedBase = declarative_base()
 
 class _StrippedJobRun(_StrippedBase):
     __tablename__ = "job_run"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_name = Column(String(100), nullable=False)
@@ -33,7 +31,7 @@ def _sqlite_engine() -> Engine:
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
 
 
 def _settings() -> MariaDBSettings:

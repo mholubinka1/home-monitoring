@@ -1,6 +1,5 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import ClassVar
 
 import pytest
 from sqlalchemy import (
@@ -31,7 +30,6 @@ _StrippedBase = declarative_base()
 
 class _StrippedConsumption(_StrippedBase):
     __tablename__ = "consumption"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(String, primary_key=True)
     energy = Column(String)
@@ -43,7 +41,6 @@ class _StrippedConsumption(_StrippedBase):
 
 class _StrippedCostForecast(_StrippedBase):
     __tablename__ = "cost_forecast"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(String, primary_key=True)
     billing_period_start = Column(Date, nullable=False)
@@ -58,7 +55,7 @@ def _sqlite_engine() -> Engine:
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
 
 
 def _settings() -> MariaDBSettings:

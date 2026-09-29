@@ -31,7 +31,7 @@ def _settings() -> MariaDBSettings:
 def test_schema_sync_recovers_from_a_concurrent_table_creation_race(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Given octopus-app and hive-app (which share octopus.job_run) start against a
+    """Given octopus-app and hive-app (which share job_run) start against a
     freshly-initialized database at the same moment, both can see that table
     as absent and race to create it -- the loser's CREATE TABLE fails
     "already exists". Constructing MariaDBClientBase (its public interface)
@@ -41,7 +41,7 @@ def test_schema_sync_recovers_from_a_concurrent_table_creation_race(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     monkeypatch.setattr(
         "common.mariadb.client.create_engine",
         lambda *args, **kwargs: engine,
@@ -53,7 +53,7 @@ def test_schema_sync_recovers_from_a_concurrent_table_creation_race(
     def flaky_create_all(bind: Engine, checkfirst: bool = True) -> None:
         attempts.append(len(attempts) + 1)
         if len(attempts) == 1:
-            raise _mysql_error(1050, "Table 'octopus.job_run' already exists")
+            raise _mysql_error(1050, "Table 'job_run' already exists")
         real_create_all(bind, checkfirst=checkfirst)
 
     monkeypatch.setattr(SQLBase.metadata, "create_all", flaky_create_all)
@@ -72,7 +72,7 @@ def test_schema_sync_does_not_swallow_an_unrelated_schema_error(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     monkeypatch.setattr(
         "common.mariadb.client.create_engine",
         lambda *args, **kwargs: engine,

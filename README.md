@@ -43,9 +43,10 @@ Create `config.yml` from `config.yml.template`, providing:
 
 - Your Octopus API key and account number, [available from your Octopus dashboard](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
 - MariaDB connection details (`host`, `port`, `database`, `username`, `password`).
-  **`database` must be `octopus`** — `deployments/mariadb/docker-compose.yml` hardcodes
-  that name for the database MariaDB actually creates, so any other value here means
-  the app can never connect to a database that exists.
+  **`database` must name the database MariaDB actually created** (`MARIADB_DATABASE` in
+  `deployments/mariadb/docker-compose.yml`). Every table is resolved against this
+  value, so octopus-app's `config.yml` and hive-app's `hive-config.yml` must name the
+  same database -- they share `job_run` and the weather tables.
 - Data refresh settings: `refresh_interval_hours` (how often consumption is polled) and
   `retention_days` (how far back to backfill on every startup, and the raw-data
   retention window enforced weekly by the `prune_old_data` job, see
