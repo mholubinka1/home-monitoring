@@ -32,7 +32,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/octopus-app", "apps/hive-app", "libs/common"]
-testpaths = ["apps/octopus-app/tests", "apps/hive-app/tests", "libs/common/tests"]
+testpaths = ["apps/octopus-app/tests", "apps/hive-app/tests", "libs/common/tests", "scripts/tests"]
 # Independent test packages (apps/octopus-app/tests, apps/hive-app/tests,
 # libs/common/tests) all share the basename "tests" -- the default "prepend"
 # import mode binds each to the same top-level sys.modules["tests"] entry, so

@@ -17,7 +17,7 @@ services:
       MARIADB_RANDOM_ROOT_PASSWORD: 1
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
-      MARIADB_DATABASE: octopus
+      MARIADB_DATABASE: home_monitoring
     ports:
       - "3306:3306"
     volumes:
