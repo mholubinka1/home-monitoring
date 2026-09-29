@@ -16,15 +16,28 @@ _SERVER_ENV_VARS = (
     "TEST_MARIADB_USER",
     "TEST_MARIADB_PASSWORD",
 )
-_HOST = os.environ.get("TEST_MARIADB_HOST", "")
-_PORT = int(os.environ.get("TEST_MARIADB_PORT", "0"))
-_USER = os.environ.get("TEST_MARIADB_USER", "")
-_PASSWORD = os.environ.get("TEST_MARIADB_PASSWORD", "")
+
+
+# Read lazily: parsing at import would fail collection (rather than skip) when a
+# variable is defined but empty.
+def _server_settings(database: str) -> MariaDBSettings:
+    return MariaDBSettings(
+        host=os.environ["TEST_MARIADB_HOST"],
+        port=int(os.environ["TEST_MARIADB_PORT"]),
+        database=database,
+        username=os.environ["TEST_MARIADB_USER"],
+        password=os.environ["TEST_MARIADB_PASSWORD"],
+    )
 
 
 def _connect() -> pymysql.connections.Connection:
+    server = _server_settings("")
     return pymysql.connect(
-        host=_HOST, port=_PORT, user=_USER, password=_PASSWORD, autocommit=True
+        host=server.host,
+        port=server.port,
+        user=server.username,
+        password=server.password,
+        autocommit=True,
     )
 
 
@@ -54,13 +67,7 @@ def database_name() -> Iterator[str]:
 def test_schema_sync_and_job_runs_target_the_configured_database_not_octopus(
     database_name: str,
 ) -> None:
-    settings = MariaDBSettings(
-        host=_HOST,
-        port=_PORT,
-        database=database_name,
-        username=_USER,
-        password=_PASSWORD,
-    )
+    settings = _server_settings(database_name)
     octopus_tables_before = _tables_in("octopus")
 
     client = MariaDBClientBase(
