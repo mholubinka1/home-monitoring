@@ -213,7 +213,7 @@ def test_every_declared_index_compiles_as_valid_mariadb_ddl() -> None:
 
 
 def test_consumption_quantities_reject_negative_values_on_mariadb() -> None:
-    table = SQLBase.metadata.tables["octopus.consumption"]
+    table = SQLBase.metadata.tables["consumption"]
     ddl = str(CreateTable(table).compile(dialect=mysql.dialect()))
 
     assert "raw_value DECIMAL(8, 5) UNSIGNED NOT NULL" in ddl

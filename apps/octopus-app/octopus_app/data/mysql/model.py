@@ -10,9 +10,8 @@ __all__ = ["SQLBase", "job_run"]
 
 class consumption(SQLBase):
     __tablename__ = "consumption"
-    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+    __table_args__: ClassVar[tuple[Index]] = (
         Index("ix_consumption_energy_period_from", "energy", "period_from"),
-        {"schema": "octopus"},
     )
 
     id = Column(String(50), primary_key=True)
@@ -26,14 +25,13 @@ class consumption(SQLBase):
 
 class agreement(SQLBase):
     __tablename__ = "agreement"
-    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+    __table_args__: ClassVar[tuple[Index]] = (
         Index(
             "ix_agreement_energy_valid_from_valid_to",
             "energy",
             "valid_from",
             "valid_to",
         ),
-        {"schema": "octopus"},
     )
 
     id = Column(String(50), primary_key=True)
@@ -46,7 +44,6 @@ class agreement(SQLBase):
 
 class product(SQLBase):
     __tablename__ = "product"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     product_code = Column(String(50), primary_key=True)
     display_name = Column(String(200))
@@ -55,7 +52,7 @@ class product(SQLBase):
 
 class product_rate(SQLBase):
     __tablename__ = "product_rate"
-    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+    __table_args__: ClassVar[tuple[Index]] = (
         Index(
             "ix_product_rate_product_code_region_valid_from_valid_to",
             "product_code",
@@ -63,7 +60,6 @@ class product_rate(SQLBase):
             "valid_from",
             "valid_to",
         ),
-        {"schema": "octopus"},
     )
 
     id = Column(String(70), primary_key=True)
@@ -77,7 +73,6 @@ class product_rate(SQLBase):
 
 class daily_consumption_summary(SQLBase):
     __tablename__ = "daily_consumption_summary"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     energy = Column(String(1), primary_key=True)
     date = Column(Date, primary_key=True)
@@ -86,9 +81,8 @@ class daily_consumption_summary(SQLBase):
 
 class agile_forecast(SQLBase):
     __tablename__ = "agile_forecast"
-    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+    __table_args__: ClassVar[tuple[Index]] = (
         Index("ix_agile_forecast_region_period_from", "region", "period_from"),
-        {"schema": "octopus"},
     )
 
     id = Column(String(70), primary_key=True)
@@ -101,7 +95,6 @@ class agile_forecast(SQLBase):
 
 class cost_forecast(SQLBase):
     __tablename__ = "cost_forecast"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     billing_period_start = Column(Date, nullable=False)

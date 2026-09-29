@@ -49,7 +49,7 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # weather_observation/weather_forecast are owned by hive-app, but live in the
-# same shared `octopus` MariaDB schema this client already connects to (see
+# same shared MariaDB database this client already connects to (see
 # #511). They're declared here as plain Core Table objects against a
 # SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
 # mysql/model.py's SQLBase -- so octopus-app's own Schema Sync create_all
@@ -71,7 +71,6 @@ weather_observation_table = Table(
     Column("pressure", Float),
     Column("wind_speed", Float),
     Column("precipitation", Float),
-    schema="octopus",
 )
 
 weather_forecast_table = Table(
@@ -82,7 +81,6 @@ weather_forecast_table = Table(
     Column("target_date", Date, nullable=False),
     Column("max_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
-    schema="octopus",
 )
 
 

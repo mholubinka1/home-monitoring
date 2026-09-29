@@ -1,5 +1,3 @@
-from typing import ClassVar
-
 from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, Integer, String
 
 from common.mariadb.model import SQLBase, job_run
@@ -9,7 +7,6 @@ __all__ = ["SQLBase", "job_run"]
 
 class heating_status(SQLBase):
     __tablename__ = "heating_status"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     polled_at = Column(DateTime, nullable=False)
@@ -24,7 +21,6 @@ class heating_status(SQLBase):
 
 class weather_observation(SQLBase):
     __tablename__ = "weather_observation"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(20))
@@ -38,7 +34,6 @@ class weather_observation(SQLBase):
 
 class weather_forecast(SQLBase):
     __tablename__ = "weather_forecast"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     id = Column(String(50), primary_key=True)
     source = Column(String(20))

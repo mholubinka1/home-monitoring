@@ -99,7 +99,7 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
 
 ## Config and image cutover
 
-**Do not start this section until [#549](https://github.com/mholubinka1/home-monitoring/issues/549) is closed.** Every SQLAlchemy model across all three packages currently hardcodes `schema="octopus"` in its `__table_args__` — updating `config.yml`'s `mariadb.database` value alone does **not** retarget the apps: MariaDB treats "schema" and "database" as the same thing, and SQLAlchemy's `Table(schema=...)` fully qualifies every generated query regardless of which database the connection string defaults to. Run as documented below before #549 lands, the apps would keep reading and writing `octopus.*` after this step, and Schema Sync could recreate empty tables there — the cutover would not actually take effect. #549 makes the schema config-driven; once it's merged, step 9 below is accurate.
+**Prerequisite:** [#549](https://github.com/mholubinka1/home-monitoring/issues/549) must be deployed first. It removed the hardcoded `schema="octopus"` from every model, so the apps' tables now resolve against the database named by `mariadb.database` in `config.yml` / `hive-config.yml`. That setting is the single switch step 9 flips -- it is what retargets both the connection and every query. Do not start this section on an image built before #549.
 
 9. Update the Pi's live `config.yml` and `hive-config.yml` (`mariadb.database`) from `octopus` to `home_monitoring`.
 

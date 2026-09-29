@@ -12,9 +12,8 @@ SQLBase = declarative_base()
 
 class job_run(SQLBase):
     __tablename__ = "job_run"
-    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+    __table_args__: ClassVar[tuple[Index]] = (
         Index("ix_job_run_job_name_ran_at", "job_name", "ran_at"),
-        {"schema": "octopus"},
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
