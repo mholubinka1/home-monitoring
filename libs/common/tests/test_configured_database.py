@@ -50,8 +50,8 @@ def _tables_in(database: str) -> set[str]:
         return {row[0] for row in cursor.fetchall()}
 
 
-@pytest.fixture
-def database_name() -> Iterator[str]:
+@pytest.fixture(name="database_name")
+def _create_database() -> Iterator[str]:
     if not all(os.environ.get(var) for var in _SERVER_ENV_VARS):
         pytest.skip(f"real-database test needs {', '.join(_SERVER_ENV_VARS)}")
     connection = _connect()
@@ -75,9 +75,6 @@ def test_schema_sync_and_job_runs_target_the_configured_database_not_octopus(
     )
     client.record_job_run("some_job", "success")
 
-    try:
-        assert client.has_successful_job_run("some_job")
-    finally:
-        client._session_builder.engine.dispose()
+    assert client.has_successful_job_run("some_job")
     assert "job_run" in _tables_in(database_name)
     assert _tables_in("octopus") == octopus_tables_before
