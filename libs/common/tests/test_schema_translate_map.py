@@ -1,6 +1,9 @@
+import logging
+
 from sqlalchemy import Column, Integer, MetaData, String, Table
 
 from common.mariadb.client import MariaDBClientBase
+from common.mariadb.model import SQLBase
 
 from .conftest import CONFIGURED_DATABASE, MariaDBContainer
 
@@ -54,9 +57,20 @@ def test_raw_core_table_declared_with_octopus_schema_resolves_against_the_config
     assert [row.name for row in rows] == ["sprocket"]
 
 
-def test_octopus_database_itself_is_never_created_by_schema_sync(
-    configured_client: MariaDBClientBase,
+def test_schema_sync_never_creates_tables_in_a_pre_existing_octopus_database(
     mariadb_container: MariaDBContainer,
 ) -> None:
-    del configured_client
-    assert mariadb_container.database_exists("octopus") is False
+    # octopus is created here -- unlike the other tests in this file, which
+    # never create it at all -- so this test actually exercises the failure
+    # mode it guards against: a real deployment's octopus database already
+    # exists, and a broken schema_translate_map would make Schema Sync
+    # target it instead of the configured database.
+    mariadb_container.run_sql("CREATE DATABASE octopus;")
+    mariadb_container.run_sql(f"CREATE DATABASE {CONFIGURED_DATABASE};")
+    settings = mariadb_container.settings_for(CONFIGURED_DATABASE)
+
+    MariaDBClientBase(
+        settings, declarative_base=SQLBase, logger=logging.getLogger("test")
+    )
+
+    assert mariadb_container.table_names("octopus") == set()

@@ -107,11 +107,6 @@ class MariaDBContainer:
         lines = result.stdout.strip().splitlines()
         return set(lines[1:])
 
-    def database_exists(self, database: str) -> bool:
-        result = _run_sql(self.name, f"SHOW DATABASES LIKE '{database}';")
-        assert result.returncode == 0, result.stderr
-        return database in result.stdout
-
     def settings_for(self, database: str) -> MariaDBSettings:
         return MariaDBSettings(
             host="127.0.0.1",
