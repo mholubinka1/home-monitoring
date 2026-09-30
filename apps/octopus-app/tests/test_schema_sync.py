@@ -54,18 +54,26 @@ class _StrippedCostForecast(_StrippedBase):
 
 
 def _sqlite_engine() -> Engine:
+    # Several tests below populate this engine directly (metadata.create_all)
+    # before handing it to _sync_against, bypassing SessionBuilder's own
+    # schema_translate_map entirely -- so the translation still has to be
+    # applied here too. "main" (not None) to match _settings()'s
+    # database="main": SessionBuilder now derives its own map from
+    # settings.database (see common/mariadb/client.py and ADR-0025), and
+    # would otherwise re-apply a conflicting "octopus": "main" map on top of
+    # this engine's own execution_options when _sync_against runs.
     return create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    ).execution_options(schema_translate_map={"octopus": "main"})
 
 
 def _settings() -> MariaDBSettings:
     return MariaDBSettings(
         host="localhost",
         port=3306,
-        database="octopus",
+        database="main",
         username="test",
         password="test",
     )

@@ -139,4 +139,10 @@ disable = [
     # Noisy on test files, where explicit repetition of setup/assertions aids
     # readability (BDD principle) more than a shared helper would.
     "duplicate-code",
+    # apps/hive-app/tests and libs/common/tests deliberately have no __init__.py
+    # (see the pytest addopts comment above), so pylint sees a test file's
+    # `from .conftest import X` as leaving a package that, by its own static
+    # analysis, was never entered — even though pytest's importlib import mode
+    # resolves it correctly at runtime, which is what actually matters here.
+    "relative-beyond-top-level",
 ]

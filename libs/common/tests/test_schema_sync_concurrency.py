@@ -19,10 +19,15 @@ def _mysql_error(code: int, message: str) -> OperationalError:
 
 
 def _settings() -> MariaDBSettings:
+    # database="main" (not "octopus"): SessionBuilder now applies its own
+    # schema_translate_map keyed off settings.database (see
+    # common/mariadb/client.py and ADR-0025), and "main" is SQLite's own
+    # name for its default/only database, so "octopus" tables resolve there
+    # unqualified.
     return MariaDBSettings(
         host="localhost",
         port=3306,
-        database="octopus",
+        database="main",
         username="test",
         password="test",
     )
@@ -41,7 +46,7 @@ def test_schema_sync_recovers_from_a_concurrent_table_creation_race(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     monkeypatch.setattr(
         "common.mariadb.client.create_engine",
         lambda *args, **kwargs: engine,
@@ -72,7 +77,7 @@ def test_schema_sync_does_not_swallow_an_unrelated_schema_error(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    )
     monkeypatch.setattr(
         "common.mariadb.client.create_engine",
         lambda *args, **kwargs: engine,

@@ -185,7 +185,16 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
         mariadb=MariaDBSettings(
             host="localhost",
             port=3306,
-            database="octopus",
+            # "main" (not "octopus"): this reuses the mariadb_client
+            # fixture's monkeypatched create_engine (a SQLite engine with
+            # "octopus" already mapped to "main" -- see
+            # apps/octopus-app/tests/conftest.py), and the MonitoringClient
+            # constructed below builds its own MariaDBClient/SessionBuilder
+            # from these settings, which would otherwise re-apply a
+            # conflicting "octopus" -> "octopus" schema_translate_map (see
+            # common/mariadb/client.py and ADR-0025) on top of that same
+            # engine.
+            database="main",
             username="test",
             password="test",
         ),

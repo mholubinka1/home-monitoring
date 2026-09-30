@@ -55,7 +55,9 @@ class SessionBuilder:
 
     def __init__(self, settings: MariaDBSettings):
         uri = f"mysql+pymysql://{settings.username}:{settings.password}@{settings.host}:{settings.port}/{settings.database}"
-        self.engine = create_engine(uri)
+        self.engine = create_engine(uri).execution_options(
+            schema_translate_map={"octopus": settings.database}
+        )
         self.session = sessionmaker(bind=self.engine)
 
 
