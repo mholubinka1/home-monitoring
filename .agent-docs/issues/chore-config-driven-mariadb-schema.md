@@ -1,5 +1,7 @@
 # Issues: chore-config-driven-mariadb-schema
 
+> Work complete — PR ready to merge.
+
 ## Make MariaDB schema config-driven via schema_translate_map (#551)
 
 **Blocked by**: None
@@ -14,13 +16,13 @@ Add a real-`mariadb:latest`-container test proving this end-to-end against a dat
 
 ### Acceptance criteria
 
-- [ ] `SessionBuilder` sets `schema_translate_map={"octopus": settings.database}` on its engine.
-- [ ] A real-container test asserts Schema Sync's table/column/index creation lands in the configured database, not `octopus`.
-- [ ] A real-container test asserts an ORM write + read round-trips against the configured database.
-- [ ] A real-container test asserts a raw Core `Table` query (matching `octopus-app`'s weather-table pattern) resolves against the configured database.
-- [ ] A real-container test asserts `octopus` itself has no tables created in it when the configured database is something else.
-- [ ] Existing `libs/common/tests/conftest.py` SQLite-backed tests (`mariadb_client` fixture) still pass unchanged.
-- [ ] No edits to any model file or to `octopus-app/client.py`'s weather-table declarations.
-- [ ] `.agent-docs/context.md`'s `octopus` database entry and new `schema` entry, and [ADR-0025](../adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md), are in place (already written during design).
+- [x] `SessionBuilder` sets `schema_translate_map={"octopus": settings.database}` on its engine.
+- [x] A real-container test asserts Schema Sync's table/column/index creation lands in the configured database, not `octopus`.
+- [x] A real-container test asserts an ORM write + read round-trips against the configured database.
+- [x] A real-container test asserts a raw Core `Table` query (matching `octopus-app`'s weather-table pattern) resolves against the configured database.
+- [x] A real-container test asserts `octopus` itself has no tables created in it when the configured database is something else.
+- [x] Existing `libs/common/tests/conftest.py` SQLite-backed tests (`mariadb_client` fixture) still pass unchanged.
+- [x] No edits to any model file or to `octopus-app/client.py`'s weather-table declarations.
+- [x] `.agent-docs/context.md`'s `octopus` database entry and new `schema` entry, and [ADR-0025](../adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md), are in place (already written during design).
 
 ---
