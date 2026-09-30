@@ -107,6 +107,11 @@ class MariaDBContainer:
         lines = result.stdout.strip().splitlines()
         return set(lines[1:])
 
+    def database_exists(self, database: str) -> bool:
+        result = _run_sql(self.name, f"SHOW DATABASES LIKE '{database}';")
+        assert result.returncode == 0, result.stderr
+        return database in result.stdout
+
     def settings_for(self, database: str) -> MariaDBSettings:
         return MariaDBSettings(
             host="127.0.0.1",
@@ -187,13 +192,8 @@ def configured_client(  # pylint: disable=redefined-outer-name
 def mariadb_client(monkeypatch: pytest.MonkeyPatch) -> MariaDBClientBase:
     """A MariaDBClientBase backed by an in-memory SQLite database.
 
-    job_run is declared with schema="octopus" for real MariaDB, which SQLite
-    has no equivalent for. SessionBuilder now applies its own
-    schema_translate_map (keyed off settings.database -- see
-    common/mariadb/client.py and ADR-0025), so it's that settings.database
-    value, not a pre-baked execution_options call here, that has to resolve
-    to something SQLite understands: "main" is SQLite's own name for its
-    default/only database, so "octopus" tables resolve there unqualified.
+    database="main" below is what SessionBuilder's own schema_translate_map
+    resolves "octopus" to -- see ADR-0025.
     """
     engine = create_engine(
         "sqlite://",

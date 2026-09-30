@@ -19,11 +19,7 @@ def _mysql_error(code: int, message: str) -> OperationalError:
 
 
 def _settings() -> MariaDBSettings:
-    # database="main" (not "octopus"): SessionBuilder now applies its own
-    # schema_translate_map keyed off settings.database (see
-    # common/mariadb/client.py and ADR-0025), and "main" is SQLite's own
-    # name for its default/only database, so "octopus" tables resolve there
-    # unqualified.
+    # database="main" -- see ADR-0025.
     return MariaDBSettings(
         host="localhost",
         port=3306,

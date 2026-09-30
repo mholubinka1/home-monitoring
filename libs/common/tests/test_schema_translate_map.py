@@ -1,4 +1,3 @@
-import pytest
 from sqlalchemy import Column, Integer, MetaData, String, Table
 
 from common.mariadb.client import MariaDBClientBase
@@ -60,5 +59,4 @@ def test_octopus_database_itself_is_never_created_by_schema_sync(
     mariadb_container: MariaDBContainer,
 ) -> None:
     del configured_client
-    with pytest.raises(AssertionError, match="Unknown database 'octopus'"):
-        mariadb_container.table_names("octopus")
+    assert mariadb_container.database_exists("octopus") is False
