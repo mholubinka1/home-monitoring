@@ -155,7 +155,17 @@ class MariaDBClientBase:
                 f"{[column.name for column in missing_columns]}"
             )
 
-            qualified_name = f"{schema}.{table.name}" if schema else table.name
+            # schema is settings.database after translation (see ADR-0025) --
+            # an operator-configured value, not always the literal "octopus"
+            # -- so it must be identifier-quoted like table.name already is
+            # via CreateColumn's own compilation, rather than interpolated
+            # raw into DDL.
+            preparer = connection.dialect.identifier_preparer
+            qualified_name = (
+                f"{preparer.quote(schema)}.{preparer.quote(table.name)}"
+                if schema
+                else preparer.quote(table.name)
+            )
             for column in missing_columns:
                 column_ddl = CreateColumn(column).compile(dialect=connection.dialect)
                 connection.execute(

@@ -107,6 +107,21 @@ class MariaDBContainer:
         lines = result.stdout.strip().splitlines()
         return set(lines[1:])
 
+    def column_names(self, table: str, database: str) -> set[str]:
+        result = _run_sql(self.name, f"SHOW COLUMNS FROM {table};", database=database)
+        assert result.returncode == 0, result.stderr
+        # First tab-separated field of each row after the header is the
+        # column name (Field | Type | Null | Key | Default | Extra).
+        lines = result.stdout.strip().splitlines()
+        return {line.split("\t")[0] for line in lines[1:]}
+
+    def index_names(self, table: str, database: str) -> set[str]:
+        result = _run_sql(self.name, f"SHOW INDEX FROM {table};", database=database)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        key_name_column = lines[0].split("\t").index("Key_name")
+        return {line.split("\t")[key_name_column] for line in lines[1:]}
+
     def settings_for(self, database: str) -> MariaDBSettings:
         return MariaDBSettings(
             host="127.0.0.1",
