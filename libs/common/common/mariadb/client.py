@@ -55,6 +55,9 @@ class SessionBuilder:
 
     def __init__(self, settings: MariaDBSettings):
         uri = f"mysql+pymysql://{settings.username}:{settings.password}@{settings.host}:{settings.port}/{settings.database}"
+        # Every model's schema="octopus" (see mariadb/model.py) is a fixed
+        # translation-map key, not a database name -- this is what actually
+        # makes settings.database retarget every query. See ADR-0025.
         self.engine = create_engine(uri).execution_options(
             schema_translate_map={"octopus": settings.database}
         )
