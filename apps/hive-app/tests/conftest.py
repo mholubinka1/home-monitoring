@@ -11,14 +11,15 @@ from hive_app.data.mysql.model import SQLBase
 def mariadb_client(monkeypatch: pytest.MonkeyPatch) -> MariaDBClient:
     """A hive_app MariaDBClient backed by an in-memory SQLite database.
 
-    Tables are declared with schema="octopus" for real MariaDB, which SQLite
-    has no equivalent for, so the schema is translated away for this engine.
+    schema="octopus" is translated to "main" (SQLite's default database) --
+    see ADR-0025 for why this fixture's own map and database="main" below
+    must agree with SessionBuilder's own schema_translate_map.
     """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    ).execution_options(schema_translate_map={"octopus": "main"})
     SQLBase.metadata.create_all(engine)
 
     monkeypatch.setattr(
@@ -29,7 +30,7 @@ def mariadb_client(monkeypatch: pytest.MonkeyPatch) -> MariaDBClient:
     settings = MariaDBSettings(
         host="localhost",
         port=3306,
-        database="octopus",
+        database="main",
         username="test",
         password="test",
     )

@@ -185,7 +185,9 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
         mariadb=MariaDBSettings(
             host="localhost",
             port=3306,
-            database="octopus",
+            # "main" (not "octopus"): must agree with the mariadb_client
+            # fixture's own map -- see ADR-0025.
+            database="main",
             username="test",
             password="test",
         ),

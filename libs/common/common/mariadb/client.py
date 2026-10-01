@@ -55,7 +55,12 @@ class SessionBuilder:
 
     def __init__(self, settings: MariaDBSettings):
         uri = f"mysql+pymysql://{settings.username}:{settings.password}@{settings.host}:{settings.port}/{settings.database}"
-        self.engine = create_engine(uri)
+        # Every model's schema="octopus" (see mariadb/model.py) is a fixed
+        # translation-map key, not a database name -- this is what actually
+        # makes settings.database retarget every query. See ADR-0025.
+        self.engine = create_engine(uri).execution_options(
+            schema_translate_map={"octopus": settings.database}
+        )
         self.session = sessionmaker(bind=self.engine)
 
 
@@ -150,7 +155,17 @@ class MariaDBClientBase:
                 f"{[column.name for column in missing_columns]}"
             )
 
-            qualified_name = f"{schema}.{table.name}" if schema else table.name
+            # schema is settings.database after translation (see ADR-0025) --
+            # an operator-configured value, not always the literal "octopus"
+            # -- so it must be identifier-quoted like table.name already is
+            # via CreateColumn's own compilation, rather than interpolated
+            # raw into DDL.
+            preparer = connection.dialect.identifier_preparer
+            qualified_name = (
+                f"{preparer.quote(schema)}.{preparer.quote(table.name)}"
+                if schema
+                else preparer.quote(table.name)
+            )
             for column in missing_columns:
                 column_ddl = CreateColumn(column).compile(dialect=connection.dialect)
                 connection.execute(

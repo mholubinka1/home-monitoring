@@ -29,18 +29,20 @@ class _StrippedJobRun(_StrippedBase):
 
 
 def _sqlite_engine() -> Engine:
+    # database="main" here and in _settings() below must agree -- see
+    # ADR-0025.
     return create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-    ).execution_options(schema_translate_map={"octopus": None})
+    ).execution_options(schema_translate_map={"octopus": "main"})
 
 
 def _settings() -> MariaDBSettings:
     return MariaDBSettings(
         host="localhost",
         port=3306,
-        database="octopus",
+        database="main",
         username="test",
         password="test",
     )
