@@ -11,8 +11,9 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 REQUEST_TIMEOUT_SECONDS = 10
 REAUTH_REQUIRED_MESSAGE = (
-    "hive-app: Hive re-authentication required. The remembered device is no "
-    "longer recognized and a live SMS 2FA code is needed to recover."
+    "hive-app: Hive re-authentication required. The session can no longer be "
+    "resumed or started unattended; an interactive SMS 2FA re-login is "
+    "needed to recover."
 )
 
 

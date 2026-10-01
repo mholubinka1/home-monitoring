@@ -35,9 +35,10 @@ from hive_app.data.mysql.client import MariaDBClient
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-_DEVICE_NOT_REMEMBERED_MESSAGE = (
-    "Hive's remembered device is no longer recognized by Cognito; a live "
-    "SMS 2FA code is needed to recover."
+_RESUME_REQUIRES_RELOGIN_MESSAGE = (
+    "Hive's persisted session can no longer be resumed (e.g. the remembered "
+    "device is no longer recognized by Cognito); a live SMS 2FA code is "
+    "needed to recover."
 )
 _LOGIN_REQUIRES_SMS_MESSAGE = (
     "Hive login requires a live SMS 2FA code; a headless service cannot supply one."
@@ -186,7 +187,7 @@ class HiveApiSource:
             await HiveApiSource._start_session(
                 hive,
                 session_config=HiveApiSource._resume_config(state),
-                reauth_message=_DEVICE_NOT_REMEMBERED_MESSAGE,
+                reauth_message=_RESUME_REQUIRES_RELOGIN_MESSAGE,
             )
 
     @staticmethod
