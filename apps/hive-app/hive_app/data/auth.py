@@ -25,22 +25,20 @@ class HiveAuthenticator:
     state needs that manual step regardless of the alert."""
 
     _client: HiveSource
-    _alert: ReauthAlert | None
+    _alert: ReauthAlert
 
     def __init__(self, client: HiveSource, alert: ReauthAlert | None = None) -> None:
         self._client = client
-        self._alert = alert
+        self._alert = alert if alert is not None else ReauthAlert(None)
 
     def authenticate(self) -> None:
         try:
             state = self._resume_or_login()
         except HiveReauthRequired:
-            if self._alert is not None:
-                self._alert.notify_once()
+            self._alert.notify_once()
             raise
         self._client.persist_auth_state(state)
-        if self._alert is not None:
-            self._alert.clear()
+        self._alert.clear()
 
     def _resume_or_login(self) -> HiveAuthState:
         state = self._client.read_auth_state()

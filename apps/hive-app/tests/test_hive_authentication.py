@@ -94,6 +94,36 @@ def test_startup_notifies_immediately_when_resuming_needs_a_live_relogin() -> No
     assert notifier.calls == 1
 
 
+class _NotifierThatFailsOnce:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def notify_reauth_required(self) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            raise ConnectionError("ntfy.sh unreachable")
+
+
+def test_startup_retries_notifying_after_a_failed_delivery_attempt() -> None:
+    source = _ReauthRequiredAuthHiveSource(
+        initial_state=HiveAuthState(
+            refresh_token="existing-refresh-token",
+            device_group_key="existing-device-group-key",
+            device_key="existing-device-key",
+            device_password="existing-device-password",
+            updated_at=datetime(2026, 9, 17, 8, 0, tzinfo=UTC),
+        )
+    )
+    notifier = _NotifierThatFailsOnce()
+    authenticator = HiveAuthenticator(source, ReauthAlert(notifier))
+
+    for _ in range(3):
+        with pytest.raises(HiveReauthRequired):
+            authenticator.authenticate()
+
+    assert notifier.calls == 2
+
+
 def test_existing_auth_state_takes_only_the_resume_path() -> None:
     existing_state = HiveAuthState(
         refresh_token="existing-refresh-token",

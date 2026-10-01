@@ -27,19 +27,17 @@ class HiveSource(Protocol):
 
 class HeatingRetriever:
     _client: HiveSource
-    _alert: ReauthAlert | None
+    _alert: ReauthAlert
 
     def __init__(self, client: HiveSource, alert: ReauthAlert | None = None) -> None:
         self._client = client
-        self._alert = alert
+        self._alert = alert if alert is not None else ReauthAlert(None)
 
     def refresh(self) -> None:
         try:
             status = self._client.fetch_heating_status()
         except HiveReauthRequired:
-            if self._alert is not None:
-                self._alert.notify_once()
+            self._alert.notify_once()
             raise
-        if self._alert is not None:
-            self._alert.clear()
+        self._alert.clear()
         self._client.persist_heating_status(status)

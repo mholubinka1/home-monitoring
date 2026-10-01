@@ -51,8 +51,9 @@ re-auth failure never alerts until the first scheduled poll, and if it did
 alert, the next poll would alert again from independent state. Extract the
 flag and notify logic into its own small class (docstring carries the
 ADR-0018 reasoning), construct it once in `main()`, and pass it to both
-`HiveAuthenticator` and `HeatingRetriever`. `authenticate_at_startup`
-notifies through it on `HiveReauthRequired`; other startup exceptions stay
+`HiveAuthenticator` and `HeatingRetriever`. `HiveAuthenticator.authenticate()`
+notifies through it on `HiveReauthRequired` (and re-raises);
+`authenticate_at_startup` still just logs, and other startup exceptions stay
 log-only. A successful authenticate/refresh clears the shared flag. Also
 document, in a comment near `HiveAuthenticator`/`main.py`, that completing a
 live re-login needs an interactive SMS 2FA step this codebase cannot perform
