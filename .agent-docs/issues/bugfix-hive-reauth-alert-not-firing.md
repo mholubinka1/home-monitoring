@@ -2,6 +2,8 @@
 
 ## hive-app: map all re-auth-needed apyhiveapi exceptions to HiveReauthRequired — [#555](https://github.com/mholubinka1/home-monitoring/issues/555)
 
+> Work complete — [PR #557](https://github.com/mholubinka1/home-monitoring/pull/557) ready to merge.
+
 **Blocked by**: None
 
 **User stories**: 1, 3
@@ -22,21 +24,23 @@ ntfy alert.
 
 ### Acceptance criteria
 
-- [ ] Given `hive.startSession()` raises any exception in the set during
+- [x] Given `hive.startSession()` raises any exception in the set during
       resume, then this repo's `HiveReauthRequired` is raised (one assertion
       per exception type).
-- [ ] Given `hive.login()` raises any exception in the set during a fresh
+- [x] Given `hive.login()` raises any exception in the set during a fresh
       login, then this repo's `HiveReauthRequired` is raised (one assertion
       per exception type).
-- [ ] Given `HiveInvalidUsername`/`HiveInvalidPassword`, then they are not
+- [x] Given `HiveInvalidUsername`/`HiveInvalidPassword`, then they are not
       translated.
-- [ ] Given a `HeatingRetriever` poll fails with a mapped exception other than
+- [x] Given a `HeatingRetriever` poll fails with a mapped exception other than
       `ApyHiveReauthRequired`, then exactly one ntfy POST is made (ntfy
       mocked via `responses`).
 
 ---
 
 ## hive-app: share reauth de-dup across startup and polling, and alert at startup — [#556](https://github.com/mholubinka1/home-monitoring/issues/556)
+
+> Work complete — [PR #557](https://github.com/mholubinka1/home-monitoring/pull/557) ready to merge.
 
 **Blocked by**: #555
 
@@ -61,19 +65,19 @@ unattended.
 
 ### Acceptance criteria
 
-- [ ] Given `authenticate()` fails with `HiveReauthRequired` at startup, then
+- [x] Given `authenticate()` fails with `HiveReauthRequired` at startup, then
       one ntfy notification is sent immediately.
-- [ ] Given that startup failure followed immediately by a failing
+- [x] Given that startup failure followed immediately by a failing
       `HeatingRetriever.refresh()`, then exactly one ntfy notification fires
       across both.
-- [ ] Given a later successful `refresh()`, then the flag clears and a
+- [x] Given a later successful `refresh()`, then the flag clears and a
       subsequent distinct incident notifies again.
-- [ ] Given a failed notification delivery, then the flag is not set and the
+- [x] Given a failed notification delivery, then the flag is not set and the
       next failure retries.
-- [ ] Given a non-`HiveReauthRequired` startup exception, then behaviour is
+- [x] Given a non-`HiveReauthRequired` startup exception, then behaviour is
       unchanged (log-only, no notification).
-- [ ] Given ntfy is not configured, then no HTTP call is made.
-- [ ] The manual SMS 2FA re-login note exists near
+- [x] Given ntfy is not configured, then no HTTP call is made.
+- [x] The manual SMS 2FA re-login note exists near
       `HiveAuthenticator`/`main.py`.
 
 ---
