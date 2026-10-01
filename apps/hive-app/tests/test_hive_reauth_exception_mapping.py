@@ -13,7 +13,7 @@ from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import _LOGIN_REQUIRES_SMS_MESSAGE, HiveApiSource
 from hive_app.data.model import HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.notify import NtfyReauthNotifier
+from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert
 
 
 class _RaisingApyHive:
@@ -128,7 +128,7 @@ def test_unrecognised_device_during_a_poll_sends_one_reauth_alert(
     _install_hive_raising(
         monkeypatch, hive_exceptions.HiveInvalidDeviceAuthentication()
     )
-    heating = HeatingRetriever(source, NtfyReauthNotifier(topic_url))
+    heating = HeatingRetriever(source, ReauthAlert(NtfyReauthNotifier(topic_url)))
 
     with pytest.raises(HiveReauthRequired):
         heating.refresh()

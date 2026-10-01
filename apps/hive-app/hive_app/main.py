@@ -10,17 +10,16 @@ from schedule import Job, Scheduler, default_scheduler
 
 from hive_app.common.config import (
     LocationSettings,
-    NtfySettings,
     WeatherUndergroundSettings,
     get_settings,
 )
 from hive_app.common.decorator import retry_with_exponential_backoff
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.auth import HiveAuthenticator
-from hive_app.data.heating import HeatingRetriever, HiveSource
+from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.notify import NtfyReauthNotifier, ReauthNotifier
+from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert, ReauthNotifier
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
 
@@ -170,11 +169,8 @@ def _build_reauth_notifier(topic_url: str | None) -> ReauthNotifier | None:
     return NtfyReauthNotifier(topic_url)
 
 
-def _build_heating_retriever(
-    hive_source: HiveSource, ntfy: NtfySettings | None
-) -> HeatingRetriever:
-    reauth_notifier = _build_reauth_notifier(ntfy.topic_url if ntfy else None)
-    return HeatingRetriever(hive_source, reauth_notifier)
+def _build_reauth_alert(topic_url: str | None) -> ReauthAlert:
+    return ReauthAlert(_build_reauth_notifier(topic_url))
 
 
 def _build_weather_retriever(
@@ -207,8 +203,11 @@ def main() -> None:
 
     mariadb = MariaDBClient(settings.mariadb)
     hive_source = HiveApiSource(settings.hive, mariadb)
-    heating = _build_heating_retriever(hive_source, settings.ntfy)
-    authenticator = HiveAuthenticator(hive_source)
+    reauth_alert = _build_reauth_alert(
+        settings.ntfy.topic_url if settings.ntfy else None
+    )
+    heating = HeatingRetriever(hive_source, reauth_alert)
+    authenticator = HiveAuthenticator(hive_source, reauth_alert)
 
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)
