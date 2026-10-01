@@ -14,7 +14,16 @@ from typing import Any
 from aiohttp import ClientSession
 from apyhiveapi import Hive
 from apyhiveapi.helper.hive_exceptions import (
+    HiveAuthError,
+    HiveFailedToRefreshTokens,
+    HiveInvalid2FACode,
+    HiveInvalidDeviceAuthentication,
+)
+from apyhiveapi.helper.hive_exceptions import (
     HiveReauthRequired as ApyHiveReauthRequired,
+)
+from apyhiveapi.helper.hive_exceptions import (
+    HiveUnknownConfiguration,
 )
 
 from hive_app.common.config import HiveSettings
@@ -32,6 +41,18 @@ _DEVICE_NOT_REMEMBERED_MESSAGE = (
 )
 _LOGIN_REQUIRES_SMS_MESSAGE = (
     "Hive login requires a live SMS 2FA code; a headless service cannot supply one."
+)
+
+# Every apyhiveapi exception meaning "a live human must redo SMS 2FA login",
+# whichever path surfaces it. HiveInvalidUsername/HiveInvalidPassword are
+# deliberately absent: config-time credential errors, not this scenario.
+_REAUTH_REQUIRED_EXCEPTIONS = (
+    ApyHiveReauthRequired,
+    HiveInvalidDeviceAuthentication,
+    HiveAuthError,
+    HiveFailedToRefreshTokens,
+    HiveInvalid2FACode,
+    HiveUnknownConfiguration,
 )
 
 
@@ -190,15 +211,19 @@ class HiveApiSource:
         device fallback; login() doesn't raise for this, it just returns
         the raw challenge dict, so this is the only place that can turn it
         into the reauth-required signal callers already handle; (3)
-        anything else -- an exception login() itself raises
-        (HiveInvalidUsername/HiveInvalidPassword/HiveApiError/
-        HiveInvalidDeviceAuthentication/HiveUnknownConfiguration) propagates
-        on its own, but a *returned* dict matching neither outcome above
+        anything else -- an exception login() itself raises: any member of
+        _REAUTH_REQUIRED_EXCEPTIONS is translated to HiveReauthRequired
+        here, while others (HiveInvalidUsername/HiveInvalidPassword/
+        HiveApiError) propagate on their own. A *returned* dict matching
+        neither outcome above
         needs an explicit raise here, or this method would silently return
         None -- the caller would then persist a HiveAuthState with an empty
         refresh_token as though login had succeeded, deferring the failure
         to a later, harder-to-diagnose resume attempt."""
-        login_result = await hive.login()
+        try:
+            login_result = await hive.login()
+        except _REAUTH_REQUIRED_EXCEPTIONS as e:
+            raise HiveReauthRequired(_LOGIN_REQUIRES_SMS_MESSAGE) from e
         if "AuthenticationResult" in login_result:
             await HiveApiSource._start_session(
                 hive, session_config={}, reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE
@@ -219,8 +244,9 @@ class HiveApiSource:
     async def _start_session(
         hive: Hive, session_config: dict[str, Any], reauth_message: str
     ) -> None:
-        """Runs hive.startSession(session_config), translating apyhiveapi's
-        own HiveReauthRequired into this repo's own exception type (see
+        """Runs hive.startSession(session_config), translating every
+        apyhiveapi exception in _REAUTH_REQUIRED_EXCEPTIONS into this repo's
+        own HiveReauthRequired type (see
         HiveReauthRequired's docstring) so every caller in this class
         raises/handles one consistent exception rather than duplicating this
         try/except at each call site.
@@ -246,7 +272,7 @@ class HiveApiSource:
         sync with the real library's own sequence by construction."""
         try:
             await hive.startSession(session_config)
-        except ApyHiveReauthRequired as e:
+        except _REAUTH_REQUIRED_EXCEPTIONS as e:
             raise HiveReauthRequired(reauth_message) from e
 
     @asynccontextmanager
