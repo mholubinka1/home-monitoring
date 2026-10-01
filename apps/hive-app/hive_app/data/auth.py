@@ -21,8 +21,8 @@ class HiveAuthenticator:
 
     A HiveReauthRequired here (or from the poll) is only *alerted*, never
     recovered from: completing a live re-login needs an interactive SMS 2FA
-    step this codebase cannot perform unattended, so a broken live auth
-    state needs that manual step regardless of the alert."""
+    step this codebase cannot perform unattended; the alert only tells the
+    owner that someone must complete that step by hand."""
 
     _client: HiveSource
     _alert: ReauthAlert
