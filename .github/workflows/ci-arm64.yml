@@ -12,7 +12,7 @@ jobs:
       contents: write
     env:
       DOCKER_REGISTRY: docker.io
-      DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/octopus-monitoring
+      DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/octopus-app
       HIVE_APP_DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/hive-app
     steps:
       - name: Checkout

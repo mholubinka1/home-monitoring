@@ -12,7 +12,7 @@
 services:
   energy-monitor:
     container_name: energy-monitor
-    image: mholubinka1/octopus-monitoring:latest
+    image: mholubinka1/octopus-app:latest
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
