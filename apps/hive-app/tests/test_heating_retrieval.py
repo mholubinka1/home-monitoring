@@ -7,6 +7,7 @@ from hive_app.data.heating import HeatingRetriever
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.notify import ReauthAlert
 
 
 class _FakeHiveSource:
@@ -141,7 +142,7 @@ def test_refresh_notifies_reauth_required_when_hive_source_needs_live_sms() -> N
     notifier = _SpyReauthNotifier()
 
     with pytest.raises(HiveReauthRequired):
-        HeatingRetriever(source, notifier).refresh()
+        HeatingRetriever(source, ReauthAlert(notifier)).refresh()
 
     assert notifier.calls == 1
 
@@ -153,7 +154,7 @@ def test_refresh_does_not_notify_reauth_required_for_an_ordinary_transient_failu
     notifier = _SpyReauthNotifier()
 
     with pytest.raises(ConnectionError, match="Hive backend unreachable"):
-        HeatingRetriever(source, notifier).refresh()
+        HeatingRetriever(source, ReauthAlert(notifier)).refresh()
 
     assert notifier.calls == 0
 
@@ -173,7 +174,7 @@ def test_refresh_still_raises_the_original_reauth_error_when_notifying_fails() -
     with pytest.raises(
         HiveReauthRequired, match="Hive's remembered device is no longer recognized."
     ):
-        HeatingRetriever(source, notifier).refresh()
+        HeatingRetriever(source, ReauthAlert(notifier)).refresh()
 
 
 class _NotifierThatFailsOnce:
@@ -195,7 +196,7 @@ class _NotifierThatFailsOnce:
 def test_refresh_retries_notifying_after_a_failed_delivery_attempt() -> None:
     source = _ReauthRequiredHiveSource()
     notifier = _NotifierThatFailsOnce()
-    retriever = HeatingRetriever(source, notifier)
+    retriever = HeatingRetriever(source, ReauthAlert(notifier))
 
     with pytest.raises(HiveReauthRequired):
         retriever.refresh()
@@ -210,7 +211,7 @@ def test_refresh_retries_notifying_after_a_failed_delivery_attempt() -> None:
 def test_refresh_notifies_only_once_across_repeated_reauth_failures() -> None:
     source = _ReauthRequiredHiveSource()
     notifier = _SpyReauthNotifier()
-    retriever = HeatingRetriever(source, notifier)
+    retriever = HeatingRetriever(source, ReauthAlert(notifier))
 
     for _ in range(3):
         with pytest.raises(HiveReauthRequired):
@@ -257,7 +258,7 @@ def test_refresh_notifies_again_after_a_recovery_and_a_new_reauth_failure(
 ) -> None:
     source = _ScriptedHiveSource(mariadb_client, outcomes=[True, False, True])
     notifier = _SpyReauthNotifier()
-    retriever = HeatingRetriever(source, notifier)
+    retriever = HeatingRetriever(source, ReauthAlert(notifier))
 
     with pytest.raises(HiveReauthRequired):
         retriever.refresh()

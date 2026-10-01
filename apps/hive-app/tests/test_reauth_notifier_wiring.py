@@ -1,10 +1,10 @@
 import pytest
 import responses
 
-from hive_app.common.config import NtfySettings
 from hive_app.common.exceptions import HiveReauthRequired
+from hive_app.data.heating import HeatingRetriever
 from hive_app.data.model import HeatingStatus, HiveAuthState
-from hive_app.main import _build_heating_retriever, _build_reauth_notifier
+from hive_app.main import _build_reauth_alert, _build_reauth_notifier
 
 TOPIC_URL = "https://ntfy.sh/hive-app-reauth-alerts"
 
@@ -32,7 +32,7 @@ def test_build_reauth_notifier_returns_none_when_topic_url_is_an_empty_string() 
 class _ReauthRequiredHiveSource:
     """A fake HiveSource whose poll always raises the unrecoverable reauth
     error -- used to observe, black-box, whether a HeatingRetriever built by
-    _build_heating_retriever() actually notifies via the wired-up notifier."""
+    _build_reauth_alert() actually notifies via the wired-up notifier."""
 
     def fetch_heating_status(self) -> HeatingStatus:
         raise HiveReauthRequired("Hive's remembered device is no longer recognized.")
@@ -54,12 +54,10 @@ class _ReauthRequiredHiveSource:
 
 
 @responses.activate
-def test_build_heating_retriever_wires_a_configured_ntfy_topic_through_to_a_notify() -> (
-    None
-):
+def test_build_reauth_alert_wires_a_configured_ntfy_topic_through_to_a_notify() -> None:
     responses.add(responses.POST, TOPIC_URL, status=200)
-    heating = _build_heating_retriever(
-        _ReauthRequiredHiveSource(), NtfySettings(topic_url=TOPIC_URL)
+    heating = HeatingRetriever(
+        _ReauthRequiredHiveSource(), _build_reauth_alert(TOPIC_URL)
     )
 
     with pytest.raises(HiveReauthRequired):
@@ -70,11 +68,11 @@ def test_build_heating_retriever_wires_a_configured_ntfy_topic_through_to_a_noti
 
 
 @responses.activate
-def test_build_heating_retriever_with_no_ntfy_settings_attempts_no_http_call() -> None:
+def test_build_reauth_alert_with_no_ntfy_settings_attempts_no_http_call() -> None:
     # No responses registered: an unexpected HTTP call from a regressed
     # wiring (e.g. a hardcoded notifier) would raise ConnectionError here
     # instead of the plain HiveReauthRequired this asserts.
-    heating = _build_heating_retriever(_ReauthRequiredHiveSource(), None)
+    heating = HeatingRetriever(_ReauthRequiredHiveSource(), _build_reauth_alert(None))
 
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
