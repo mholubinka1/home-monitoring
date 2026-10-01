@@ -94,6 +94,23 @@ def test_startup_notifies_immediately_when_resuming_needs_a_live_relogin() -> No
     assert notifier.calls == 1
 
 
+class _LoginNeedsLiveSmsAuthHiveSource(_FakeAuthHiveSource):
+    def login(self) -> HiveAuthState:
+        raise HiveReauthRequired("Hive login requires a live SMS 2FA code.")
+
+
+def test_startup_notifies_when_a_first_ever_login_needs_a_live_sms_code() -> None:
+    source = _LoginNeedsLiveSmsAuthHiveSource()
+    notifier = _SpyReauthNotifier()
+    authenticator = HiveAuthenticator(source, ReauthAlert(notifier))
+
+    with pytest.raises(HiveReauthRequired):
+        authenticator.authenticate()
+
+    assert notifier.calls == 1
+    assert source.read_auth_state() is None
+
+
 class _NotifierThatFailsOnce:
     def __init__(self) -> None:
         self.calls = 0

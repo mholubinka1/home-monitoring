@@ -215,11 +215,11 @@ class HiveApiSource:
         _REAUTH_REQUIRED_EXCEPTIONS is translated to HiveReauthRequired
         here, while others (HiveInvalidUsername/HiveInvalidPassword/
         HiveApiError) propagate on their own. A *returned* dict matching
-        neither outcome above
-        needs an explicit raise here, or this method would silently return
-        None -- the caller would then persist a HiveAuthState with an empty
-        refresh_token as though login had succeeded, deferring the failure
-        to a later, harder-to-diagnose resume attempt."""
+        neither outcome above needs an explicit raise here, or this method
+        would silently return None -- the caller would then persist a
+        HiveAuthState with an empty refresh_token as though login had
+        succeeded, deferring the failure to a later, harder-to-diagnose
+        resume attempt."""
         try:
             login_result = await hive.login()
         except _REAUTH_REQUIRED_EXCEPTIONS as e:

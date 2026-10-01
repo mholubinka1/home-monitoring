@@ -49,7 +49,14 @@ class ReauthAlert:
     (see ADR-0018's "narrowly-scoped, not a general alert channel"
     framing). A failed delivery attempt does NOT set the flag, so it is
     retried on the next failure rather than being permanently suppressed.
+
+    The flag is plain, unsynchronised state: startup auth completes before
+    the scheduler registers the heating poll, so the two callers never run
+    concurrently. Revisit if that ordering ever changes.
     """
+
+    _notifier: ReauthNotifier | None
+    _notified: bool
 
     def __init__(self, notifier: ReauthNotifier | None) -> None:
         self._notifier = notifier
@@ -62,9 +69,10 @@ class ReauthAlert:
             self._notifier.notify_reauth_required()
         except Exception:
             logger.exception(
-                "Failed to send Hive re-auth alert; will retry on the next "
-                "reauth failure. The original HiveReauthRequired error "
-                "still propagates."
+                "Failed to send Hive re-auth alert (raised from startup auth "
+                "or the heating poll); will retry on the next reauth "
+                "failure. The original HiveReauthRequired error still "
+                "propagates."
             )
             return
         self._notified = True
