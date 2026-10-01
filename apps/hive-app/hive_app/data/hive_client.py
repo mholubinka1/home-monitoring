@@ -13,18 +13,7 @@ from typing import Any
 
 from aiohttp import ClientSession
 from apyhiveapi import Hive
-from apyhiveapi.helper.hive_exceptions import (
-    HiveAuthError,
-    HiveFailedToRefreshTokens,
-    HiveInvalid2FACode,
-    HiveInvalidDeviceAuthentication,
-)
-from apyhiveapi.helper.hive_exceptions import (
-    HiveReauthRequired as ApyHiveReauthRequired,
-)
-from apyhiveapi.helper.hive_exceptions import (
-    HiveUnknownConfiguration,
-)
+from apyhiveapi.helper import hive_exceptions
 
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveReauthRequired
@@ -48,12 +37,12 @@ _LOGIN_REQUIRES_SMS_MESSAGE = (
 # whichever path surfaces it. HiveInvalidUsername/HiveInvalidPassword are
 # deliberately absent: config-time credential errors, not this scenario.
 _REAUTH_REQUIRED_EXCEPTIONS = (
-    ApyHiveReauthRequired,
-    HiveInvalidDeviceAuthentication,
-    HiveAuthError,
-    HiveFailedToRefreshTokens,
-    HiveInvalid2FACode,
-    HiveUnknownConfiguration,
+    hive_exceptions.HiveReauthRequired,
+    hive_exceptions.HiveInvalidDeviceAuthentication,
+    hive_exceptions.HiveAuthError,
+    hive_exceptions.HiveFailedToRefreshTokens,
+    hive_exceptions.HiveInvalid2FACode,
+    hive_exceptions.HiveUnknownConfiguration,
 )
 
 
