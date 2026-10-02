@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from common.logging import logging_config
 
 
 @pytest.fixture(autouse=True)
-def _close_configured_handlers():
+def _close_configured_handlers() -> Iterator[None]:
     yield
     for name in ("hive-monitor", "octopus-monitor"):
         logger = logging.getLogger(name)

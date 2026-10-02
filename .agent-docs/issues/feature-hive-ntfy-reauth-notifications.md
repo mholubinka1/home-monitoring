@@ -82,7 +82,8 @@ context.md. Live config untouched.
 
 ### Acceptance criteria
 
-- [ ] No stale `hive-config.yml` references remain.
+- [ ] No stale `hive-config.yml` references remain outside historical specs
+      (earlier specs keep the name they were written with).
 - [ ] Template contains a topic placeholder and format comment; no real GUID
       anywhere in the repo.
 - [ ] ADR-0018 and context.md updated.

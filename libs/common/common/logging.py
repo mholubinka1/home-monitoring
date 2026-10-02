@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Any
 
 LOG_LEVEL = "INFO"
 DEFAULT_LOG_DIR = "/log"
@@ -15,7 +16,7 @@ def _can_write_log_file(log_dir: str, log_file: str) -> bool:
     return not os.path.exists(log_file) or os.access(log_file, os.W_OK)
 
 
-def logging_config(app_logger_name: str, log_dir: str | None = None) -> dict:
+def logging_config(app_logger_name: str, log_dir: str | None = None) -> dict[str, Any]:
     """Build a dictConfig for the app logger: console plus a rotating file.
 
     The file is ``<log_dir>/<app_logger_name>.log``; ``log_dir`` defaults to
@@ -25,7 +26,7 @@ def logging_config(app_logger_name: str, log_dir: str | None = None) -> dict:
     """
     if log_dir is None:
         log_dir = DEFAULT_LOG_DIR
-    handlers: dict = {
+    handlers: dict[str, dict[str, Any]] = {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "std_out",

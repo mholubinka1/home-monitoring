@@ -26,7 +26,7 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 
 ## Verify
 
-- ntfy delivers **hive-app: authentication recovered** after the next successful heating poll, but only if the "required" alert was actually delivered earlier.
+- ntfy delivers **hive-app: authentication recovered** once startup auth after the restart (or, if you skip the restart, the next heating poll) succeeds, but only if the "required" alert was actually delivered earlier.
 - `docker logs hive-app` shows "Persisted Hive auth state found; resuming via refresh." with no `HiveReauthRequired` after it.
 - `job_run` shows the heating refresh succeeding again.
 
@@ -34,8 +34,9 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 
 | Output | Meaning | Fix |
 | --- | --- | --- |
-| Non-zero exit with "invalid 2FA code" | The code was wrong or had expired | Run the command again and use the fresh code from the new SMS |
-| Non-zero exit with "unexpected challenge" | Hive returned a login step this tool does not handle | Do not retry in a loop; check the Hive app and account for a pending security prompt, then open an issue with the message |
+| `Hive login failed: HiveInvalid2FACode` (exit 1) | The code was wrong or had expired | Run the command again and use the fresh code from the new SMS |
+| `Hive login failed: RuntimeError: ... neither an AuthenticationResult nor an SMS_MFA challenge` (exit 1) | Hive returned a login step this tool does not handle | Do not retry in a loop; check the Hive app and account for a pending security prompt, then open an issue with the message |
+| `Hive login failed: RuntimeError: Cognito did not offer a device to remember ...` (exit 1) | The SMS code was accepted but Cognito offered no device to remember, so a restart would need another SMS code; nothing was saved | Run the command again. If it repeats, check the account's device-remembering setting in Hive/Cognito and open an issue with the message |
 | Non-zero exit loading the config | `/config/config.yml` is missing or invalid | Fix the file on the Pi; see [config.yml.template](config.yml.template) for the shape |
 | `Permission denied` writing the auth state | `/config` is not writable by UID 999 | `chown` the host directory to UID 999 (or an equivalent ACL), as noted in `deployments/hive-app/docker-compose.yml` |
 

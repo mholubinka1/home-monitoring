@@ -117,3 +117,14 @@ def test_a_config_that_cannot_be_loaded_fails_the_command(
 
     assert exit_code == 1
     assert capsys.readouterr().err != ""
+
+
+def test_running_the_command_without_a_config_file_says_so_rather_than_naming_none(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([], code_provider=lambda: "1")
+
+    assert exit_code == 1
+    error_output = capsys.readouterr().err
+    assert "--config-file" in error_output
+    assert "None" not in error_output

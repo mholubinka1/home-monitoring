@@ -28,7 +28,10 @@ def main(
         # get_settings reports its own failures and calls sys.exit(1).
         settings = get_settings(config_file_path=args.config_file)
     except SystemExit:
-        print(f"Could not load config from {args.config_file}.", file=sys.stderr)
+        if args.config_file is None:
+            print("Could not load config: pass --config-file <path>.", file=sys.stderr)
+        else:
+            print(f"Could not load config from {args.config_file}.", file=sys.stderr)
         return 1
 
     source = HiveApiSource(settings.hive, MariaDBClient(settings.mariadb))
