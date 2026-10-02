@@ -1,5 +1,9 @@
 # Issues: chore-rename-containers-octopus-app-home-monitoring-db
 
+> Work complete — [PR #567](https://github.com/mholubinka1/home-monitoring/pull/567) ready to merge.
+> The live Pi cutover is deliberately not part of this change; it is run
+> separately from `deployments/CUTOVER_RUNBOOK.md` after explicit confirmation.
+
 ## chore: rename containers to octopus-app and home-monitoring-db with a layout test — [#564](https://github.com/mholubinka1/home-monitoring/issues/564)
 
 **Blocked by**: None
@@ -21,14 +25,14 @@ retired names.
 
 ### Acceptance criteria
 
-- [ ] Given the compose files, every service name equals its container_name
+- [x] Given the compose files, every service name equals its container_name
       and its pi-media directory name.
-- [ ] Given octopus-app and hive-app, each mounts `/config` and `/log` from
+- [x] Given octopus-app and hive-app, each mounts `/config` and `/log` from
       its own `containers/<name>/` directory.
-- [ ] Given the app services, `depends_on` targets `home-monitoring-db`,
+- [x] Given the app services, `depends_on` targets `home-monitoring-db`,
       which is a declared service.
-- [ ] Given `deployments/`, no retired name remains outside the runbooks.
-- [ ] The combined `deployments/docker-compose.yml` validates with
+- [x] Given `deployments/`, no retired name remains outside the runbooks.
+- [x] The combined `deployments/docker-compose.yml` validates with
       `docker compose config`.
 
 ---
@@ -50,12 +54,12 @@ extended to cover the mounts and the cnf contents. The `docker logs` trade-off
 
 ### Acceptance criteria
 
-- [ ] Given the database service, `/var/log/mysql` is mounted from
+- [x] Given the database service, `/var/log/mysql` is mounted from
       `containers/home-monitoring-db/log`.
-- [ ] Given `logging.cnf`, error and slow-query logs are enabled with files
+- [x] Given `logging.cnf`, error and slow-query logs are enabled with files
       under `/var/log/mysql`, and the general query log is not enabled.
-- [ ] The logging config is mounted read-only into `/etc/mysql/conf.d/`.
-- [ ] The `docker logs` trade-off is documented where the config is
+- [x] The logging config is mounted read-only into `/etc/mysql/conf.d/`.
+- [x] The `docker logs` trade-off is documented where the config is
       introduced.
 
 ---
@@ -77,12 +81,12 @@ old containers, bring up, verify, roll back).
 
 ### Acceptance criteria
 
-- [ ] README states that `<name>` is the container name and uses the new
+- [x] README states that `<name>` is the container name and uses the new
       names throughout.
-- [ ] ADR-0015 has a dated amendment; `context.md` and RENAME_RUNBOOK are
+- [x] ADR-0015 has a dated amendment; `context.md` and RENAME_RUNBOOK are
       consistent with the rename.
-- [ ] CUTOVER_RUNBOOK.md has exact commands, a verification checklist and a
+- [x] CUTOVER_RUNBOOK.md has exact commands, a verification checklist and a
       rollback.
-- [ ] Docs/markdown pre-commit checks pass.
+- [x] Docs/markdown pre-commit checks pass.
 
 ---
