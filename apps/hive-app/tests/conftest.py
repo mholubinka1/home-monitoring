@@ -79,6 +79,23 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")
+        # Like the real login(): a direct AuthenticationResult records its
+        # tokens and, only when Cognito offered NewDeviceMetadata, the device
+        # group key and device key -- never the device password, which only
+        # device_registration() generates.
+        auth_result = self._login_result.get("AuthenticationResult")
+        if auth_result is not None:
+            for result_key, token_name in (
+                ("IdToken", "token"),
+                ("AccessToken", "accessToken"),
+                ("RefreshToken", "refreshToken"),
+            ):
+                if result_key in auth_result:
+                    self.tokens.tokenData[token_name] = auth_result[result_key]
+            metadata = auth_result.get("NewDeviceMetadata")
+            if metadata is not None:
+                self.auth.device_group_key = metadata["DeviceGroupKey"]
+                self.auth.device_key = metadata["DeviceKey"]
         return self._login_result
 
     async def sms2fa(self, code: str, session: str) -> dict[str, Any]:

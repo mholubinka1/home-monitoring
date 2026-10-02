@@ -12,9 +12,9 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
    docker exec -it hive-app python -m hive_app.login --config-file /config/config.yml
    ```
 
-   Use `-it`: the command prompts for the code with hidden input and needs a terminal.
+   Use `-it`: if Hive sends the SMS challenge, the command prompts for the code with hidden input and needs a terminal.
 
-3. Enter the SMS code when prompted. On success the command registers the device with Hive and writes `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
+3. Enter the SMS code if prompted. The command prompts for a code only if Hive sends the SMS challenge; if Hive logs in with no challenge, it registers a new device and saves the state without any prompt. Either way, on success the command registers the device with Hive and writes `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
 
 4. **Do not restart the container.** The running app re-reads `hive_auth_state.json` on every heating poll (every 120 seconds), so it recovers on its own within about two minutes. The "required" alert is remembered in memory only, so a restart before that first successful poll would forget it and no "authentication recovered" notification would be sent (recovery itself would still work).
 
