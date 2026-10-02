@@ -22,10 +22,10 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
 2. Confirm the logging config the database will mount is reachable on `main` (this repo's change must have merged), so step 4 cannot fail after the containers are already stopped:
 
    ```bash
-   curl -fsSI https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf | head -1
+   curl -fsS -o /dev/null -w '%{http_code}\n' https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf
    ```
 
-   It must print `HTTP/2 200`.
+   It must print `200`.
 
 ## Procedure
 
@@ -130,7 +130,7 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
 
 ## Rollback
 
-The database's data is never copied or modified, only renamed, so rolling back is renaming back. These steps work from any partial state (each one is skipped if it has nothing to do), and the data-directory check in step 3 exists because starting MariaDB against a missing data directory would silently initialise a fresh, empty database. Run them one at a time and read each output.
+The database's data is never copied or modified, only renamed, so rolling back is renaming back. If you are in a fresh shell, first re-define the variables these steps use: `COMPOSE` and `ROOT` as at the top of this runbook, and `BAK` as the compose backup made in step 5 (`ls "$COMPOSE".bak-*`; leave `BAK` unset if step 5 was never reached). Unset variables make the steps below print `STOP` or skip the compose restore. These steps work from any partial state (each one is skipped if it has nothing to do), and the data-directory check in step 3 exists because starting MariaDB against a missing data directory would silently initialise a fresh, empty database. Run them one at a time and read each output.
 
 1. Stop whatever is running under either set of names:
 

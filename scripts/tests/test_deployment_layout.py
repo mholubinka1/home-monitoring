@@ -4,7 +4,7 @@ service name, its container_name and its directory under
 
 import configparser
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -32,8 +32,23 @@ def test_every_container_is_named_the_same_as_its_compose_service() -> None:
     assert not mismatched, f"service name != container_name: {mismatched}"
 
 
+class _Volume(NamedTuple):
+    host_path: str
+    container_path: str
+    mode: str  # "" when the compose entry has no mode suffix
+
+
+def _volumes(service: dict[str, Any]) -> list[_Volume]:
+    """Parse a service's `host:container[:mode]` volume strings."""
+    parsed = []
+    for entry in service.get("volumes", []):
+        host_path, container_path, *mode = str(entry).split(":")
+        parsed.append(_Volume(host_path, container_path, mode[0] if mode else ""))
+    return parsed
+
+
 def _host_paths(service: dict[str, Any]) -> list[str]:
-    return [str(volume).split(":")[0] for volume in service.get("volumes", [])]
+    return [volume.host_path for volume in _volumes(service)]
 
 
 def test_every_host_path_lives_in_a_directory_named_after_its_container() -> None:
@@ -53,10 +68,7 @@ def test_every_host_path_lives_in_a_directory_named_after_its_container() -> Non
 
 def _mounts(service: dict[str, Any]) -> dict[str, str]:
     """Container-side path -> host-side path."""
-    return {
-        str(volume).split(":")[1]: str(volume).split(":")[0]
-        for volume in service.get("volumes", [])
-    }
+    return {volume.container_path: volume.host_path for volume in _volumes(service)}
 
 
 def test_apps_mount_config_and_log_from_their_own_container_directory() -> None:
@@ -93,18 +105,18 @@ def test_the_database_keeps_its_logs_in_its_own_container_directory() -> None:
 def test_the_database_logging_config_is_mounted_read_only_into_conf_d() -> None:
     database = _services()["home-monitoring-db"]
 
-    volumes = [
-        str(volume)
-        for volume in database.get("volumes", [])
-        if str(volume).split(":")[1] == "/etc/mysql/conf.d/logging.cnf"
+    mounts = [
+        volume
+        for volume in _volumes(database)
+        if volume.container_path == "/etc/mysql/conf.d/logging.cnf"
     ]
 
-    assert volumes, "no volume mounts a file at /etc/mysql/conf.d/logging.cnf"
-    host_path, _, mode = volumes[0].split(":")
-    assert mode == "ro", f"logging.cnf must be mounted read-only, got {mode!r}"
-    assert host_path == (
+    assert mounts, "no volume mounts a file at /etc/mysql/conf.d/logging.cnf"
+    mount = mounts[0]
+    assert mount.mode == "ro", f"logging.cnf must be read-only, got {mount.mode!r}"
+    assert mount.host_path == (
         f"{CONTAINERS_ROOT}home-monitoring-db/config/logging.cnf"
-    ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {host_path!r}"
+    ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {mount.host_path!r}"
 
 
 def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
@@ -142,7 +154,8 @@ def test_every_depends_on_target_is_a_declared_service() -> None:
 
 
 def test_no_deployment_file_uses_the_retired_container_or_service_names() -> None:
-    retired_container_names = ("energy-monitor-db", "energy-monitor")
+    # Also catches `energy-monitor-db`, which contains this name.
+    retired_container_names = ("energy-monitor",)
     # Exempt by filename only: the runbooks must name the old containers (and the
     # MariaDB user, which is also called `energy-monitor`) to describe the rename.
     runbooks = {"RENAME_RUNBOOK.md", "CUTOVER_RUNBOOK.md"}
