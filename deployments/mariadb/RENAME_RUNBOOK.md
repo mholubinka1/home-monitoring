@@ -1,5 +1,10 @@
 # Pi cutover runbook: `octopus` → `home_monitoring` database, image rename
 
+> **Historical:** this runbook was written for, and executed against, the containers' old
+> names (`energy-monitor`, `energy-monitor-db`, service `mariadb`), and is kept as written.
+> Those containers are now `octopus-app` and `home-monitoring-db`; see
+> [CUTOVER_RUNBOOK.md](../CUTOVER_RUNBOOK.md) for that rename.
+
 Executes the deferred renames ([ADR-0022](../../.agent-docs/adr/0022-single-shared-home-monitoring-database.md), [ADR-0024](../../.agent-docs/adr/0024-docker-hub-image-name-octopus-app.md)) together, in one supervised session, against the live Pi. Do not start this until the user has explicitly confirmed the cutover window — brief downtime is expected and accepted, but it is still downtime on a live system.
 
 Every `export MYSQL_PWD=...` below must run in the same shell session as the commands that follow it — it sets nothing outside that shell. If the session breaks or you resume this runbook later (or partway, e.g. jumping straight to step 8), re-export the credential the next step needs before running it; an unset `MYSQL_PWD` fails auth cleanly rather than silently using a stale value, but it's still a confusing detour if you don't expect it.

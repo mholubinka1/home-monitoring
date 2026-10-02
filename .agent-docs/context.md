@@ -178,6 +178,10 @@ _Avoid_: utils, shared (ambiguous outside this glossary entry)
 `deployments/docker-compose.yml`, prepared as the eventual deployment target for a future, explicitly-confirmed Pi cutover — not yet deployed there (the Pi's live stack is still its own separate `/home/pi/git/pi-desktop/docker/docker-compose.yml`, kept in sync by hand until that cutover happens). Has no service definitions of its own — it `include:`s the three per-app compose files (`deployments/octopus-app/docker-compose.yml`, `deployments/hive-app/docker-compose.yml`, `deployments/mariadb/docker-compose.yml`), which are the single source of truth. See [ADR-0021](adr/0021-uv-workspace-packaging.md) for the equivalent per-package pattern on the Python packaging side.
 _Avoid_: the compose file (ambiguous once four compose files exist)
 
+**Container Naming Pattern**:
+A container's compose service name, its `container_name` and its directory under `/mnt/media/pi-media/containers/` are the same string: `octopus-app`, `hive-app` and `home-monitoring-db` (renamed from `energy-monitor`, `energy-monitor-db` and the service `mariadb`). Each directory holds `config/` and `log/` (the database also `data/`), mounted at `/config` and `/log` (the database: its own `config/` files, `/var/lib/mysql` and `/var/log/mysql`). Apps and Grafana reach the database by host IP and published port, never by container name. Pinned by `scripts/tests/test_deployment_layout.py`; the live rename is `deployments/CUTOVER_RUNBOOK.md`. See [ADR-0015](adr/0015-pi-media-per-container-bind-mounts.md).
+_Avoid_: energy-monitor, energy-monitor-db, the `mariadb` service (retired names)
+
 **octopus-app**:
 The Octopus Energy data-gathering container, at `apps/octopus-app/octopus_app/` (relocated from this repo's former `app/` + `tests/` by the apps/libs/data/deployments restructure) — same responsibilities as before, just repackaged as one of several containers rather than the repo's sole app.
 _Avoid_: the app, main app (ambiguous once `hive-app` exists)

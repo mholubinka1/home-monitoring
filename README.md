@@ -39,10 +39,16 @@ see `.agent-docs/specs/` for the roadmap.
 
 ### Application
 
-Every container keeps its configuration and logs under its own directory on the Pi:
+Every container keeps its configuration and logs under its own directory on the Pi.
+`<name>` is the container's name, which is also its compose service name and its
+directory name: `octopus-app`, `hive-app` and `home-monitoring-db`. The apps use
 `/mnt/media/pi-media/containers/<name>/config/config.yml` (mounted to `/config`) and
-`/mnt/media/pi-media/containers/<name>/log/` (mounted to `/log`). Each app's template
-lives next to its deployment: `deployments/octopus-app/config.yml.template` and
+`/mnt/media/pi-media/containers/<name>/log/` (mounted to `/log`). The database follows
+the same layout with its own contents: `home-monitoring-db/config/` holds `init.sql` and
+`logging.cnf`, `home-monitoring-db/data/` is MariaDB's data directory and
+`home-monitoring-db/log/` (mounted to `/var/log/mysql`) holds its error and slow-query
+logs. Each app's template lives next to its deployment:
+`deployments/octopus-app/config.yml.template` and
 `deployments/hive-app/config.yml.template`. Live config is never committed.
 
 For octopus-app, create `config.yml` from `deployments/octopus-app/config.yml.template`,
@@ -74,7 +80,7 @@ re-authentication, with `python -m hive_app.login` as described in
 Create `.env` from `.env.template`, providing `MARIADB_USER`/`MARIADB_PASSWORD` — the
 credentials for the app's own MariaDB user. **These must match `config.yml`'s
 `mariadb.username`/`password` exactly** — the two files aren't automatically kept in
-sync. Docker Compose passes these values into the `mariadb` container on every start,
+sync. Docker Compose passes these values into the `home-monitoring-db` container on every start,
 but MariaDB's own entrypoint only *acts* on them once — when it initializes an empty
 data directory, to create that user. On a container restart against an
 already-initialized data volume, MariaDB ignores them for user creation; editing `.env`
@@ -115,13 +121,18 @@ a live SMS 2FA code; see the runbook.
    `deployments/hive-app/docker-compose.yml`, and
    `deployments/mariadb/docker-compose.yml`'s `volumes:` entries
    (`/mnt/media/pi-media/containers/...`) are host-specific placeholders — change them
-   to real paths on your machine before doing anything else. You need four host
-   directories/files:
-   - a config directory for the app (mounted to `/config`)
-   - a log directory for the app (mounted to `/log`)
-   - a data directory for MariaDB (mounted to `/var/lib/mysql`)
-   - the repo's `data/mariadb/init.sql` copied to a path on the host (mounted read-only
-     to `/docker-entrypoint-initdb.d/init.sql`)
+   to real paths on your machine before doing anything else. Per container (named as
+   described under Configuration) you need these host directories/files:
+   - for each app: a config directory (mounted to `/config`) and a log directory
+     (mounted to `/log`)
+   - for `home-monitoring-db`: a data directory (mounted to `/var/lib/mysql`) and a log
+     directory (mounted to `/var/log/mysql`, writable by the MariaDB user)
+   - the repo's `data/mariadb/init.sql` copied to `home-monitoring-db/config/` (mounted
+     read-only to `/docker-entrypoint-initdb.d/init.sql`)
+   - the repo's `data/mariadb/logging.cnf` copied to `home-monitoring-db/config/`
+     (mounted read-only into `/etc/mysql/conf.d/`; it enables the error and slow-query
+     logs, so server errors go to `home-monitoring-db/log/error.log` and no longer
+     appear in `docker logs`)
 2. **Create `config.yml`** from the app's `config.yml.template` (see Configuration above) and
    place it at the path you chose for the app's config bind mount.
 3. **Create `.env`** from `.env.template` in the repository root — the directory you'll
@@ -139,35 +150,35 @@ a live SMS 2FA code; see the runbook.
 
    On first run, MariaDB initializes its (empty) data directory: it creates the
    `octopus` database (via the mounted `init.sql`) and the app's MariaDB user (via the
-   `.env` credentials), then reports healthy. The `energy-monitor` container waits for
+   `.env` credentials), then reports healthy. The `octopus-app` container waits for
    that healthcheck before starting, connects, runs its additive schema sync (creating
    every table from scratch — see
    [ADR-0005](.agent-docs/adr/0005-additive-only-schema-sync.md)), and begins polling.
 5. **Verify it worked:**
 
    ```bash
-   docker compose -f deployments/docker-compose.yml logs -f energy-monitor
+   docker compose -f deployments/docker-compose.yml logs -f octopus-app
    ```
 
    Look for the settings-loaded and schema-sync log lines, followed by consumption
    retrieval starting. `docker compose -f deployments/docker-compose.yml ps` should
-   show all three containers `Up` (`mariadb` as `healthy`).
+   show all three containers `Up` (`home-monitoring-db` as `healthy`).
 
 ### Subsequent deployments (updates, restarts, redeploys)
 
 - **New image version**: `docker compose -f deployments/docker-compose.yml pull && docker compose -f deployments/docker-compose.yml up -d`
-  — the `mariadb` data directory already exists, so `.env` is not re-read; the app
+  — the `home-monitoring-db` data directory already exists, so `.env` is not re-read; the app
   container is simply replaced and re-runs its (idempotent, additive-only) schema sync
   against the existing database on startup. `watchtower` (see each per-service compose
   file's `com.centurylinklabs.watchtower.enable` label) does this automatically on its
   own schedule if it's running on the host — a manual `docker compose pull` is only
   needed for an out-of-schedule update.
 - **Config changes** (`config.yml`, e.g. `refresh_interval_hours`): edit the file, then
-  `docker compose -f deployments/docker-compose.yml restart energy-monitor` — no
+  `docker compose -f deployments/docker-compose.yml restart octopus-app` — no
   rebuild or pull needed.
 - **Changing the MariaDB app user's password**: editing `.env` alone does **not**
   change it on an already-initialized database — you'd need to update the password in
   MariaDB directly (e.g. `ALTER USER`) and in `config.yml` together. `.env` only
   matters again if the data volume is wiped and MariaDB re-initializes from empty.
 - **A brand new table/column** added by a future feature: no manual DDL step needed —
-  the schema sync creates it automatically on the next `energy-monitor` startup.
+  the schema sync creates it automatically on the next `octopus-app` startup.
