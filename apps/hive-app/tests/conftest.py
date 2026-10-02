@@ -75,6 +75,7 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         self.call_order: list[str] = []
         self.submitted_codes: list[str] = []
         self.submitted_sessions: list[str] = []
+        self.start_session_configs: list[dict[str, Any] | None] = []
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")
@@ -102,8 +103,9 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         self.call_order.append("device_registration")
         self.auth.device_password = "generated-device-password"
 
-    async def startSession(self, _config: dict[str, Any] | None = None) -> None:
+    async def startSession(self, config: dict[str, Any] | None = None) -> None:
         self.call_order.append("startSession")
+        self.start_session_configs.append(config)
         self.deviceList = {"climate": [{"id": "thermostat-1"}]}
 
 

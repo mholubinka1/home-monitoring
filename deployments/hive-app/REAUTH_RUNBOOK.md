@@ -16,19 +16,15 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 
 3. Enter the SMS code when prompted. On success the command registers the device with Hive and writes `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
 
-4. Restart the container so startup auth resumes from the new state straight away, rather than waiting for the next poll:
-
-   ```bash
-   docker compose -f /home/pi/git/pi-desktop/docker/docker-compose.yml restart hive-app
-   ```
-
-   (adjust the compose path and service name to the Pi's live setup).
+4. **Do not restart the container.** The running app re-reads `hive_auth_state.json` on every heating poll (every 120 seconds), so it recovers on its own within about two minutes. The "required" alert is remembered in memory only, so a restart before that first successful poll would forget it and no "authentication recovered" notification would be sent (recovery itself would still work).
 
 ## Verify
 
-- ntfy delivers **hive-app: authentication recovered** once startup auth after the restart (or, if you skip the restart, the next heating poll) succeeds, but only if the "required" alert was actually delivered earlier.
-- `docker logs hive-app` shows "Persisted Hive auth state found; resuming via refresh." with no `HiveReauthRequired` after it.
+- Within about two minutes ntfy delivers **hive-app: authentication recovered** (only if the "required" alert was actually delivered earlier by the same running process).
+- `docker logs hive-app` shows the heating poll succeeding again with no `HiveReauthRequired`.
 - `job_run` shows the heating refresh succeeding again.
+
+If you did restart before the first successful poll, or the container restarted for another reason in the meantime, expect no "recovered" notification; the log and `job_run` checks above still confirm recovery.
 
 ## If the command fails
 

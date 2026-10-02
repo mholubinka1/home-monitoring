@@ -90,6 +90,21 @@ def test_an_unwritable_existing_log_file_falls_back_to_console_only_with_a_warni
     assert str(log_file) in capsys.readouterr().err
 
 
+def test_a_directory_sitting_at_the_log_file_path_falls_back_to_console_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # os.access() succeeds for a writable directory, but RotatingFileHandler
+    # cannot open a directory as its log file and would raise at import time.
+    log_path = tmp_path / "hive-monitor.log"
+    log_path.mkdir()
+
+    config = logging_config("hive-monitor", log_dir=str(tmp_path))
+
+    assert "file" not in config["handlers"]
+    assert config["loggers"]["hive-monitor"]["handlers"] == ["console"]
+    assert str(log_path) in capsys.readouterr().err
+
+
 def test_the_default_log_directory_is_used_when_none_is_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -82,7 +82,8 @@ class ReauthAlert:
 
     clear() (a successful poll or startup auth) sends the one "auth
     recovered" notice, but only if a "required" alert was actually
-    delivered -- a normal successful poll sends nothing. State resets
+    delivered by this process (the marker is in memory, so a restart in
+    between forgets it) -- a normal successful poll sends nothing. State resets
     either way; a failed "recovered" delivery is logged and swallowed,
     never retried, so polling is unaffected.
 

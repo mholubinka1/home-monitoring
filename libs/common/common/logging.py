@@ -13,7 +13,9 @@ def _can_write_log_file(log_dir: str, log_file: str) -> bool:
     # makes dictConfig raise, which would crash the app at import time.
     if not (os.path.isdir(log_dir) and os.access(log_dir, os.W_OK | os.X_OK)):
         return False
-    return not os.path.exists(log_file) or os.access(log_file, os.W_OK)
+    if not os.path.exists(log_file):
+        return True
+    return os.path.isfile(log_file) and os.access(log_file, os.W_OK)
 
 
 def logging_config(app_logger_name: str, log_dir: str | None = None) -> dict[str, Any]:
@@ -21,8 +23,9 @@ def logging_config(app_logger_name: str, log_dir: str | None = None) -> dict[str
 
     The file is ``<log_dir>/<app_logger_name>.log``; ``log_dir`` defaults to
     ``/log`` (each container's bind-mounted log directory). If the directory is
-    missing or unwritable, logging falls back to console only with a warning on
-    stderr.
+    missing or unwritable, or the log file path already exists but is not a
+    writable regular file, logging falls back to console only with a warning
+    on stderr.
     """
     if log_dir is None:
         log_dir = DEFAULT_LOG_DIR

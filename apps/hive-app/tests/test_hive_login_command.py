@@ -48,27 +48,39 @@ def test_an_operator_who_enters_a_valid_code_has_the_auth_state_written_and_sees
     assert "success" in capsys.readouterr().out.lower()
 
 
-def test_the_auth_state_written_by_the_command_can_be_read_back_for_a_restart(
+def test_a_restarted_hive_app_resumes_from_the_saved_state_without_another_sms_code(
     tmp_path: Path,
     mariadb_client: MariaDBClient,
     install_fake_hive: Callable[..., Any],
 ) -> None:
     config_file, auth_state_path = _write_config(tmp_path)
-    install_fake_hive()
-
+    fake_hive = install_fake_hive()
     main(["--config-file", str(config_file)], code_provider=lambda: "123456")
+    calls_before_restart = len(fake_hive.call_order)
 
+    # A restart is a fresh HiveApiSource reading what the command persisted.
     settings = HiveSettings(
         username="user@example.com",
         password="hunter2",
         auth_state_path=str(auth_state_path),
     )
-    state = HiveApiSource(settings, mariadb_client).read_auth_state()
-    assert state is not None
-    assert state.refresh_token == "refresh-tok"
-    assert state.device_group_key == "group-key"
-    assert state.device_key == "device-key"
-    assert state.device_password == "generated-device-password"
+    restarted = HiveApiSource(settings, mariadb_client)
+    saved_state = restarted.read_auth_state()
+    assert saved_state is not None
+    resumed_state = restarted.resume(saved_state)
+
+    resume_calls = fake_hive.call_order[calls_before_restart:]
+    assert resume_calls == ["startSession"]
+    assert fake_hive.submitted_codes == ["123456"]
+    assert fake_hive.start_session_configs[-1] == {
+        "tokens": {
+            "token": "",
+            "refreshToken": "refresh-tok",
+            "accessToken": "",
+        },
+        "device_data": ("group-key", "device-key", "generated-device-password"),
+    }
+    assert resumed_state.refresh_token == "refresh-tok"
 
 
 @pytest.mark.usefixtures("mariadb_client")
