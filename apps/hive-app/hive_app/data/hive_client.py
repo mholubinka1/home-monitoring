@@ -29,6 +29,11 @@ _RESUME_REQUIRES_RELOGIN_MESSAGE = (
     "device is no longer recognized by Cognito); a live SMS 2FA code is "
     "needed to recover."
 )
+_NO_REMEMBERED_DEVICE_MESSAGE = (
+    "Hive login completed but did not yield a refresh token and remembered "
+    "device (Cognito offered no device to remember), so the next restart "
+    "would need another SMS code."
+)
 _LOGIN_REQUIRES_SMS_MESSAGE = (
     "Hive login requires a live SMS 2FA code; a headless service cannot supply one."
 )
@@ -164,10 +169,7 @@ class HiveApiSource:
             if login_result.get("ChallengeName") == hive.auth.SMS_MFA_CHALLENGE:
                 await hive.sms2fa(code_provider(), login_result["Session"])
                 if not hive.auth.device_key:
-                    raise RuntimeError(
-                        "Cognito did not offer a device to remember after SMS "
-                        "2FA, so the next restart would need another SMS code."
-                    )
+                    raise RuntimeError(_NO_REMEMBERED_DEVICE_MESSAGE)
                 await hive.auth.device_registration()
             elif "AuthenticationResult" not in login_result:
                 raise RuntimeError(
@@ -178,7 +180,20 @@ class HiveApiSource:
             await self._start_session(
                 hive, session_config={}, reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE
             )
-            return self._auth_state_from_session(hive)
+            state = self._auth_state_from_session(hive)
+            # Whichever path got here, every field a restart's resume needs
+            # must be set -- a direct AuthenticationResult skips the SMS
+            # device-registration path, so nothing else guarantees them.
+            if not all(
+                (
+                    state.refresh_token,
+                    state.device_group_key,
+                    state.device_key,
+                    state.device_password,
+                )
+            ):
+                raise RuntimeError(_NO_REMEMBERED_DEVICE_MESSAGE)
+            return state
 
     async def _resume(self, state: HiveAuthState) -> HiveAuthState:
         async with self._hive_session() as hive:
