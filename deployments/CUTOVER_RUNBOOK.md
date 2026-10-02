@@ -54,11 +54,17 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
    docker ps -a --filter name=energy-monitor --filter name=hive-app --format '{{.Names}}\t{{.Status}}'
    ```
 
-4. Rename the directories in place and prepare the database's new files (`mv` is an atomic rename; no data is copied):
+4. Rename the directories in place and prepare the database's new files (`mv` is an atomic rename; no data is copied). First check the preconditions: both sources must exist and neither destination may. `mv` onto an existing directory does not fail, it nests the source inside it, which on a rerun or partial cutover would put the live data at `home-monitoring-db/energy-monitor-db/data` while compose mounts `home-monitoring-db/data`, and MariaDB would initialise an empty database:
 
    ```bash
-   mv "$ROOT/energy-monitor" "$ROOT/octopus-app"
-   mv "$ROOT/energy-monitor-db" "$ROOT/home-monitoring-db"
+   [ -d "$ROOT/energy-monitor" ] && [ -d "$ROOT/energy-monitor-db/data" ] && [ ! -e "$ROOT/octopus-app" ] && [ ! -e "$ROOT/home-monitoring-db" ] && echo "preconditions OK" || echo "STOP: a source is missing or a destination already exists; inspect $ROOT before going on"
+   ```
+
+   Only if that printed `preconditions OK`:
+
+   ```bash
+   mv "$ROOT/energy-monitor" "$ROOT/octopus-app" && mv "$ROOT/energy-monitor-db" "$ROOT/home-monitoring-db"
+   test -d "$ROOT/home-monitoring-db/data" && echo "data dir in place" || echo "STOP: data dir not at home-monitoring-db/data"
    mkdir -p "$ROOT/home-monitoring-db/log"
    curl -fsSL https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf -o "$ROOT/home-monitoring-db/config/logging.cnf"
    ls "$ROOT/octopus-app" "$ROOT/home-monitoring-db" "$ROOT/home-monitoring-db/config"

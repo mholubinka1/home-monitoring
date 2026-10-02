@@ -119,9 +119,25 @@ def test_the_database_logging_config_is_mounted_read_only_into_conf_d() -> None:
     ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {mount.host_path!r}"
 
 
-def _general_log_enabled(cnf_text: str) -> bool:
-    parser = configparser.ConfigParser(interpolation=None, allow_no_value=True)
+class _MariaDbConfigParser(configparser.ConfigParser):
+    """Reads a my.cnf-style file the way MariaDB reads option names: valueless
+    directives allowed, and hyphens and underscores interchangeable."""
+
+    def __init__(self) -> None:
+        super().__init__(interpolation=None, allow_no_value=True)
+
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr.replace("-", "_").lower()
+
+
+def _parse_cnf(cnf_text: str) -> _MariaDbConfigParser:
+    parser = _MariaDbConfigParser()
     parser.read_string(cnf_text)
+    return parser
+
+
+def _general_log_enabled(cnf_text: str) -> bool:
+    parser = _parse_cnf(cnf_text)
     if not parser.has_option("mysqld", "general_log"):
         return False
     value = parser.get("mysqld", "general_log")
@@ -131,9 +147,7 @@ def _general_log_enabled(cnf_text: str) -> bool:
 
 def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
     cnf_text = (REPO_ROOT / "data/mariadb/logging.cnf").read_text()
-    parser = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-    parser.read_string(cnf_text)
-    mysqld = parser["mysqld"]
+    mysqld = _parse_cnf(cnf_text)["mysqld"]
 
     for option in ("log_error", "slow_query_log_file"):
         value = mysqld.get(option) or ""
@@ -154,6 +168,10 @@ def test_a_bare_general_log_directive_counts_as_enabling_the_general_log() -> No
     assert _general_log_enabled("[mysqld]\ngeneral_log\n")
     assert _general_log_enabled("[mysqld]\ngeneral_log = 1\n")
     assert _general_log_enabled("[mysqld]\ngeneral_log = ON\n")
+    # MariaDB accepts hyphens and underscores interchangeably in option names.
+    assert _general_log_enabled("[mysqld]\ngeneral-log\n")
+    assert _general_log_enabled("[mysqld]\ngeneral-log = 1\n")
+    assert not _general_log_enabled("[mysqld]\ngeneral-log = 0\n")
     assert not _general_log_enabled("[mysqld]\ngeneral_log = 0\n")
     assert not _general_log_enabled("[mysqld]\nslow_query_log = 1\n")
 
