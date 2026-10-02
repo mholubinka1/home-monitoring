@@ -101,7 +101,7 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
 
 **Do not start this section until [#549](https://github.com/mholubinka1/home-monitoring/issues/549) is closed.** Every SQLAlchemy model across all three packages currently hardcodes `schema="octopus"` in its `__table_args__` — updating `config.yml`'s `mariadb.database` value alone does **not** retarget the apps: MariaDB treats "schema" and "database" as the same thing, and SQLAlchemy's `Table(schema=...)` fully qualifies every generated query regardless of which database the connection string defaults to. Run as documented below before #549 lands, the apps would keep reading and writing `octopus.*` after this step, and Schema Sync could recreate empty tables there — the cutover would not actually take effect. #549 makes the schema config-driven; once it's merged, step 9 below is accurate.
 
-9. Update the Pi's live `config.yml` and `hive-config.yml` (`mariadb.database`) from `octopus` to `home_monitoring`.
+9. Update both containers' live `config.yml` on the Pi (`containers/energy-monitor/config/` and `containers/hive-app/config/`, `mariadb.database`) from `octopus` to `home_monitoring`.
 
 10. Update the Pi's own `/home/pi/git/pi-desktop/docker/docker-compose.yml`:
     - `MARIADB_DATABASE: octopus` → `home_monitoring`.
@@ -130,7 +130,7 @@ Every `export MYSQL_PWD=...` below must run in the same shell session as the com
 
 If anything above looks wrong before step 11 (CI/image flip) has happened:
 
-- Revert `config.yml`/`hive-config.yml` back to `mariadb.database: octopus`.
+- Revert both containers' `config.yml` back to `mariadb.database: octopus`.
 - Revert the Pi's `docker-compose.yml` changes.
 - **As root** (same as steps 6-7 — the app user cannot run any of this), reverse the rename as **one combined `RENAME TABLE` statement**, not a loop of individual ones — MariaDB treats a single multi-table `RENAME TABLE` as atomic (verified: a deliberately-failing rename left the source database completely untouched), so this either fully succeeds or leaves `home_monitoring` exactly as the forward migration left it, never partially reversed:
 

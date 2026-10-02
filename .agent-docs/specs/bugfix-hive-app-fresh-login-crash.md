@@ -186,7 +186,10 @@ using a message the code already has defined for exactly this case.
 - Actually completing a live SMS 2FA flow (e.g. an interactive code-entry
   mechanism) — out of scope per the spec's own design ("a headless service
   cannot supply one"); the fix's job is to fail cleanly and alert, not to
-  make 2FA possible unattended.
+  make 2FA possible unattended. *(Since resolved: the interactive
+  `python -m hive_app.login` command, #559, now lets the operator complete
+  the SMS step by hand — see ADR-0018's amendment. The original scope
+  statement above is kept as written.)*
 - The live Pi redeploy/real-account retest — the user does this manually
   after merge, not as part of this implementation loop.
 

@@ -10,33 +10,62 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 REQUEST_TIMEOUT_SECONDS = 10
-REAUTH_REQUIRED_MESSAGE = (
-    "hive-app: Hive re-authentication required. The session can no longer be "
-    "resumed or started unattended; an interactive SMS 2FA re-login is "
-    "needed to recover."
+REAUTH_RUNBOOK_URL = (
+    "https://github.com/mholubinka1/home-monitoring/blob/main/"
+    "deployments/hive-app/REAUTH_RUNBOOK.md"
 )
+REAUTH_REQUIRED_BODY = "Hive needs a live SMS 2FA code to recover. See the runbook."
+AUTH_RECOVERED_BODY = "Hive login restored. Heating polling has resumed."
 
 
 class ReauthNotifier(Protocol):
     def notify_reauth_required(self) -> None: ...
 
+    def notify_auth_recovered(self) -> None: ...
+
 
 class NtfyReauthNotifier:
-    """Posts a plain-text alert to a configured ntfy.sh topic URL when
-    called -- see ADR-0018. ntfy.sh's public-topic API needs no auth/JSON,
-    just the message body POSTed as plain text to the topic URL."""
+    """Posts one of exactly two structured notifications to a configured
+    ntfy.sh topic URL -- "re-auth required" (high priority, links the
+    runbook) and "auth recovered" (default priority) -- see ADR-0018.
+    ntfy.sh's public-topic API needs no auth/JSON: a plain-text body POSTed
+    to the topic URL, with Title/Priority/Tags/Click sent as headers (which
+    must stay latin-1 safe, so ASCII only)."""
 
     def __init__(self, topic_url: str) -> None:
         self._topic_url = topic_url
 
     def notify_reauth_required(self) -> None:
+        self._post(
+            REAUTH_REQUIRED_BODY,
+            {
+                "Title": "hive-app: re-authentication required",
+                "Priority": "high",
+                "Tags": "warning,key",
+                "Click": REAUTH_RUNBOOK_URL,
+            },
+        )
+        logger.info("Sent Hive re-auth alert to the configured ntfy.sh topic.")
+
+    def notify_auth_recovered(self) -> None:
+        self._post(
+            AUTH_RECOVERED_BODY,
+            {
+                "Title": "hive-app: authentication recovered",
+                "Priority": "default",
+                "Tags": "white_check_mark",
+            },
+        )
+        logger.info("Sent Hive auth-recovered notice to the configured ntfy.sh topic.")
+
+    def _post(self, body: str, headers: dict[str, str]) -> None:
         response = requests.post(
             self._topic_url,
-            data=REAUTH_REQUIRED_MESSAGE.encode("utf-8"),
+            data=body.encode("utf-8"),
+            headers=headers,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        logger.info("Sent Hive re-auth alert to the configured ntfy.sh topic.")
 
 
 class ReauthAlert:
@@ -50,6 +79,13 @@ class ReauthAlert:
     (see ADR-0018's "narrowly-scoped, not a general alert channel"
     framing). A failed delivery attempt does NOT set the flag, so it is
     retried on the next failure rather than being permanently suppressed.
+
+    clear() (a successful poll or startup auth) sends the one "auth
+    recovered" notice, but only if a "required" alert was actually
+    delivered by this process (the marker is in memory, so a restart in
+    between forgets it) -- a normal successful poll sends nothing. State resets
+    either way; a failed "recovered" delivery is logged and swallowed,
+    never retried, so polling is unaffected.
 
     The flag is plain, unsynchronised state: startup auth completes before
     the scheduler registers the heating poll, so the two callers never run
@@ -79,4 +115,14 @@ class ReauthAlert:
         self._notified = True
 
     def clear(self) -> None:
+        notifier, was_notified = self._notifier, self._notified
         self._notified = False
+        if not was_notified or notifier is None:
+            return
+        try:
+            notifier.notify_auth_recovered()
+        except Exception:
+            logger.exception(
+                "Failed to send Hive auth-recovered notice; not retrying. "
+                "Polling continues."
+            )
