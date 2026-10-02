@@ -11,6 +11,13 @@ from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert
 from hive_app.main import _build_reauth_alert, authenticate_at_startup
 
 TOPIC_URL = "https://ntfy.sh/hive-app-reauth-alerts"
+REQUIRED_TITLE = "hive-app: re-authentication required"
+RECOVERED_TITLE = "hive-app: authentication recovered"
+
+
+def _titles() -> list[str]:
+    return [call.request.headers["Title"] for call in responses.calls]
+
 
 _PERSISTED_STATE = HiveAuthState(
     refresh_token="existing-refresh-token",
@@ -109,7 +116,7 @@ def test_a_successful_poll_after_an_alert_lets_a_later_incident_alert_again() ->
     with pytest.raises(HiveReauthRequired):
         authenticator.authenticate()
 
-    assert len(responses.calls) == 2
+    assert _titles() == [REQUIRED_TITLE, RECOVERED_TITLE, REQUIRED_TITLE]
 
 
 @responses.activate
@@ -130,7 +137,33 @@ def test_a_successful_startup_after_an_alert_lets_a_later_incident_alert_again()
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
 
-    assert len(responses.calls) == 2
+    assert _titles() == [REQUIRED_TITLE, RECOVERED_TITLE, REQUIRED_TITLE]
+
+
+class _PersistRecordingHiveSource(_RecoverableHiveSource):
+    def __init__(self) -> None:
+        super().__init__()
+        self.persisted: list[HeatingStatus] = []
+
+    def persist_heating_status(self, status: HeatingStatus) -> None:
+        self.persisted.append(status)
+
+
+@responses.activate
+def test_a_failed_recovered_notice_does_not_stop_the_poll_persisting_status() -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    source = _PersistRecordingHiveSource()
+    alert = ReauthAlert(NtfyReauthNotifier(TOPIC_URL))
+    heating = HeatingRetriever(source, alert)
+
+    with pytest.raises(HiveReauthRequired):
+        heating.refresh()
+    source.recovered = True
+    responses.replace(responses.POST, TOPIC_URL, status=500)
+    heating.refresh()
+
+    assert len(source.persisted) == 1
+    assert _titles() == [REQUIRED_TITLE, RECOVERED_TITLE]
 
 
 class _UnreachableHiveSource(_ReauthRequiredHiveSource):

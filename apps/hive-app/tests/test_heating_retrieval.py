@@ -136,6 +136,9 @@ class _SpyReauthNotifier:
     def notify_reauth_required(self) -> None:
         self.calls += 1
 
+    def notify_auth_recovered(self) -> None:
+        pass
+
 
 def test_refresh_notifies_reauth_required_when_hive_source_needs_live_sms() -> None:
     source = _ReauthRequiredHiveSource()
@@ -166,6 +169,9 @@ class _FailingReauthNotifier:
     def notify_reauth_required(self) -> None:
         raise ConnectionError("ntfy.sh unreachable")
 
+    def notify_auth_recovered(self) -> None:
+        pass
+
 
 def test_refresh_still_raises_the_original_reauth_error_when_notifying_fails() -> None:
     source = _ReauthRequiredHiveSource()
@@ -191,6 +197,9 @@ class _NotifierThatFailsOnce:
         if not self._raised_once:
             self._raised_once = True
             raise ConnectionError("ntfy.sh unreachable")
+
+    def notify_auth_recovered(self) -> None:
+        pass
 
 
 def test_refresh_retries_notifying_after_a_failed_delivery_attempt() -> None:

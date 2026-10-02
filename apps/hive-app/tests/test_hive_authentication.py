@@ -75,6 +75,9 @@ class _SpyReauthNotifier:
     def notify_reauth_required(self) -> None:
         self.calls += 1
 
+    def notify_auth_recovered(self) -> None:
+        pass
+
 
 def test_startup_notifies_immediately_when_resuming_needs_a_live_relogin() -> None:
     existing_state = HiveAuthState(
@@ -119,6 +122,9 @@ class _NotifierThatFailsOnce:
         self.calls += 1
         if self.calls == 1:
             raise ConnectionError("ntfy.sh unreachable")
+
+    def notify_auth_recovered(self) -> None:
+        pass
 
 
 def test_startup_retries_notifying_after_a_failed_delivery_attempt() -> None:
