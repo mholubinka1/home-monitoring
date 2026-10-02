@@ -55,8 +55,10 @@ def test_a_failed_recovered_delivery_is_swallowed_and_not_retried() -> None:
 def test_an_alert_without_a_notifier_does_nothing_when_raised_or_cleared() -> None:
     alert = ReauthAlert(None)
 
-    alert.notify_once()
-    alert.clear()
+    # No notifier means ntfy is not configured: both calls are quiet no-ops
+    # that return normally rather than raising into the poll or startup path.
+    assert alert.notify_once() is None
+    assert alert.clear() is None
 
 
 def test_clearing_after_a_delivered_required_alert_sends_one_recovered_notice() -> None:

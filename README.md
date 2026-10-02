@@ -62,6 +62,13 @@ providing:
   backfill that runs once on first startup (gated by `job_run` history), which needs no
   configuration.
 
+For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template`. Only
+the `hive` (account username and password) and `mariadb` sections are required for
+heating polling; `weather_underground`, `location` and `ntfy` are optional and each
+template section is commented with what uses it. Run the first Hive login, and any later
+re-authentication, with `python -m hive_app.login` as described in
+[the re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md).
+
 ### Docker Compose
 
 Create `.env` from `.env.template`, providing `MARIADB_USER`/`MARIADB_PASSWORD` — the
