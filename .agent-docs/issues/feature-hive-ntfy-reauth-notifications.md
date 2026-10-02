@@ -1,5 +1,10 @@
 # Issues: feature-hive-ntfy-reauth-notifications
 
+> Work complete — [PR #563](https://github.com/mholubinka1/home-monitoring/pull/563) ready to merge.
+> The two `docker compose config` criteria are left unchecked: docker was not
+> available where this was built, so run `docker compose -f
+> deployments/docker-compose.yml config` before deploying.
+
 ## hive-app: interactive Hive SMS login command and re-auth runbook — [#559](https://github.com/mholubinka1/home-monitoring/issues/559)
 
 **Blocked by**: None
@@ -19,16 +24,16 @@ procedure using this command.
 
 ### Acceptance criteria
 
-- [ ] Given the Hive account returns an SMS challenge, when the operator
+- [x] Given the Hive account returns an SMS challenge, when the operator
       enters a valid code, then the challenge completes, the device is
       registered and the auth state is persisted.
-- [ ] Given a persisted state from this command, when hive-app restarts,
+- [x] Given a persisted state from this command, when hive-app restarts,
       then it resumes without another SMS code.
-- [ ] Given an invalid code or an unexpected challenge, then the command
+- [x] Given an invalid code or an unexpected challenge, then the command
       exits non-zero with a clear message and persists nothing.
-- [ ] Tests mock apyhiveapi's `Hive` at the system boundary; no real Hive
+- [x] Tests mock apyhiveapi's `Hive` at the system boundary; no real Hive
       account is touched.
-- [ ] REAUTH_RUNBOOK.md documents the steps and verification.
+- [x] REAUTH_RUNBOOK.md documents the steps and verification.
 
 ---
 
@@ -51,16 +56,16 @@ polling.
 
 ### Acceptance criteria
 
-- [ ] Given a re-auth failure, the POST carries the agreed Title, Priority,
+- [x] Given a re-auth failure, the POST carries the agreed Title, Priority,
       Tags, Click headers and body.
-- [ ] Given a delivered "required", when auth next succeeds (poll or
+- [x] Given a delivered "required", when auth next succeeds (poll or
       startup), then exactly one "recovered" is sent.
-- [ ] Given no delivered "required", a successful poll sends nothing.
-- [ ] Given repeated failures in one incident, only one "required" is sent;
+- [x] Given no delivered "required", a successful poll sends nothing.
+- [x] Given repeated failures in one incident, only one "required" is sent;
       a failed delivery is retried on the next failure.
-- [ ] A failed "recovered" or "required" send is logged and never breaks
+- [x] A failed "recovered" or "required" send is logged and never breaks
       polling.
-- [ ] No other notification types exist.
+- [x] No other notification types exist.
 
 ---
 
@@ -82,11 +87,11 @@ context.md. Live config untouched.
 
 ### Acceptance criteria
 
-- [ ] No stale `hive-config.yml` references remain outside historical specs
+- [x] No stale `hive-config.yml` references remain outside historical specs
       (earlier specs keep the name they were written with).
-- [ ] Template contains a topic placeholder and format comment; no real GUID
+- [x] Template contains a topic placeholder and format comment; no real GUID
       anywhere in the repo.
-- [ ] ADR-0018 and context.md updated.
+- [x] ADR-0018 and context.md updated.
 - [ ] Docs/yaml/markdown pre-commit checks and combined compose `config`
       pass.
 
@@ -108,9 +113,9 @@ the UID 999 write-permission note. mariadb unchanged.
 
 ### Acceptance criteria
 
-- [ ] Given a writable log directory, the config includes a rotating file
+- [x] Given a writable log directory, the config includes a rotating file
       handler at the expected path plus console.
-- [ ] Given an unwritable/missing directory, the config is console-only and
+- [x] Given an unwritable/missing directory, the config is console-only and
       warns; the app does not crash.
 - [ ] hive-app compose mounts the log directory; combined compose `config`
       passes.
