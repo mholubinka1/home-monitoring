@@ -187,8 +187,9 @@ class HiveApiSource:
             )
             state = self._auth_state_from_session(hive)
             # Whichever path got here, every field a restart's resume needs
-            # must be set -- a direct AuthenticationResult skips the SMS
-            # device-registration path, so nothing else guarantees them.
+            # must be set -- a direct login that returns no NewDeviceMetadata
+            # registers nothing, and a registration that yields no password
+            # would leave a state that cannot resume.
             if not all(
                 (
                     state.refresh_token,

@@ -172,6 +172,32 @@ def test_an_unexpected_challenge_fails_the_command_and_writes_no_auth_state(
     assert capsys.readouterr().err != ""
 
 
+@pytest.mark.usefixtures("mariadb_client")
+def test_a_login_that_yields_no_device_to_remember_fails_the_command_and_writes_no_auth_state(
+    tmp_path: Path,
+    install_fake_hive: Callable[..., Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_file, auth_state_path = _write_config(tmp_path)
+    install_fake_hive(
+        login_result={
+            "AuthenticationResult": {
+                "IdToken": "id-tok",
+                "AccessToken": "access-tok",
+                "RefreshToken": "refresh-tok",
+            }
+        }
+    )
+
+    exit_code = main(
+        ["--config-file", str(config_file)], code_provider=_no_code_expected
+    )
+
+    assert exit_code == 1
+    assert not auth_state_path.exists()
+    assert "remembered device" in capsys.readouterr().err
+
+
 def test_a_config_that_cannot_be_loaded_fails_the_command(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

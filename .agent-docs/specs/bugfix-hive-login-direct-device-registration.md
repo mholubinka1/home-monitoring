@@ -32,7 +32,7 @@ When Hive logs in directly, with no SMS challenge, and hands back a new device t
 
 - Deploying the fix or running the login on the Pi.
 - Changing the SMS-branch behaviour, the notifications, or how the app resumes.
-- Retrying or re-using a stale persisted device.
+- Retrying or reusing a stale persisted device.
 
 ## Further Notes
 

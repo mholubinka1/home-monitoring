@@ -123,8 +123,8 @@ def test_a_direct_login_that_leaves_any_resume_credential_unset_is_reported_as_a
     install_fake_hive: Callable[..., Any],
     missing_field: str,
 ) -> None:
-    # A direct AuthenticationResult skips the SMS/device-registration path, so
-    # nothing guarantees the resume tuple is populated; persisting empty
+    # A direct AuthenticationResult with no NewDeviceMetadata registers nothing,
+    # so nothing guarantees the resume tuple is populated; persisting empty
     # fields would "succeed" now and fail on the next restart.
     fake_hive = install_fake_hive(login_result={"AuthenticationResult": {}})
     fake_hive.tokens.tokenData["refreshToken"] = "existing-refresh-tok"
@@ -140,6 +140,24 @@ def test_a_direct_login_that_leaves_any_resume_credential_unset_is_reported_as_a
         HiveApiSource(_hive_settings(), mariadb_client).interactive_login(
             _unused_code_provider
         )
+
+
+def test_a_registration_that_leaves_no_device_password_is_reported_as_an_error(
+    mariadb_client: MariaDBClient, install_fake_hive: Callable[..., Any]
+) -> None:
+    # The device is registered, but if that somehow yields no device password
+    # the saved state still could not resume: the completeness check must catch
+    # it rather than trust that registration always succeeds.
+    fake_hive = install_fake_hive(
+        login_result=_DIRECT_LOGIN_WITH_NEW_DEVICE, registration_sets_password=False
+    )
+
+    with pytest.raises(RuntimeError, match="remembered device"):
+        HiveApiSource(_hive_settings(), mariadb_client).interactive_login(
+            _unused_code_provider
+        )
+
+    assert "device_registration" in fake_hive.call_order
 
 
 def test_an_operator_who_enters_an_invalid_sms_code_sees_the_apyhiveapi_error(

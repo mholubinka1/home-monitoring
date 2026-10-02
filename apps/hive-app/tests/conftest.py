@@ -55,9 +55,11 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         sms_result: dict[str, Any],
         login_result: dict[str, Any] | None = None,
         sms_error: Exception | None = None,
+        registration_sets_password: bool = True,
         **_: Any,
     ) -> None:
         self._sms_result = sms_result
+        self._registration_sets_password = registration_sets_password
         self._login_result = login_result or {
             "ChallengeName": "SMS_MFA",
             "Session": "sms-session",
@@ -118,7 +120,8 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
 
     async def _device_registration(self) -> None:
         self.call_order.append("device_registration")
-        self.auth.device_password = "generated-device-password"
+        if self._registration_sets_password:
+            self.auth.device_password = "generated-device-password"
 
     async def startSession(self, config: dict[str, Any] | None = None) -> None:
         self.call_order.append("startSession")
