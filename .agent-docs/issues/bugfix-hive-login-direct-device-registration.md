@@ -1,5 +1,9 @@
 # Issues: bugfix-hive-login-direct-device-registration
 
+> Work complete — [PR #569](https://github.com/mholubinka1/home-monitoring/pull/569) ready to merge.
+> The fix is verified against the test fake and the library source, not yet
+> against the live Hive account: run the login command on the Pi after deploy.
+
 ## hive-app: login command registers the device when Hive logs in without an SMS challenge — [#568](https://github.com/mholubinka1/home-monitoring/issues/568)
 
 **Blocked by**: None
@@ -24,15 +28,15 @@ Hive sends the challenge.
 
 ### Acceptance criteria
 
-- [ ] Given a direct login that returns device metadata, the device is
+- [x] Given a direct login that returns device metadata, the device is
       registered and the full resume tuple is returned (call order login,
       device_registration, startSession; no code requested).
-- [ ] Given a direct login with no device metadata, the command still raises
+- [x] Given a direct login with no device metadata, the command still raises
       the remembered-device error and persists nothing.
-- [ ] Given the command on the direct-login path, it writes the auth state
+- [x] Given the command on the direct-login path, it writes the auth state
       file and returns 0, and a fresh HiveApiSource resumes from it with the
       saved credentials.
-- [ ] The runbook says an SMS code is requested only if Hive sends the
+- [x] The runbook says an SMS code is requested only if Hive sends the
       challenge.
 
 ---
