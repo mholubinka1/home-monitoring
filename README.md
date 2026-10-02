@@ -20,7 +20,7 @@ see `.agent-docs/specs/` for the roadmap.
   chosen, and `.agent-docs/specs/feature-hive-app-heating-weather.md` for the wider
   heating/weather feature this is the first slice of. Deployed via
   `deployments/hive-app/Dockerfile` and the `hive-app` service in
-  `deployments/hive-app/docker-compose.yml`, configured from `hive-config.yml.template`.
+  `deployments/hive-app/docker-compose.yml`, configured from `deployments/hive-app/config.yml.template`.
 - **`libs/common/`** — the MariaDB engine/session/schema-sync plumbing and the one
   table both apps share (`job_run`), used by both apps rather than duplicated — see
   `.agent-docs/adr/0020-shared-common-library.md`.
@@ -39,7 +39,14 @@ see `.agent-docs/specs/` for the roadmap.
 
 ### Application
 
-Create `config.yml` from `config.yml.template`, providing:
+Every container keeps its configuration and logs under its own directory on the Pi:
+`/mnt/media/pi-media/containers/<name>/config/config.yml` (mounted to `/config`) and
+`/mnt/media/pi-media/containers/<name>/log/` (mounted to `/log`). Each app's template
+lives next to its deployment: `deployments/octopus-app/config.yml.template` and
+`deployments/hive-app/config.yml.template`. Live config is never committed.
+
+For octopus-app, create `config.yml` from `deployments/octopus-app/config.yml.template`,
+providing:
 
 - Your Octopus API key and account number, [available from your Octopus dashboard](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
 - MariaDB connection details (`host`, `port`, `database`, `username`, `password`).
@@ -70,6 +77,29 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 `MARIADB_RANDOM_ROOT_PASSWORD` are not in `.env` — they're hardcoded directly in
 `deployments/mariadb/docker-compose.yml`, since neither is a secret.
 
+### ntfy notifications (hive-app)
+
+hive-app sends exactly two ntfy.sh notifications, both about Hive authentication (see
+[ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
+stays on `job_run` and the dashboard.
+
+- **Topic:** `home-monitoring-hive-auth-ntfy-<guid-no-dashes>`. ntfy.sh topics are public,
+  so the GUID is the only secret: set the full `ntfy.topic_url` only in the Pi's
+  `config.yml`, never in the repo. Rotating it means editing that value and resubscribing
+  in the ntfy app.
+- **Format:** the title is `<app>: <short event>` in lowercase; the body is one or two
+  plain sentences with no timestamp (ntfy adds one); priority is `high` when action is
+  needed and `default` for recovery; there is one status emoji tag; `Click` is set only
+  when a useful link exists.
+
+| Notification | Title | Priority | Tags | Click |
+| --- | --- | --- | --- | --- |
+| Re-auth required | `hive-app: re-authentication required` | `high` | `warning,key` | the [re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md) on `main` |
+| Auth recovered | `hive-app: authentication recovered` | `default` | `white_check_mark` | none |
+
+"Recovered" is only sent after a "required" alert was actually delivered. Recovery needs
+a live SMS 2FA code; see the runbook.
+
 ## Running
 
 ### First-time deployment
@@ -85,7 +115,7 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
    - a data directory for MariaDB (mounted to `/var/lib/mysql`)
    - the repo's `data/mariadb/init.sql` copied to a path on the host (mounted read-only
      to `/docker-entrypoint-initdb.d/init.sql`)
-2. **Create `config.yml`** from `config.yml.template` (see Configuration above) and
+2. **Create `config.yml`** from the app's `config.yml.template` (see Configuration above) and
    place it at the path you chose for the app's config bind mount.
 3. **Create `.env`** from `.env.template` in the repository root — the directory you'll
    run `docker compose` from in the next step. Compose reads `.env` relative to the

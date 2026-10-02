@@ -36,7 +36,7 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 | --- | --- | --- |
 | Non-zero exit with "invalid 2FA code" | The code was wrong or had expired | Run the command again and use the fresh code from the new SMS |
 | Non-zero exit with "unexpected challenge" | Hive returned a login step this tool does not handle | Do not retry in a loop; check the Hive app and account for a pending security prompt, then open an issue with the message |
-| Non-zero exit loading the config | `/config/config.yml` is missing or invalid | Fix the file on the Pi; see `config.yml.template` for the shape |
+| Non-zero exit loading the config | `/config/config.yml` is missing or invalid | Fix the file on the Pi; see [config.yml.template](config.yml.template) for the shape |
 | `Permission denied` writing the auth state | `/config` is not writable by UID 999 | `chown` the host directory to UID 999 (or an equivalent ACL), as noted in `deployments/hive-app/docker-compose.yml` |
 
 A failed run never overwrites an existing `hive_auth_state.json`.

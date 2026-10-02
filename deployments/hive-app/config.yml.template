@@ -21,7 +21,13 @@ weather_underground:
   api_key:
   station_id:
 
-# ntfy.sh topic used to alert on an unrecoverable Hive re-auth failure.
+# ntfy.sh topic used for the two hive-app notifications: "re-authentication
+# required" (links to deployments/hive-app/REAUTH_RUNBOOK.md) and
+# "authentication recovered". ntfy.sh topics are public -- the GUID is the only
+# secret, so keep the real URL only in the Pi's config.yml, never in the repo.
+# Topic format: home-monitoring-hive-auth-ntfy-<guid-no-dashes>, e.g.
+#   topic_url: https://ntfy.sh/home-monitoring-hive-auth-ntfy-<32 lowercase hex chars>
+# Generate one with: uuidgen | tr -d '-' | tr 'A-F' 'a-f'
 ntfy:
   topic_url:
 
