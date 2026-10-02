@@ -4,7 +4,7 @@ import responses
 
 from hive_app.data.notify import NtfyReauthNotifier
 
-TOPIC_URL = "https://ntfy.sh/hive-app-reauth-alerts"
+TOPIC_URL = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
 
 
 @responses.activate

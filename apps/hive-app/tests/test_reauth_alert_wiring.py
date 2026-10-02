@@ -10,7 +10,7 @@ from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert
 from hive_app.main import _build_reauth_alert, authenticate_at_startup
 
-TOPIC_URL = "https://ntfy.sh/hive-app-reauth-alerts"
+TOPIC_URL = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
 REQUIRED_TITLE = "hive-app: re-authentication required"
 RECOVERED_TITLE = "hive-app: authentication recovered"
 

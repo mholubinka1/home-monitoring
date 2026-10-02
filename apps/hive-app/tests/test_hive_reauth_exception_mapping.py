@@ -116,7 +116,7 @@ def test_credential_errors_are_not_treated_as_needing_a_live_relogin(
 def test_unrecognised_device_during_a_poll_sends_one_reauth_alert(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
-    topic_url = "https://ntfy.sh/hive-app-reauth-alerts"
+    topic_url = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
     responses.add(responses.POST, topic_url, status=200)
     settings = HiveSettings(
         username="user@example.com",

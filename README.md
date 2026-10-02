@@ -96,7 +96,7 @@ stays on `job_run` and the dashboard.
   in the ntfy app.
 - **Format:** the title is `<app>: <short event>` in lowercase; the body is one or two
   plain sentences with no timestamp (ntfy adds one); priority is `high` when action is
-  needed and `default` for recovery; there is one status emoji tag; `Click` is set only
+  needed and `default` for recovery; tags are a status emoji plus, optionally, one context tag; `Click` is set only
   when a useful link exists.
 
 | Notification | Title | Priority | Tags | Click |

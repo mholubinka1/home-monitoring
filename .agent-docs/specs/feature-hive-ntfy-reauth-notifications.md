@@ -34,7 +34,7 @@ hive-app sends exactly two ntfy notifications on a topic named `home-monitoring-
   - Title is `<app>: <short event>`, lowercase.
   - Body is one or two plain sentences, with no timestamp (ntfy adds one).
   - Priority is `high` for action needed and `default` for recovery.
-  - There is one status emoji tag, with `warning,key` for required and `white_check_mark` for recovered.
+  - Tags are a status emoji plus optionally one context tag: `warning,key` for required and `white_check_mark` for recovered.
   - `Click` is set only when a useful link exists.
 - **Re-auth required:** title `hive-app: re-authentication required`, priority `high`, tags `warning,key`, `Click` set to the runbook's `main` URL, body "Hive needs a live SMS 2FA code to recover. See the runbook."
 - **Auth recovered:** title `hive-app: authentication recovered`, priority `default`, tag `white_check_mark`, no `Click`, body "Hive login restored. Heating polling has resumed."

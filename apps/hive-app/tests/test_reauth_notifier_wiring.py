@@ -6,7 +6,7 @@ from hive_app.data.heating import HeatingRetriever
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.main import _build_reauth_alert, _build_reauth_notifier
 
-TOPIC_URL = "https://ntfy.sh/hive-app-reauth-alerts"
+TOPIC_URL = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
 
 
 @responses.activate

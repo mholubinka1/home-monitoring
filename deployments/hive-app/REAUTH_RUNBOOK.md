@@ -38,9 +38,18 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 | `Hive login failed: RuntimeError: ... neither an AuthenticationResult nor an SMS_MFA challenge` (exit 1) | Hive returned a login step this tool does not handle | Do not retry in a loop; check the Hive app and account for a pending security prompt, then open an issue with the message |
 | `Hive login failed: RuntimeError: Cognito did not offer a device to remember ...` (exit 1) | The SMS code was accepted but Cognito offered no device to remember, so a restart would need another SMS code; nothing was saved | Run the command again. If it repeats, check the account's device-remembering setting in Hive/Cognito and open an issue with the message |
 | Non-zero exit loading the config | `/config/config.yml` is missing or invalid | Fix the file on the Pi; see [config.yml.template](config.yml.template) for the shape |
-| `Permission denied` writing the auth state | `/config` is not writable by UID 999 | `chown` the host directory to UID 999 (or an equivalent ACL), as noted in `deployments/hive-app/docker-compose.yml` |
+| `Hive login failed: PermissionError: ...` (exit 1) | The login itself succeeded, but `/config` is not writable by UID 999, so the state could not be saved | `chown` the host directory to UID 999 (or an equivalent ACL), as noted in `deployments/hive-app/docker-compose.yml`, then run the command again with a fresh SMS code |
 
 A failed run never overwrites an existing `hive_auth_state.json`.
+
+## The notifications
+
+hive-app sends exactly two ntfy notifications about Hive auth, both to the secret topic configured in `config.yml` (format in the [README](../../README.md#ntfy-notifications-hive-app)):
+
+| Notification | Title | Priority | Tags | Click |
+| --- | --- | --- | --- | --- |
+| Re-auth required | `hive-app: re-authentication required` | `high` | `warning,key` | this runbook |
+| Auth recovered | `hive-app: authentication recovered` | `default` | `white_check_mark` | none |
 
 ## Why this is manual
 
