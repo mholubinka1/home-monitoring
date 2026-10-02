@@ -143,6 +143,8 @@ def test_every_depends_on_target_is_a_declared_service() -> None:
 
 def test_no_deployment_file_uses_the_retired_container_or_service_names() -> None:
     retired_container_names = ("energy-monitor-db", "energy-monitor")
+    # Exempt by filename only: the runbooks must name the old containers (and the
+    # MariaDB user, which is also called `energy-monitor`) to describe the rename.
     runbooks = {"RENAME_RUNBOOK.md", "CUTOVER_RUNBOOK.md"}
 
     still_referenced = {

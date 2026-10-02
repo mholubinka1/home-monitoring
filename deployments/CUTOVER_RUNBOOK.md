@@ -19,11 +19,13 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
 
 1. Confirm the window with the owner of the system.
 
-2. Fetch the logging config the database will mount (after this repo's change has merged to `main`):
+2. Confirm the logging config the database will mount is reachable on `main` (this repo's change must have merged), so step 4 cannot fail after the containers are already stopped:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf -o /tmp/logging.cnf && head -3 /tmp/logging.cnf
+   curl -fsSI https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf | head -1
    ```
+
+   It must print `HTTP/2 200`.
 
 ## Procedure
 
@@ -37,12 +39,13 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
 
    ```bash
     export MYSQL_PWD=<password>
-   docker exec -e MYSQL_PWD energy-monitor-db mariadb-dump -u<user> home_monitoring > ~/home_monitoring-backup-$(date +%Y%m%d%H%M%S).sql
+   BK=~/home_monitoring-backup-$(date +%Y%m%d%H%M%S).sql
+   docker exec -e MYSQL_PWD energy-monitor-db mariadb-dump -u<user> home_monitoring > "$BK"
    echo "exit code: $?"
-   grep -c '^CREATE TABLE' ~/home_monitoring-backup-*.sql
+   grep -c '^CREATE TABLE' "$BK"
    ```
 
-   Stop here if the exit code is not `0`. The count must print `11` (one per table — see [RENAME_RUNBOOK.md](mariadb/RENAME_RUNBOOK.md) step 5). Stop and re-run if it doesn't.
+   Stop here if the exit code is not `0`. The count must print `11` (one per table — see [RENAME_RUNBOOK.md](mariadb/RENAME_RUNBOOK.md) step 5). Stop and re-run if it doesn't: do not continue to step 3 on an unverified backup. Keep this shell open (or note the value of `$BK`) for the rest of the procedure.
 
 3. Stop the database and confirm all three containers are stopped:
 
@@ -57,16 +60,18 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
    mv "$ROOT/energy-monitor" "$ROOT/octopus-app"
    mv "$ROOT/energy-monitor-db" "$ROOT/home-monitoring-db"
    mkdir -p "$ROOT/home-monitoring-db/log"
-   cp /tmp/logging.cnf "$ROOT/home-monitoring-db/config/logging.cnf"
+   curl -fsSL https://raw.githubusercontent.com/mholubinka1/home-monitoring/main/data/mariadb/logging.cnf -o "$ROOT/home-monitoring-db/config/logging.cnf"
    ls "$ROOT/octopus-app" "$ROOT/home-monitoring-db" "$ROOT/home-monitoring-db/config"
+   head -3 "$ROOT/home-monitoring-db/config/logging.cnf"
    ```
 
-   Expected: `octopus-app` has `config` and `log`; `home-monitoring-db` has `config`, `data` and `log`; its `config` has `init.sql` and `logging.cnf`.
+   Expected: `octopus-app` has `config` and `log`; `home-monitoring-db` has `config`, `data` and `log`; its `config` has `init.sql` and `logging.cnf` (a MariaDB logging header, not an error page). The media drive is mounted world-writable (`drwxrwxrwx`, ownership ignored), so the MariaDB user can write the new `log/` directory without a `chown`; on a differently-mounted drive give UID 999 write access to it, as `deployments/hive-app/docker-compose.yml` describes for hive-app.
 
 5. Edit the live compose file: back it up, make the anchored edits, then review the diff and validate. The service key `energy-monitor` becomes `octopus-app`, the service key `mariadb` becomes `home-monitoring-db`, both `depends_on` entries follow, the container names and mount paths change, and the database gains two mounts:
 
    ```bash
-   cp "$COMPOSE" "$COMPOSE.bak-$(date +%Y%m%d%H%M%S)"
+   BAK="$COMPOSE.bak-$(date +%Y%m%d%H%M%S)"
+   cp "$COMPOSE" "$BAK"
    sed -i \
      -e 's#^  energy-monitor:$#  octopus-app:#' \
      -e 's#container_name: energy-monitor$#container_name: octopus-app#' \
@@ -77,11 +82,11 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
      -e 's#containers/energy-monitor-db/#containers/home-monitoring-db/#' \
      "$COMPOSE"
    sed -i '/home-monitoring-db\/config\/init.sql:\/docker-entrypoint-initdb.d\/init.sql:ro/a\      - /mnt/media/pi-media/containers/home-monitoring-db/config/logging.cnf:/etc/mysql/conf.d/logging.cnf:ro\n      - /mnt/media/pi-media/containers/home-monitoring-db/log:/var/log/mysql' "$COMPOSE"
-   diff "$COMPOSE".bak-* "$COMPOSE"
+   diff "$BAK" "$COMPOSE"
    docker compose -f "$COMPOSE" config -q && echo valid
    ```
 
-   (If several backups exist, diff against the one you just made.) The diff must show only: the two service keys, the two `container_name` lines, the octopus-app mounts, the database's mounts plus the two new ones, and the two `depends_on` entries (octopus-app's and hive-app's). Anything else changed means stop and restore the backup. `valid` must print. (These exact commands were dry-run against a copy of the live file and produced exactly that diff.)
+   Keep `$BAK` for the rollback. The diff must show only: the two service keys, the two `container_name` lines, the octopus-app mounts, the database's mounts plus the two new ones, and the two `depends_on` entries (octopus-app's and hive-app's). Anything else changed means stop and restore the backup. `valid` must print. (These exact commands were dry-run against a copy of the live file and produced exactly that diff.)
 
 6. Remove the old stopped containers by name (so the old names are free and nothing is left orphaned):
 
@@ -89,12 +94,11 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
    docker rm energy-monitor energy-monitor-db
    ```
 
-7. Start the database first and wait for it to be healthy, then pull the latest app images and start the apps. Name the services so no other container in the stack is touched:
+7. Start the database first and wait for it to be healthy, then the apps. Name the services so no other container in the stack is touched. This does not change image versions: the apps start on whatever images are already pulled (watchtower keeps them current):
 
    ```bash
    docker compose -f "$COMPOSE" up -d home-monitoring-db
    docker inspect --format '{{.State.Health.Status}}' home-monitoring-db   # repeat until: healthy
-   docker compose -f "$COMPOSE" pull octopus-app hive-app
    docker compose -f "$COMPOSE" up -d octopus-app hive-app
    ```
 
@@ -115,7 +119,7 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
   ```
 
   `log_error` and `slow_query_log_file` must be under `/var/log/mysql/`, `slow_query_log` `ON` and `general_log` `OFF`. Server errors now go to `error.log`, not `docker logs`.
-- octopus-app and hive-app are up with no connection errors (`docker logs --tail 20 octopus-app`; hive-app's re-auth state is separate — see [REAUTH_RUNBOOK.md](hive-app/REAUTH_RUNBOOK.md)), and with the current images they write `$ROOT/octopus-app/log/octopus-monitor.log` and `$ROOT/hive-app/log/hive-monitor.log`.
+- octopus-app and hive-app are up with no connection errors (`docker logs --tail 20 octopus-app`; hive-app's re-auth state is separate — see [REAUTH_RUNBOOK.md](hive-app/REAUTH_RUNBOOK.md)), and, on images that include file logging (this change's release or later), they write `$ROOT/octopus-app/log/octopus-monitor.log` and `$ROOT/hive-app/log/hive-monitor.log`.
 - Both apps are writing again, with fresh `job_run` rows after the restart:
 
   ```bash
@@ -126,19 +130,42 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
 
 ## Rollback
 
-Safe at any point up to step 4; after that, undo in reverse. The database's data is never copied or modified, only renamed, so rolling back is renaming back.
+The database's data is never copied or modified, only renamed, so rolling back is renaming back. These steps work from any partial state (each one is skipped if it has nothing to do), and the data-directory check in step 3 exists because starting MariaDB against a missing data directory would silently initialise a fresh, empty database. Run them one at a time and read each output.
 
-```bash
-docker compose -f "$COMPOSE" stop octopus-app hive-app home-monitoring-db
-docker rm octopus-app home-monitoring-db
-mv "$ROOT/octopus-app" "$ROOT/energy-monitor"
-mv "$ROOT/home-monitoring-db" "$ROOT/energy-monitor-db"
-cp "$COMPOSE".bak-<timestamp-from-step-5> "$COMPOSE"
-docker compose -f "$COMPOSE" up -d mariadb
-docker compose -f "$COMPOSE" up -d energy-monitor hive-app
-```
+1. Stop whatever is running under either set of names:
 
-(The extra `log/` directory and `logging.cnf` left in `energy-monitor-db/` are harmless: the restored compose does not mount them.) Restoring the compose backup also discards any other edit made to the file since step 5, so check `diff` against the backup first if the file was touched in between.
+   ```bash
+   docker stop octopus-app home-monitoring-db hive-app energy-monitor energy-monitor-db 2>/dev/null; true
+   ```
+
+2. Put the directories back, only if they were moved:
+
+   ```bash
+   [ -d "$ROOT/octopus-app" ] && [ ! -e "$ROOT/energy-monitor" ] && mv "$ROOT/octopus-app" "$ROOT/energy-monitor"
+   [ -d "$ROOT/home-monitoring-db" ] && [ ! -e "$ROOT/energy-monitor-db" ] && mv "$ROOT/home-monitoring-db" "$ROOT/energy-monitor-db"
+   ```
+
+3. Confirm the real data directory is back in place and not empty. **Do not continue if this prints `STOP`:**
+
+   ```bash
+   [ -n "$(ls -A "$ROOT/energy-monitor-db/data" 2>/dev/null)" ] && echo "data dir OK" || echo "STOP: $ROOT/energy-monitor-db/data is missing or empty"
+   ```
+
+4. If step 5 of the procedure was reached, restore the compose file and remove the new-named containers. Restoring the backup also discards any other edit made to the file since step 5, so `diff "$BAK" "$COMPOSE"` first if the file may have been touched in between:
+
+   ```bash
+   [ -f "$BAK" ] && cp "$BAK" "$COMPOSE"
+   docker rm octopus-app home-monitoring-db 2>/dev/null; true
+   ```
+
+5. Start everything under the old names:
+
+   ```bash
+   docker compose -f "$COMPOSE" up -d mariadb
+   docker compose -f "$COMPOSE" up -d energy-monitor hive-app
+   ```
+
+   (The extra `log/` directory and `logging.cnf` left in `energy-monitor-db/` are harmless: the restored compose does not mount them.) Then run the Verify checks against the old names.
 
 ## After the cutover
 

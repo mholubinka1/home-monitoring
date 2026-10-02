@@ -41,18 +41,6 @@ mount is `/logs`.
   stack half-migrated and the reference compose incoherent for a fresh deployer who has no
   `monitoring/` tree.
 
-## Amendment (2026-10-02): containers renamed, and the rule made explicit
-
-The directory above was keyed on each service's `container_name`, but the names themselves were inherited from before the repo became home-monitoring: `energy-monitor`, `energy-monitor-db` and a service called `mariadb`. They are now `octopus-app` and `home-monitoring-db`, matching hive-app, and the layout rule is stated explicitly: **a container's compose service name, its `container_name` and its directory under `/mnt/media/pi-media/containers/` are the same string.** A test (`scripts/tests/test_deployment_layout.py`) pins this.
-
-```text
-/mnt/media/pi-media/containers/octopus-app/{config,log}
-/mnt/media/pi-media/containers/hive-app/{config,log}
-/mnt/media/pi-media/containers/home-monitoring-db/{config,data,log}
-```
-
-The database also gets a `log/` directory (mounted at `/var/log/mysql`) with its error and slow-query logs enabled through a mounted `logging.cnf`. The apps and Grafana reach the database by host IP and the published port, not by container or service name, so renaming it needed no application config change. The live Pi is migrated by the supervised procedure in `deployments/CUTOVER_RUNBOOK.md`. The original decision text above is kept as written.
-
 ## Consequences
 
 - The host paths in `docker-compose.yml` remain host-specific placeholders that a personal
@@ -67,3 +55,15 @@ The database also gets a `log/` directory (mounted at `/var/log/mysql`) with its
 - Historical specs and ADRs that mention the old `monitoring/...` paths (e.g.
   `specs/chore-operational-hygiene.md`, `specs/feature-grafana-dashboard.md`) are dated
   records and are left unchanged.
+
+## Amendment (2026-10-02): containers renamed, and the rule made explicit
+
+The directory layout above was keyed on each service's `container_name`, but the names themselves were inherited from before the repo became home-monitoring: `energy-monitor`, `energy-monitor-db` and a service called `mariadb`. They are now `octopus-app` and `home-monitoring-db`, matching hive-app, and the layout rule is stated explicitly: **a container's compose service name, its `container_name` and its directory under `/mnt/media/pi-media/containers/` are the same string.** A test (`scripts/tests/test_deployment_layout.py`) pins this.
+
+```text
+/mnt/media/pi-media/containers/octopus-app/{config,log}
+/mnt/media/pi-media/containers/hive-app/{config,log}
+/mnt/media/pi-media/containers/home-monitoring-db/{config,data,log}
+```
+
+The database also gets a `log/` directory (mounted at `/var/log/mysql`) with its error and slow-query logs enabled through a mounted `logging.cnf`. The apps and Grafana reach the database by host IP and the published port, not by container or service name, so renaming it needed no application config change. The live Pi is migrated by the supervised procedure in `deployments/CUTOVER_RUNBOOK.md`. The text above this amendment is kept as originally written, so it still names the old containers.
