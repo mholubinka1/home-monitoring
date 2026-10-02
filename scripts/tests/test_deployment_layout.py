@@ -119,9 +119,20 @@ def test_the_database_logging_config_is_mounted_read_only_into_conf_d() -> None:
     ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {mount.host_path!r}"
 
 
-def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
+def _general_log_enabled(cnf_text: str) -> bool:
     parser = configparser.ConfigParser(interpolation=None, allow_no_value=True)
-    parser.read_string((REPO_ROOT / "data/mariadb/logging.cnf").read_text())
+    parser.read_string(cnf_text)
+    if not parser.has_option("mysqld", "general_log"):
+        return False
+    value = parser.get("mysqld", "general_log")
+    # A valueless directive is MariaDB's spelling of "on".
+    return value is None or value.lower() not in ("0", "off", "false")
+
+
+def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
+    cnf_text = (REPO_ROOT / "data/mariadb/logging.cnf").read_text()
+    parser = configparser.ConfigParser(interpolation=None, allow_no_value=True)
+    parser.read_string(cnf_text)
     mysqld = parser["mysqld"]
 
     for option in ("log_error", "slow_query_log_file"):
@@ -134,11 +145,17 @@ def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
         "on",
         "true",
     ), "slow_query_log must be enabled"
-    assert (mysqld.get("general_log") or "0").lower() in (
-        "0",
-        "off",
-        "false",
-    ), "general_log must stay off"
+    assert not _general_log_enabled(cnf_text), "general_log must stay off"
+
+
+def test_a_bare_general_log_directive_counts_as_enabling_the_general_log() -> None:
+    # A valueless `general_log` line is how MariaDB spells "on"; the guard on the
+    # repo's logging.cnf must not read it as absent or off.
+    assert _general_log_enabled("[mysqld]\ngeneral_log\n")
+    assert _general_log_enabled("[mysqld]\ngeneral_log = 1\n")
+    assert _general_log_enabled("[mysqld]\ngeneral_log = ON\n")
+    assert not _general_log_enabled("[mysqld]\ngeneral_log = 0\n")
+    assert not _general_log_enabled("[mysqld]\nslow_query_log = 1\n")
 
 
 def test_every_depends_on_target_is_a_declared_service() -> None:
