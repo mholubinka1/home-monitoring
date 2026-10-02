@@ -18,11 +18,15 @@ services:
     # The image runs as non-root UID 999 (deployments/hive-app/Dockerfile), and this
     # directory now needs to be *writable* by that UID, not just readable --
     # hive_auth_state.json (see ADR-0019) is created/rewritten here on every
-    # login/refresh, not just read like hive-config.yml. Provision the host
+    # login/refresh, not just read like config.yml. Provision the host
     # path (chown to UID 999, or an equivalent ACL) before first deploy, or
-    # the first successful login can never be persisted.
+    # the first successful login can never be persisted. The log directory
+    # needs the same treatment: the app writes a rotating hive-monitor.log
+    # there, and silently falls back to console-only logging if /log is not
+    # writable by UID 999.
     volumes:
       - /mnt/media/pi-media/containers/hive-app/config:/config
+      - /mnt/media/pi-media/containers/hive-app/log:/log
     extra_hosts:
       - "host.docker.internal:host-gateway"
     dns:
