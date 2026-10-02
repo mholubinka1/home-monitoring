@@ -1,0 +1,21 @@
+# MariaDB logging config
+#
+# Copy this file to containers/home-monitoring-db/config/logging.cnf on the host
+# (/mnt/media/pi-media/containers/home-monitoring-db/config/logging.cnf).
+# deployments/mariadb/docker-compose.yml mounts it read-only into
+# /etc/mysql/conf.d/ and mounts the host log directory
+# (containers/home-monitoring-db/log) at /var/log/mysql.
+#
+# TRADE-OFF: with log_error pointing at a file, server errors no longer appear in
+# `docker logs home-monitoring-db`; read /var/log/mysql/error.log instead.
+#
+# There is no built-in rotation: prune the files in the log directory by hand.
+#
+# The general query log is deliberately left off (do not set general_log): it
+# records every statement and would grow quickly.
+
+[mysqld]
+log_error = /var/log/mysql/error.log
+slow_query_log = 1
+slow_query_log_file = /var/log/mysql/slow.log
+long_query_time = 2

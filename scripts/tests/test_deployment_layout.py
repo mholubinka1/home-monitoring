@@ -2,6 +2,7 @@
 service name, its container_name and its directory under
 /mnt/media/pi-media/containers/ are all the same string."""
 
+import configparser
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,56 @@ def test_apps_mount_config_and_log_from_their_own_container_directory() -> None:
         f"/config and /log must mount from containers/<app>/config and /log: "
         f"{wrong_mounts}"
     )
+
+
+def test_the_database_keeps_its_logs_in_its_own_container_directory() -> None:
+    database = _services()["home-monitoring-db"]
+
+    log_host_path = _mounts(database).get("/var/log/mysql")
+
+    assert log_host_path == f"{CONTAINERS_ROOT}home-monitoring-db/log", (
+        "/var/log/mysql must mount from containers/home-monitoring-db/log, "
+        f"got {log_host_path!r}"
+    )
+
+
+def test_the_database_logging_config_is_mounted_read_only_into_conf_d() -> None:
+    database = _services()["home-monitoring-db"]
+
+    volumes = [
+        str(volume)
+        for volume in database.get("volumes", [])
+        if str(volume).split(":")[1] == "/etc/mysql/conf.d/logging.cnf"
+    ]
+
+    assert volumes, "no volume mounts a file at /etc/mysql/conf.d/logging.cnf"
+    host_path, _, mode = volumes[0].split(":")
+    assert mode == "ro", f"logging.cnf must be mounted read-only, got {mode!r}"
+    assert host_path == (
+        f"{CONTAINERS_ROOT}home-monitoring-db/config/logging.cnf"
+    ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {host_path!r}"
+
+
+def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
+    parser = configparser.ConfigParser(interpolation=None, allow_no_value=True)
+    parser.read_string((REPO_ROOT / "data/mariadb/logging.cnf").read_text())
+    mysqld = parser["mysqld"]
+
+    for option in ("log_error", "slow_query_log_file"):
+        value = mysqld.get(option) or ""
+        assert value.startswith(
+            "/var/log/mysql/"
+        ), f"{option} must point under /var/log/mysql/, got {value!r}"
+    assert (mysqld.get("slow_query_log") or "").lower() in (
+        "1",
+        "on",
+        "true",
+    ), "slow_query_log must be enabled"
+    assert (mysqld.get("general_log") or "0").lower() in (
+        "0",
+        "off",
+        "false",
+    ), "general_log must stay off"
 
 
 def test_every_depends_on_target_is_a_declared_service() -> None:
