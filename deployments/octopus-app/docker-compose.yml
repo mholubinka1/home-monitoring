@@ -4,20 +4,20 @@
 # in sync with that one manually until the live Pi cutover to deployments/docker-compose.yml
 # happens (out of scope for the apps/libs/data/deployments restructure itself).
 #
-# This is an include-only fragment, not standalone-runnable: `depends_on: mariadb`
+# This is an include-only fragment, not standalone-runnable: `depends_on: home-monitoring-db`
 # below refers to the service declared in deployments/mariadb/docker-compose.yml, not
 # this file, so `docker compose -f deployments/octopus-app/docker-compose.yml config`
 # reports it as undefined on its own. Validate via the combined
 # deployments/docker-compose.yml, which include:s all three per-service files together.
 services:
-  energy-monitor:
-    container_name: energy-monitor
+  octopus-app:
+    container_name: octopus-app
     image: mholubinka1/octopus-app:latest
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     volumes:
-      - /mnt/media/pi-media/containers/energy-monitor/config:/config
-      - /mnt/media/pi-media/containers/energy-monitor/log:/log
+      - /mnt/media/pi-media/containers/octopus-app/config:/config
+      - /mnt/media/pi-media/containers/octopus-app/log:/log
     extra_hosts:
       - "host.docker.internal:host-gateway"
     dns:
@@ -25,5 +25,5 @@ services:
       - 1.1.1.1
     restart: unless-stopped
     depends_on:
-      mariadb:
+      home-monitoring-db:
         condition: service_healthy

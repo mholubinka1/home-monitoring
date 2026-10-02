@@ -8,8 +8,8 @@
 # dependency, so `docker compose -f deployments/mariadb/docker-compose.yml config`
 # does validate standalone.
 services:
-  mariadb:
-    container_name: energy-monitor-db
+  home-monitoring-db:
+    container_name: home-monitoring-db
     image: mariadb:latest
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -21,8 +21,12 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - /mnt/media/pi-media/containers/energy-monitor-db/data/:/var/lib/mysql/
-      - /mnt/media/pi-media/containers/energy-monitor-db/config/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # log/ holds error.log and slow.log; config/logging.cnf (from data/mariadb/)
+      # enables them via /etc/mysql/conf.d/.
+      - /mnt/media/pi-media/containers/home-monitoring-db/data/:/var/lib/mysql/
+      - /mnt/media/pi-media/containers/home-monitoring-db/log:/var/log/mysql
+      - /mnt/media/pi-media/containers/home-monitoring-db/config/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - /mnt/media/pi-media/containers/home-monitoring-db/config/logging.cnf:/etc/mysql/conf.d/logging.cnf:ro
     healthcheck:
       test: "mariadb --user=$${MARIADB_USER} --password=$${MARIADB_PASSWORD} --execute \"SHOW DATABASES;\""
       start_interval: 10s
