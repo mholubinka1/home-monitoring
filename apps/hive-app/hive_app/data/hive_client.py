@@ -3,7 +3,7 @@ import json
 import logging.config
 import os
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -123,6 +123,9 @@ class HiveApiSource:
     def resume(self, state: HiveAuthState) -> HiveAuthState:
         return asyncio.run(self._resume(state))
 
+    def interactive_login(self, code_provider: Callable[[], str]) -> HiveAuthState:
+        return asyncio.run(self._interactive_login(code_provider))
+
     def persist_auth_state(self, state: HiveAuthState) -> None:
         # Written to a temp file in the same directory (so the rename below
         # is atomic, not cross-filesystem) then renamed into place, rather
@@ -151,6 +154,30 @@ class HiveApiSource:
     async def _login(self) -> HiveAuthState:
         async with self._hive_session() as hive:
             await self._establish_session(hive, None)
+            return self._auth_state_from_session(hive)
+
+    async def _interactive_login(
+        self, code_provider: Callable[[], str]
+    ) -> HiveAuthState:
+        async with self._hive_session() as hive:
+            login_result = await hive.login()
+            if login_result.get("ChallengeName") == hive.auth.SMS_MFA_CHALLENGE:
+                await hive.sms2fa(code_provider(), login_result["Session"])
+                if not hive.auth.device_key:
+                    raise RuntimeError(
+                        "Cognito did not offer a device to remember after SMS "
+                        "2FA, so the next restart would need another SMS code."
+                    )
+                await hive.auth.device_registration()
+            elif "AuthenticationResult" not in login_result:
+                raise RuntimeError(
+                    "hive.login() returned neither an AuthenticationResult nor "
+                    f"an SMS_MFA challenge (ChallengeName="
+                    f"{login_result.get('ChallengeName')!r})."
+                )
+            await self._start_session(
+                hive, session_config={}, reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE
+            )
             return self._auth_state_from_session(hive)
 
     async def _resume(self, state: HiveAuthState) -> HiveAuthState:
