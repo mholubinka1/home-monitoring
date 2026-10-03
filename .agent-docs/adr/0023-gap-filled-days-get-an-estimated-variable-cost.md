@@ -20,3 +20,9 @@ The standing charge itself is a flat per-day fee, not prorated by rate coverage,
 `as_of`'s own local date is also never given an *estimated* variable cost when it's a gap itself (no consumption rows at all yet, as opposed to a real partial row) — it always falls back to standing-charge-only for that specific day, regardless of what its interior/trailing estimate would otherwise resolve to. `_remaining_billing_window`'s `remaining_hours` already spans from `as_of` through the end of the billing period specifically so the *rest* of today's not-yet-metered variable cost is counted exactly once via the remaining-cost projection; a full-day variable-cost estimate added to `daily_costs` for that same day would double-count it. This mirrors the pre-existing invariant that a same-day `daily_costs` row reflects only what's actually been metered (or, now, priced) so far, never a projection of the day's remaining hours.
 
 Applies uniformly to electricity and gas.
+
+## Note (2026-10-03): rate coverage is required only where it is used
+
+Rate coverage is required only where it is used. A gap day with no estimated kWh (today) needs the rate at local midday for its standing charge, not the whole day; days needing a variable cost keep the full-day requirement and the original error.
+
+Reason: Agile publishes to 23:00 UK local the next day, which in BST (22:00 UTC) is an hour short of local midnight (23:00 UTC). The strict whole-day check therefore made the forecast fail on every daily 04:00 UTC run during BST, even though today's standing-charge-only pricing reads a single midday rate (#574). The wider missing-rate policy and cadence question is tracked separately in #575.
