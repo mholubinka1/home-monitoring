@@ -177,13 +177,19 @@ class HiveApiSource:
                     f"an SMS_MFA challenge (ChallengeName="
                     f"{login_result.get('ChallengeName')!r})."
                 )
+            elif hive.auth.device_key and not hive.auth.device_password:
+                # login() stored the new device's group/device keys from
+                # NewDeviceMetadata but only device_registration() generates
+                # and confirms the device password a restart's resume needs.
+                await hive.auth.device_registration()
             await self._start_session(
                 hive, session_config={}, reauth_message=_LOGIN_REQUIRES_SMS_MESSAGE
             )
             state = self._auth_state_from_session(hive)
             # Whichever path got here, every field a restart's resume needs
-            # must be set -- a direct AuthenticationResult skips the SMS
-            # device-registration path, so nothing else guarantees them.
+            # must be set -- a direct login that returns no NewDeviceMetadata
+            # registers nothing, and a registration that yields no password
+            # would leave a state that cannot resume.
             if not all(
                 (
                     state.refresh_token,

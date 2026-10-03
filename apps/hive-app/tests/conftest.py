@@ -55,9 +55,11 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         sms_result: dict[str, Any],
         login_result: dict[str, Any] | None = None,
         sms_error: Exception | None = None,
+        registration_sets_password: bool = True,
         **_: Any,
     ) -> None:
         self._sms_result = sms_result
+        self._registration_sets_password = registration_sets_password
         self._login_result = login_result or {
             "ChallengeName": "SMS_MFA",
             "Session": "sms-session",
@@ -79,6 +81,23 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")
+        # Like the real login(): a direct AuthenticationResult records its
+        # tokens and, only when Cognito offered NewDeviceMetadata, the device
+        # group key and device key -- never the device password, which only
+        # device_registration() generates.
+        auth_result = self._login_result.get("AuthenticationResult")
+        if auth_result is not None:
+            for result_key, token_name in (
+                ("IdToken", "token"),
+                ("AccessToken", "accessToken"),
+                ("RefreshToken", "refreshToken"),
+            ):
+                if result_key in auth_result:
+                    self.tokens.tokenData[token_name] = auth_result[result_key]
+            metadata = auth_result.get("NewDeviceMetadata")
+            if metadata is not None:
+                self.auth.device_group_key = metadata["DeviceGroupKey"]
+                self.auth.device_key = metadata["DeviceKey"]
         return self._login_result
 
     async def sms2fa(self, code: str, session: str) -> dict[str, Any]:
@@ -101,7 +120,8 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
 
     async def _device_registration(self) -> None:
         self.call_order.append("device_registration")
-        self.auth.device_password = "generated-device-password"
+        if self._registration_sets_password:
+            self.auth.device_password = "generated-device-password"
 
     async def startSession(self, config: dict[str, Any] | None = None) -> None:
         self.call_order.append("startSession")

@@ -1,10 +1,10 @@
 # hive-app runbook: recovering from "re-authentication required"
 
-hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive no longer recognises its remembered device and a live SMS 2FA code is needed (see [ADR-0018](../../.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)). Until you complete the login below, heating polling keeps failing and `job_run` shows the failures. A headless container cannot read an SMS, so this is an interactive step you run on the Pi.
+hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive no longer recognises its remembered device and a fresh interactive login is needed, which may involve a live SMS 2FA code (see [ADR-0018](../../.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)). Until you complete the login below, heating polling keeps failing and `job_run` shows the failures. A headless container cannot read an SMS, so this is an interactive step you run on the Pi.
 
 ## Recover
 
-1. Make sure the Hive account's SMS 2FA code can reach you. The code is texted to the phone number on the Hive account as soon as the login starts, and it expires quickly, so have the phone to hand before you run the command.
+1. Have the phone for the Hive account to hand. Hive may text an SMS 2FA code as soon as the login starts, and it expires quickly; it may also log you in with no SMS at all (see step 3).
 
 2. On the Pi, start the login inside the running container:
 
@@ -12,9 +12,9 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
    docker exec -it hive-app python -m hive_app.login --config-file /config/config.yml
    ```
 
-   Use `-it`: the command prompts for the code with hidden input and needs a terminal.
+   Use `-it`: if Hive sends the SMS challenge, the command prompts for the code with hidden input and needs a terminal.
 
-3. Enter the SMS code when prompted. On success the command registers the device with Hive and writes `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
+3. Enter the SMS code if prompted. The command prompts for a code only if Hive sends the SMS challenge; if Hive logs in with no challenge, it registers a new device and saves the state without any prompt. Either way, on success the command has registered a device with Hive and written `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
 
 4. **Do not restart the container.** The running app re-reads `hive_auth_state.json` on every heating poll (every 120 seconds), so it recovers on its own within about two minutes. The "required" alert is remembered in memory only, so a restart before that first successful poll would forget it and no "authentication recovered" notification would be sent (recovery itself would still work).
 
@@ -49,4 +49,4 @@ hive-app sends exactly two ntfy notifications about Hive auth, both to the secre
 
 ## Why this is manual
 
-Cognito only skips SMS 2FA for a device it remembers. Once it forgets that device (for example after a long idle period), only a live SMS code can register a new one. There is no unattended path by design.
+Cognito can skip repeat logins only for a device it remembers. Once it forgets that device (for example after a long idle period), a new device has to be registered through a fresh interactive login, which Hive may gate behind a live SMS code. Registering a device is a deliberate operator action, because the saved device keys can obtain Hive tokens without the password or an SMS ([ADR-0019](../../.agent-docs/adr/0019-file-based-hive-auth-state-storage.md)), so there is no unattended path by design.

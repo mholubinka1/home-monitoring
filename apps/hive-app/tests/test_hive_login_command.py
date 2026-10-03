@@ -83,6 +83,58 @@ def test_a_restarted_hive_app_resumes_from_the_saved_state_without_another_sms_c
     assert resumed_state.refresh_token == "refresh-tok"
 
 
+def _no_code_expected() -> str:
+    raise AssertionError("no SMS code should have been requested")
+
+
+def test_an_account_that_logs_in_with_a_new_device_and_no_challenge_saves_a_resumable_state(
+    tmp_path: Path,
+    mariadb_client: MariaDBClient,
+    install_fake_hive: Callable[..., Any],
+) -> None:
+    config_file, auth_state_path = _write_config(tmp_path)
+    fake_hive = install_fake_hive(
+        login_result={
+            "AuthenticationResult": {
+                "IdToken": "id-tok",
+                "AccessToken": "access-tok",
+                "RefreshToken": "refresh-tok",
+                "NewDeviceMetadata": {
+                    "DeviceGroupKey": "group-key",
+                    "DeviceKey": "device-key",
+                },
+            }
+        }
+    )
+
+    exit_code = main(
+        ["--config-file", str(config_file)], code_provider=_no_code_expected
+    )
+
+    assert exit_code == 0
+    assert auth_state_path.exists()
+    calls_before_restart = len(fake_hive.call_order)
+    settings = HiveSettings(
+        username="user@example.com",
+        password="hunter2",
+        auth_state_path=str(auth_state_path),
+    )
+    restarted = HiveApiSource(settings, mariadb_client)
+    saved_state = restarted.read_auth_state()
+    assert saved_state is not None
+    restarted.resume(saved_state)
+
+    assert fake_hive.call_order[calls_before_restart:] == ["startSession"]
+    assert fake_hive.start_session_configs[-1] == {
+        "tokens": {
+            "token": "",
+            "refreshToken": "refresh-tok",
+            "accessToken": "",
+        },
+        "device_data": ("group-key", "device-key", "generated-device-password"),
+    }
+
+
 @pytest.mark.usefixtures("mariadb_client")
 def test_an_invalid_code_fails_the_command_and_leaves_the_existing_auth_state_untouched(
     tmp_path: Path,
@@ -118,6 +170,32 @@ def test_an_unexpected_challenge_fails_the_command_and_writes_no_auth_state(
     assert exit_code == 1
     assert not auth_state_path.exists()
     assert capsys.readouterr().err != ""
+
+
+@pytest.mark.usefixtures("mariadb_client")
+def test_a_login_that_yields_no_device_to_remember_fails_the_command_and_writes_no_auth_state(
+    tmp_path: Path,
+    install_fake_hive: Callable[..., Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_file, auth_state_path = _write_config(tmp_path)
+    install_fake_hive(
+        login_result={
+            "AuthenticationResult": {
+                "IdToken": "id-tok",
+                "AccessToken": "access-tok",
+                "RefreshToken": "refresh-tok",
+            }
+        }
+    )
+
+    exit_code = main(
+        ["--config-file", str(config_file)], code_provider=_no_code_expected
+    )
+
+    assert exit_code == 1
+    assert not auth_state_path.exists()
+    assert "remembered device" in capsys.readouterr().err
 
 
 def test_a_config_that_cannot_be_loaded_fails_the_command(
