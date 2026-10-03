@@ -452,9 +452,12 @@ class CostForecastRetriever:
         # again disagree about which rate covers which instant.
         segments = self._day_segments(rates, day_start, day_end)
         if daily_kwh is None:
-            # Standing-charge-only day (today): only the rate at local midday
-            # is used, so only that needs to be published. Agile publishes to
-            # 23:00 UK local, an hour short of local midnight in BST.
+            # Standing-charge-only day (today): only the rate at "midday" (12
+            # hours after the local day starts -- the same instant
+            # _midday_standing_charge reads, 13:00 local on a spring-forward
+            # day) is used, so only that needs to be published. Agile
+            # publishes to 23:00 UK local, an hour short of local midnight in
+            # BST.
             midday = day_start + timedelta(hours=12)
             if not any(start <= midday < end for start, end, _ in segments):
                 raise RuntimeError(
@@ -535,8 +538,9 @@ class CostForecastRetriever:
         # spans that segment ("most-recently-started wins", the same
         # tiebreak read_current_product_rate already uses for its own
         # overlapping-row lookup). A stretch no rate's window fully spans
-        # produces no segment at all, surfacing as a gap for
-        # _segments_fully_cover_day to catch.
+        # produces no segment at all, surfacing as a gap for the callers'
+        # coverage checks to catch (_segments_fully_cover_day, or the
+        # midday-only check for a standing-charge-only day).
         clipped = [
             (overlap[0], overlap[1], rate)
             for rate in rates

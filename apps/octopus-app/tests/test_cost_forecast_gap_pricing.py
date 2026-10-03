@@ -502,9 +502,20 @@ def test_todays_standing_charge_only_day_is_priced_when_the_last_agile_hour_is_u
     assert row.actual_cost_to_date == Decimal("0.98") + Decimal("0.50")
 
 
+@pytest.mark.parametrize(
+    "rate_ends_at",
+    [
+        datetime(2026, 10, 3, 10, 0, tzinfo=UTC),
+        # The window is half-open: a rate ending exactly at local midday does
+        # not cover it, and with no successor rate nothing does.
+        datetime(2026, 10, 3, 11, 0, tzinfo=UTC),
+    ],
+    ids=["an-hour-before-midday", "exactly-at-midday"],
+)
 @responses.activate
 def test_todays_standing_charge_only_day_still_fails_when_no_rate_covers_local_midday(
     mariadb_client: MariaDBClient,
+    rate_ends_at: datetime,
 ) -> None:
     # Relaxing the coverage check must not mean "never check": the standing
     # charge is read at local midday (2026-10-03 11:00 UTC in BST), so a
@@ -529,7 +540,7 @@ def test_todays_standing_charge_only_day_still_fails_when_no_rate_covers_local_m
                 product_code=AGILE_PRODUCT_CODE,
                 region=REGION,
                 valid_from=datetime(2026, 1, 1, tzinfo=UTC),
-                valid_to=datetime(2026, 10, 3, 10, 0, tzinfo=UTC),
+                valid_to=rate_ends_at,
                 unit_rate=Decimal("10.00"),
                 standing_charge=Decimal("50.00"),
             )
