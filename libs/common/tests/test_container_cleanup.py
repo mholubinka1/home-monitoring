@@ -26,6 +26,13 @@ def test_the_test_container_is_removed_together_with_its_volumes(
     argv = commands[0]
     assert argv[:2] == ["docker", "rm"]
     assert argv[-1] == "common-schema-test-abc12345"
-    flags = "".join(arg.lstrip("-") for arg in argv[2:-1] if arg.startswith("-"))
-    assert "f" in flags, f"container must be force-removed, got {argv}"
-    assert "v" in flags, f"anonymous volumes must be removed, got {argv}"
+    options = argv[2:-1]
+    short_flags = "".join(
+        arg[1:] for arg in options if arg.startswith("-") and not arg.startswith("--")
+    )
+    assert (
+        "f" in short_flags or "--force" in options
+    ), f"container must be force-removed, got {argv}"
+    assert (
+        "v" in short_flags or "--volumes" in options
+    ), f"anonymous volumes must be removed, got {argv}"

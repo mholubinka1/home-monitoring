@@ -16,7 +16,7 @@ The fixtures remove their container together with its volumes, so a test run lea
 
 ## Implementation Decisions
 
-- **Cause.** Both fixtures (`libs/common/tests/conftest.py`, `scripts/tests/conftest.py`) start the container with `docker run --rm` and tear it down with `docker rm -f <name>`. The mariadb image declares an anonymous `VOLUME /var/lib/mysql`; an explicit remove without `-v` deletes the container but not that volume, and it pre-empts `--rm`'s own cleanup.
+- **Cause.** Both fixtures (`libs/common/tests/conftest.py`, `scripts/tests/conftest.py`) start the container with `docker run --rm` and tear it down with `docker rm -f <name>`. The mariadb image declares an anonymous `VOLUME /var/lib/mysql`; an explicit remove without `-v` deletes the container but not that volume, and it preempts `--rm`'s own cleanup.
 - **Fix.** Teardown becomes `docker rm -fv <name>` (force, and remove anonymous volumes), via one small helper per conftest so it can be tested. Nothing else about the containers changes.
 - **Not changed.** The `docker run` flags (no `--tmpfs`, no extra options), the readiness checks and the tests that use the fixtures.
 - **Recommendations, not code (in the PR body).** A CI step that fails fast with a clear message when root free space is low, and/or a periodic `docker volume prune` on the runner.
