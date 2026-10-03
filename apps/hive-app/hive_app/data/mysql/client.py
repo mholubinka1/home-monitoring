@@ -1,6 +1,7 @@
 import logging.config
-from datetime import date
+from datetime import date, datetime
 from logging import Logger, getLogger
+from typing import Any
 
 from common.config import MariaDBSettings
 from common.mariadb.client import MariaDBClientBase
@@ -15,6 +16,18 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 def _forecast_scoped_id(source: str, target_date: date) -> str:
     return f"{source}_{target_date.strftime('%Y%m%d')}"
+
+
+def _json_safe(value: Any) -> Any:
+    """A copy of `value` with datetimes/dates as ISO-8601 strings, so it fits a
+    JSON column. Builds new containers; never mutates the caller's structure."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class MariaDBClient(MariaDBClientBase):
@@ -34,7 +47,7 @@ class MariaDBClient(MariaDBClientBase):
             state=status.state,
             boost_active=status.boost_active,
             boost_ends_at=status.boost_ends_at,
-            schedule=status.schedule,
+            schedule=_json_safe(status.schedule),
         )
         self._write_all([record], "Heating status data")
 
