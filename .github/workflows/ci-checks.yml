@@ -8,11 +8,34 @@ on:
 permissions:
   contents: read
 
+# main runs are never cancelled and are keyed on the SHA so a newer pending main run
+# cannot replace an older pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   checks:
     name: Run all code quality checks
     runs-on: [self-hosted, linux, ARM64]
     steps:
+      - name: Fail fast if the runner disk is nearly full
+        shell: bash
+        env:
+          MIN_FREE_GB: 5
+        run: |
+          free_kb=$(df --output=avail -k / | tail -n 1 | tr -d ' ')
+          if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
+            echo "::error::Runner disk is nearly full: $((free_kb / 1024 / 1024)) GB free on / (need at least ${MIN_FREE_GB} GB)."
+            df -h /
+            docker system df
+            echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
+            echo "  unused docker volumes: docker volume ls -f dangling=true"
+            echo "  docker build cache:    docker builder du"
+            exit 1
+          fi
+          echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
