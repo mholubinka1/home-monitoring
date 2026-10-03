@@ -1,5 +1,9 @@
 # Issues: bugfix-test-fixture-docker-volume-leak
 
+> Work complete — [PR #573](https://github.com/mholubinka1/home-monitoring/pull/573) ready to merge.
+> The leak and the fix were demonstrated on the Pi with a throwaway container;
+> after merge, confirm a CI run leaves `docker volume ls` unchanged on the runner.
+
 ## tests: MariaDB test fixtures leak a docker volume per run (Pi root disk filled) — [#572](https://github.com/mholubinka1/home-monitoring/issues/572)
 
 **Blocked by**: None
@@ -22,12 +26,12 @@ the PR body, not in code.
 
 ### Acceptance criteria
 
-- [ ] Given the libs/common fixture teardown, it removes the container with
+- [x] Given the libs/common fixture teardown, it removes the container with
       force and with volumes (`docker rm -fv`).
-- [ ] Given the scripts fixture teardown, it removes the container with force
+- [x] Given the scripts fixture teardown, it removes the container with force
       and with volumes.
-- [ ] The tests run without docker.
-- [ ] The PR test plan states the on-Pi check: a CI run leaves
+- [x] The tests run without docker.
+- [x] The PR test plan states the on-Pi check: a CI run leaves
       `docker volume ls` unchanged.
 
 ---
