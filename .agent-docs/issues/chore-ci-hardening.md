@@ -49,7 +49,7 @@ still checking the link. `markdown-link-check` intermittently reports
 `Status: 0` for `https://docs.octopus.energy/graphql/reference/mutations/` in
 `.agent-docs/research/octopus-billing-period-api.md`; direct requests return
 200 in about 0.3 s every time, and it failed Code Quality on `main` for the
-#567 merge. The config retries only on HTTP 429. Investigate with repeated
+merge of PR #567. The config retries only on HTTP 429. Investigate with repeated
 runs and choose the cheapest robust fix that keeps checking the link (larger
 timeout, a browser-like User-Agent via `httpHeaders`, a retry change); an
 ignore entry for that one URL is a last resort and needs a comment. Pin the
