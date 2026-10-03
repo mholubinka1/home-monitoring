@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 import responses
 from sqlalchemy.orm import Session
 
@@ -438,3 +439,249 @@ def test_a_gap_day_with_genuinely_overlapping_rates_resolves_to_one_winner_per_i
         row.projected_total_cost
         == Decimal("1.18") + Decimal("1.30") + expected_remaining
     )
+
+
+@responses.activate
+def test_todays_standing_charge_only_day_is_priced_when_the_last_agile_hour_is_unpublished(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The live failure. The daily run is at 04:00 UTC (05:00 BST). Today has no
+    # consumption yet, so it is a gap day priced standing-charge-only. Agile
+    # publishes each afternoon to 23:00 UK time the next day -- in BST that is
+    # 22:00 UTC, one hour short of the local day's end (23:00 UTC) -- so the
+    # published rates stop at 22:00 UTC on 2026-10-03. The standing charge only
+    # reads the rate at local midday, so the unpublished final hour must not
+    # block the whole forecast.
+    _mock_billing_period("2026-10-03", "2026-11-03")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 4), 30, "15.00")
+    )
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=AGILE_PRODUCT_CODE,
+                tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 10, 3, 22, 0, tzinfo=UTC),
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("50.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 10, 2), "0.1")
+        # No consumption at all for 2026-10-03 (today).
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}"
+                )
+            ],
+        )
+    )
+    retriever.refresh(as_of=datetime(2026, 10, 3, 4, 0, tzinfo=UTC))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # Oct2 (complete): (4.8*10.00+50.00)/100 = 0.98. Today (gap, standing
+    # charge only, read at local midday): 50.00/100 = 0.50.
+    assert row.actual_cost_to_date == Decimal("0.98") + Decimal("0.50")
+
+
+@pytest.mark.parametrize(
+    "rate_ends_at",
+    [
+        datetime(2026, 10, 3, 10, 0, tzinfo=UTC),
+        # The window is half-open: a rate ending exactly at local midday does
+        # not cover it, and with no successor rate nothing does.
+        datetime(2026, 10, 3, 11, 0, tzinfo=UTC),
+    ],
+    ids=["an-hour-before-midday", "exactly-at-midday"],
+)
+@responses.activate
+def test_todays_standing_charge_only_day_still_fails_when_no_rate_covers_local_midday(
+    mariadb_client: MariaDBClient,
+    rate_ends_at: datetime,
+) -> None:
+    # Relaxing the coverage check must not mean "never check": the standing
+    # charge is read at local midday (2026-10-03 11:00 UTC in BST), so a
+    # published rate that stops before then leaves nothing to price it with
+    # and the forecast must fail loudly rather than persist a wrong total.
+    _mock_billing_period("2026-10-03", "2026-11-03")
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=AGILE_PRODUCT_CODE,
+                tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=rate_ends_at,
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("50.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 10, 2), "0.1")
+        # No consumption at all for 2026-10-03 (today).
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}"
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(
+        RuntimeError, match=rf"{AGILE_PRODUCT_CODE}.*2026-10-03.*midday"
+    ):
+        retriever.refresh(as_of=datetime(2026, 10, 3, 4, 0, tzinfo=UTC))
+
+
+@responses.activate
+def test_a_fully_covered_standing_charge_only_day_uses_the_rate_at_local_midday(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Today (no consumption yet) is fully covered by two rates with different
+    # standing charges (60.00p before local noon, 40.00p from noon on); the
+    # day's single charge comes from the rate covering local midday.
+    _mock_billing_period("2026-10-03", "2026-11-03")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 4), 30, "15.00")
+    )
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=AGILE_PRODUCT_CODE,
+                tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        # Local noon on 2026-10-03 (BST) is UTC 11:00.
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 10, 3, 11, 0, tzinfo=UTC),
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("60.00"),
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202610031100",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 10, 3, 11, 0, tzinfo=UTC),
+                valid_to=None,
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("40.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 10, 2), "0.1")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}"
+                )
+            ],
+        )
+    )
+    retriever.refresh(as_of=datetime(2026, 10, 3, 4, 0, tzinfo=UTC))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # Oct2: (4.8*10.00+60.00)/100 = 1.08. Today: 40.00/100 = 0.40.
+    assert row.actual_cost_to_date == Decimal("1.08") + Decimal("0.40")
+
+
+@responses.activate
+def test_a_past_gap_day_needing_a_variable_cost_still_requires_the_whole_day_covered(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Only the standing-charge-only path was relaxed. Oct3 is a strictly-past
+    # trailing gap (as_of is Oct4), so it gets an estimated variable cost
+    # spread across the whole day -- and the published rates end at 22:00 UTC,
+    # an hour short of the day's local end (23:00 UTC). The unpriced final
+    # hour would be silently omitted, so the strict check must still raise.
+    _mock_billing_period("2026-10-03", "2026-11-03")
+
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=AGILE_PRODUCT_CODE,
+                tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202601010000",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 10, 3, 22, 0, tzinfo=UTC),
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("50.00"),
+            )
+        )
+        _seed_complete_day(s, date(2026, 10, 2), "0.1")
+        # No consumption at all for 2026-10-03 (a past trailing gap by Oct4).
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}"
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=rf"No product_rate found for {AGILE_PRODUCT_CODE} on 2026-10-03 "
+        "-- cannot compute actual_cost_to_date without silently omitting",
+    ):
+        retriever.refresh(as_of=datetime(2026, 10, 4, 4, 0, tzinfo=UTC))
