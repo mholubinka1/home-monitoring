@@ -44,23 +44,23 @@ free space is below a named threshold (default 5 GB), printing `df -h /` and
 
 ### What to build
 
-Make the markdown link check steady against connection-level failures while
-still checking the link. `markdown-link-check` intermittently reports
+Make the CI markdown link check steady against connection-level failures
+while still checking every link. `markdown-link-check` intermittently reports
 `Status: 0` for `https://docs.octopus.energy/graphql/reference/mutations/` in
 `.agent-docs/research/octopus-billing-period-api.md`; direct requests return
 200 in about 0.3 s every time, and it failed Code Quality on `main` for the
-merge of PR #567. The config retries only on HTTP 429. Investigate with repeated
-runs and choose the cheapest robust fix that keeps checking the link (larger
-timeout, a browser-like User-Agent via `httpHeaders`, a retry change); an
-ignore entry for that one URL is a last resort and needs a comment. Pin the
-chosen setting with a test in `scripts/tests`.
+merge of PR #567. The tool retries only HTTP 429 and its `timeout` is per
+request, so a dropped connection is never retried; the flake could not be
+reproduced locally (0 of 8 runs), so no header or timeout tweak is justified.
+Retry the whole "Check markdown links" step in the shared composite action up
+to three times, failing only if every attempt fails, and pin that behaviour
+with tests that run the real step against a fake checker.
 
 ### Acceptance criteria
 
-- [ ] The chosen fix is evidenced by repeated local runs of the checker
-      against that link.
-- [ ] The link remains checked, unless an ignore entry is the documented last
-      resort.
-- [ ] A test pins the chosen setting in `.markdown-link-check.json`.
+- [ ] A transient failure of the check is retried and the step then passes.
+- [ ] A link that stays dead still fails the step after three attempts.
+- [ ] A clean check runs once.
+- [ ] `.markdown-link-check.json` is unchanged and no link is ignored.
 
 ---

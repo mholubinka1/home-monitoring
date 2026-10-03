@@ -99,9 +99,23 @@ runs:
 
     - name: Check markdown links
       shell: bash
+      # markdown-link-check only retries HTTP 429, and its `timeout` is per request, so a
+      # dropped or refused connection (reported as "Status: 0") is never retried. Retry
+      # the whole check instead; a link that is genuinely dead fails every attempt and
+      # still fails the build.
       run: |
-        find . -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" \
-          -print0 | xargs -0 -r markdown-link-check --config .markdown-link-check.json
+        for attempt in 1 2 3; do
+          if find . -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" \
+            -print0 | xargs -0 -r markdown-link-check --config .markdown-link-check.json; then
+            exit 0
+          fi
+          echo "::warning::Markdown link check failed (attempt ${attempt} of 3)"
+          if [ "$attempt" -lt 3 ]; then
+            sleep 15
+          fi
+        done
+        echo "::error::Markdown link check failed on all 3 attempts; a link is persistently dead."
+        exit 1
 
     - name: Security analysis with bandit
       shell: bash
