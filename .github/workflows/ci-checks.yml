@@ -28,7 +28,7 @@ jobs:
           if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
             echo "::error::Runner disk is nearly full: $((free_kb / 1024 / 1024)) GB free on / (need at least ${MIN_FREE_GB} GB)."
             df -h /
-            docker system df
+            docker system df || true
             echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
             echo "  unused docker volumes: docker volume ls -f dangling=true"
             echo "  docker build cache:    docker builder du"

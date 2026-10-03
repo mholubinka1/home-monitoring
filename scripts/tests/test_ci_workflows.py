@@ -41,6 +41,10 @@ def test_superseded_branch_runs_are_cancelled_but_main_runs_never_are(
         "a main run's group must include the commit SHA, otherwise a newer pending "
         f"main run replaces an older pending one and skips its image build: {group!r}"
     )
+    assert "github.workflow" in group, (
+        "the group must include the workflow name, otherwise the two workflows on the "
+        f"same ref cancel each other: {group!r}"
+    )
 
 
 SELF_HOSTED_JOBS = [
@@ -77,11 +81,19 @@ case "$*" in
   *) echo "fake df $*" ;;
 esac
 """
-FAKE_DOCKER = '#!/bin/sh\necho "fake docker $*"\n'
+FAKE_DOCKER = """#!/bin/sh
+echo "fake docker $*"
+[ -n "$FAKE_DOCKER_FAIL" ] && exit 1
+exit 0
+"""
 
 
 def _run_guard(
-    workflow_file: str, job: str, tmp_path: Path, free_gb: float
+    workflow_file: str,
+    job: str,
+    tmp_path: Path,
+    free_gb: float,
+    docker_fails: bool = False,
 ) -> "subprocess.CompletedProcess[str]":
     guard = _steps(workflow_file, job)[0]
     for name, body in (("df", FAKE_DF), ("docker", FAKE_DOCKER)):
@@ -94,8 +106,11 @@ def _run_guard(
         "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
         "FAKE_AVAIL_KB": str(int(free_gb * 1024 * 1024)),
     }
+    if docker_fails:
+        env["FAKE_DOCKER_FAIL"] = "1"
     return subprocess.run(
-        ["bash", "-c", guard["run"]],
+        # -eo pipefail: as the Actions runner runs `shell: bash`
+        ["bash", "-eo", "pipefail", "-c", guard["run"]],
         env=env,
         capture_output=True,
         text=True,
@@ -125,6 +140,21 @@ def test_the_disk_guard_passes_with_enough_free_space(
     result = _run_guard(workflow_file, job, tmp_path, free_gb=50)
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(("workflow_file", "job"), SELF_HOSTED_JOBS)
+def test_the_disk_guard_still_explains_itself_when_docker_is_down(
+    workflow_file: str, job: str, tmp_path: Path
+) -> None:
+    # With the daemon unreachable `docker system df` fails; under `bash -e` that must
+    # not cut the message short -- the operator still needs to see what to look at.
+    result = _run_guard(workflow_file, job, tmp_path, free_gb=0.1, docker_fails=True)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert "nearly full" in output
+    assert "dangling=true" in output
+    assert "builder du" in output
 
 
 def _baseline_script() -> str:
@@ -204,6 +234,15 @@ class _BaselineRepo:
         hook.write_text("#!/bin/sh\nexit 1\n")
         hook.chmod(0o755)
 
+    def make_origin_unreachable(self) -> None:
+        self._git(
+            self.work,
+            "remote",
+            "set-url",
+            "origin",
+            str(self.root / "no-such-remote.git"),
+        )
+
     def run_step(
         self, actual: int, tested_sha: str
     ) -> "subprocess.CompletedProcess[str]":
@@ -271,6 +310,21 @@ def test_a_push_that_is_still_rejected_is_a_warning_not_a_failure(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "::warning::" in result.stdout
+
+
+def test_an_unreachable_origin_skips_the_raise_without_failing(tmp_path: Path) -> None:
+    # A failed fetch is a different trigger from a moved branch (same fallback, so it
+    # needs its own test): the step cannot tell whether the branch moved, so it must
+    # skip rather than risk pushing, and still never fail the build.
+    repo = _BaselineRepo(tmp_path)
+    tested = repo.tested_sha()
+    repo.make_origin_unreachable()
+
+    result = repo.run_step(actual=85, tested_sha=tested)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "skipping the baseline raise" in result.stdout.lower()
+    assert repo.tested_sha() == tested, "must not leave a stray local commit"
 
 
 def test_coverage_that_has_not_risen_makes_no_commit(tmp_path: Path) -> None:
