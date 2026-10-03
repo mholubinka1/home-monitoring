@@ -74,6 +74,31 @@ def test_refresh_persists_the_polled_heating_status(
     assert stored[0].schedule == status.schedule
 
 
+def test_refresh_stores_a_poll_whose_schedule_holds_datetimes(
+    mariadb_client: MariaDBClient,
+) -> None:
+    status = _make_status()
+    status.schedule = {
+        "now": {
+            "value": {"target": 7},
+            "start": 720,
+            # apyhiveapi builds these naive
+            "Start_DateTime": datetime(2026, 10, 3, 12, 0),  # noqa: DTZ001
+            "End_DateTime": datetime(2026, 10, 3, 17, 30),  # noqa: DTZ001
+        },
+    }
+    source = _FakeHiveSource(mariadb_client, status)
+
+    HeatingRetriever(source).refresh()
+
+    with mariadb_client.session_read_scope() as session:
+        stored = session.query(model.heating_status).all()
+
+    assert len(stored) == 1
+    assert stored[0].schedule["now"]["Start_DateTime"] == "2026-10-03T12:00:00"
+    assert stored[0].schedule["now"]["End_DateTime"] == "2026-10-03T17:30:00"
+
+
 class _FailingHiveSource:
     """A fake HiveSource whose poll raises an ordinary transient error --
     proves HeatingRetriever.refresh() does no retry/backoff/swallowing of
