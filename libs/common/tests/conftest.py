@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import pytest
@@ -30,6 +30,12 @@ def _docker_available() -> bool:
         ["docker", "info"], capture_output=True, timeout=10, check=False
     )
     return result.returncode == 0
+
+
+def _remove_container(name: str) -> None:
+    """Force-remove the container and its volumes: the mariadb image declares an
+    anonymous /var/lib/mysql volume that a bare `rm -f` (even with `--rm`) leaks."""
+    subprocess.run(["docker", "rm", "-fv", name], capture_output=True, check=False)
 
 
 def _run_sql(
@@ -168,7 +174,14 @@ def mariadb_container() -> Iterator[MariaDBContainer]:
         _wait_for_real_server(name)
         yield MariaDBContainer(name=name, port=_published_port(name))
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+        _remove_container(name)
+
+
+@pytest.fixture
+def remove_mariadb_container() -> Callable[[str], None]:
+    """Expose the fixture's teardown helper so docker-free tests can exercise it
+    (conftest functions can't be imported by test modules here)."""
+    return _remove_container
 
 
 # The database these container-backed tests configure MariaDBClientBase

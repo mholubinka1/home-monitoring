@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
 
 import pytest
 
@@ -48,6 +49,12 @@ def _docker_available() -> bool:
 requires_docker = pytest.mark.skipif(
     not _docker_available(), reason="docker is not available in this environment"
 )
+
+
+def _remove_container(name: str) -> None:
+    """Force-remove the container and its volumes: the mariadb image declares an
+    anonymous /var/lib/mysql volume that a bare `rm -f` (even with `--rm`) leaks."""
+    subprocess.run(["docker", "rm", "-fv", name], capture_output=True, check=False)
 
 
 def run_sql(
@@ -137,4 +144,11 @@ def mariadb_container():
         _wait_for_real_server(name)
         yield name
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+        _remove_container(name)
+
+
+@pytest.fixture
+def remove_mariadb_container() -> Callable[[str], None]:
+    """Expose the fixture's teardown helper so docker-free tests can exercise it
+    (conftest functions can't be imported by test modules here)."""
+    return _remove_container
