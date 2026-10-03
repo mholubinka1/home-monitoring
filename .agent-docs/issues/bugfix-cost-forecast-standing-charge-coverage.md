@@ -1,5 +1,9 @@
 # Issues: bugfix-cost-forecast-standing-charge-coverage
 
+> Work complete — [PR #576](https://github.com/mholubinka1/home-monitoring/pull/576) ready to merge.
+> After deploy, confirm `cost_forecast_refresh` succeeds in `job_run` on the
+> live database. The wider missing-rate policy is tracked in #575.
+
 ## octopus-app: cost forecast fails daily when today's last Agile hour is unpublished (BST) — [#574](https://github.com/mholubinka1/home-monitoring/issues/574)
 
 **Blocked by**: None
@@ -23,15 +27,15 @@ The wider missing-rate policy and hourly cadence are tracked separately in
 
 ### Acceptance criteria
 
-- [ ] Given as_of at 04:00 UTC on a BST day with today a no-consumption gap
+- [x] Given as_of at 04:00 UTC on a BST day with today a no-consumption gap
       day and rates ending an hour short of local midnight, refresh persists a
       forecast whose today component is the standing charge only.
-- [ ] Given a standing-charge-only day with no rate at local midday, refresh
+- [x] Given a standing-charge-only day with no rate at local midday, refresh
       still raises.
-- [ ] Given a gap day that needs a variable cost with the same missing tail,
+- [x] Given a gap day that needs a variable cost with the same missing tail,
       the strict full-day error is still raised.
-- [ ] Given a fully covered standing-charge-only day, the numbers are
+- [x] Given a fully covered standing-charge-only day, the numbers are
       unchanged from before.
-- [ ] ADR-0023 has a dated note about where coverage is required and why.
+- [x] ADR-0023 has a dated note about where coverage is required and why.
 
 ---
