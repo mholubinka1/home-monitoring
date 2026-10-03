@@ -451,7 +451,19 @@ class CostForecastRetriever:
         # the variable cost read from this one partition, so they can never
         # again disagree about which rate covers which instant.
         segments = self._day_segments(rates, day_start, day_end)
-        if not self._segments_fully_cover_day(segments, day_start, day_end):
+        if daily_kwh is None:
+            # Standing-charge-only day (today): only the rate at local midday
+            # is used, so only that needs to be published. Agile publishes to
+            # 23:00 UK local, an hour short of local midnight in BST.
+            midday = day_start + timedelta(hours=12)
+            if not any(start <= midday < end for start, end, _ in segments):
+                raise RuntimeError(
+                    f"No product_rate found for {agreement.product_code} "
+                    f"on {day} -- the local-midday rate is missing, so "
+                    "that day's standing charge cannot be computed for "
+                    "actual_cost_to_date."
+                )
+        elif not self._segments_fully_cover_day(segments, day_start, day_end):
             raise RuntimeError(
                 f"No product_rate found for {agreement.product_code} "
                 f"on {day} -- cannot compute actual_cost_to_date "
@@ -480,9 +492,11 @@ class CostForecastRetriever:
         # convention this replaced, rather than max() across every rate
         # touching the day (which would pick whichever happens to be larger,
         # an arbitrary and unreviewed choice for a money calculation). No
-        # fallback needed on the lookup below: segments are contiguous and
-        # gapless once _segments_fully_cover_day has passed (the caller's
-        # precondition), so midday is provably inside exactly one of them.
+        # fallback needed on the lookup below: the caller has verified that
+        # a segment covers local midday (the standing-charge-only path
+        # checks midday coverage alone; days needing a variable cost check
+        # full-day coverage, which implies it). Segments never overlap, so
+        # exactly one of them contains midday.
         midday = day_start + timedelta(hours=12)
         _, _, standing_rate = next(
             segment for segment in segments if segment[0] <= midday < segment[1]
