@@ -1,6 +1,6 @@
 # Issues: docs-readme-and-issue-boxes
 
-> Work complete — PR ready to merge.
+> Work complete — [PR #583](https://github.com/mholubinka1/home-monitoring/pull/583) ready to merge.
 
 ## docs: README still says database must be octopus; tick two stale issue-file boxes — [#582](https://github.com/mholubinka1/home-monitoring/issues/582)
 
@@ -23,5 +23,8 @@ checks are verified.
 - [x] Both app config templates were checked: `database:` is blank in each, so
       nothing is stale there.
 - [x] The two `docker compose config` boxes in the reauth-notifications issues
-      file are ticked, after the combined compose file's `config` exited 0 and
-      the hive-app compose log mount was confirmed.
+      file are ticked, after the combined compose file's `config` exited 0, the
+      hive-app compose log mount was confirmed, and `pre-commit run --all-files`
+      passed (the first box also covers the docs/yaml/markdown checks). That
+      file's header banner, which said the two criteria were unchecked, now
+      records that they were checked.

@@ -1,9 +1,11 @@
 # Issues: feature-hive-ntfy-reauth-notifications
 
 > Work complete — [PR #563](https://github.com/mholubinka1/home-monitoring/pull/563) ready to merge.
-> The two `docker compose config` criteria are left unchecked: docker was not
-> available where this was built, so run `docker compose -f
-> deployments/docker-compose.yml config` before deploying.
+> The two `docker compose config` criteria were left unchecked when this was
+> built (docker was not available there). They were checked later, in
+> [#582](https://github.com/mholubinka1/home-monitoring/issues/582):
+> `docker compose -f deployments/docker-compose.yml config` exits 0 and the
+> hive-app compose mounts the log directory.
 
 ## hive-app: interactive Hive SMS login command and re-auth runbook — [#559](https://github.com/mholubinka1/home-monitoring/issues/559)
 

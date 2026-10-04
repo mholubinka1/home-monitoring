@@ -149,8 +149,8 @@ a live SMS 2FA code; see the runbook.
    ```
 
    On first run, MariaDB initializes its (empty) data directory: it creates the
-   `home_monitoring` database (via the mounted `init.sql`) and the app's MariaDB user (via the
-   `.env` credentials), then reports healthy. The `octopus-app` container waits for
+   `home_monitoring` database (via the mounted `init.sql`) and the app's MariaDB user
+   (via the `.env` credentials), then reports healthy. The `octopus-app` container waits for
    that healthcheck before starting, connects, runs its additive schema sync (creating
    every table from scratch — see
    [ADR-0005](.agent-docs/adr/0005-additive-only-schema-sync.md)), and begins polling.
