@@ -116,6 +116,10 @@ Update `.agent-docs/context.md`'s deferred-rename mentions and ADR-0022 to refer
 
 **GitHub issue**: #547
 
+> Since resolved: this cutover was executed on 2026-10-01 and #547 is closed. The
+> boxes below are left as originally written, as the plan at the time; the record of
+> what was done is in #547 and `deployments/CUTOVER_RUNBOOK.md`.
+
 **Blocked by**: Explicit user confirmation of the Pi cutover window, and [#549](https://github.com/mholubinka1/home-monitoring/issues/549) (not by any issue above technically otherwise, but do not start until #542, #543, #544, #545, #546 are merged)
 
 **User stories**: 5
