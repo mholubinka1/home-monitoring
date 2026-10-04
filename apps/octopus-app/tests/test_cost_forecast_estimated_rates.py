@@ -497,6 +497,41 @@ def test_four_past_days_with_no_published_rates_fail_the_refresh_and_write_nothi
 
 
 @responses.activate
+def test_exactly_three_past_days_with_no_published_rates_are_all_estimated_and_flagged(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The cap boundary: three rate-estimated days are allowed (a fourth is
+    # not, see above). Sep30 is fully published and real; Oct1-Oct3 have no
+    # rates at all, so each borrows Sep30's and all three dates are flagged.
+    _mock_billing_period("2026-10-01", "2026-10-31")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 4), 31, "15.00")
+    )
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_agreement(s)
+        s.add(
+            _agile_rate(
+                "sep30",
+                start_of_local_day(date(2026, 9, 30)),
+                start_of_local_day(date(2026, 10, 1)),
+                "10.00",
+            )
+        )
+        s.add(
+            _agile_rate("today", start_of_local_day(date(2026, 10, 4)), None, "10.00")
+        )
+        _seed_complete_day(s, date(2026, 9, 30), "0.1")
+
+    _retriever(mariadb_client).refresh(as_of=datetime(2026, 10, 4, 4, 0, tzinfo=UTC))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+    assert row.rates_estimated is True
+    assert row.estimated_days == "2026-10-01,2026-10-02,2026-10-03"
+
+
+@responses.activate
 def test_the_fallback_skips_an_incomplete_earlier_day_for_the_nearest_full_one(
     mariadb_client: MariaDBClient,
 ) -> None:

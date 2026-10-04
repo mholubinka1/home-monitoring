@@ -15,7 +15,7 @@ When a past gap day that needs a variable cost has missing or incomplete publish
 ### Acceptance criteria
 
 - [ ] Given a BST day whose last Agile slots before local midnight are unpublished, refresh writes the forecast with `rates_estimated` true and that date in `estimated_days`, priced at the same-day time-weighted average unit rate (hand-computed figure).
-- [ ] Given 4 past days missing rates, refresh raises and writes nothing.
+- [ ] Given 4 past days missing rates, refresh raises and writes no forecast for that energy.
 - [ ] Given fully published rates, `rates_estimated` is false and `estimated_days` is null.
 - [ ] Given the rates arrive before a later refresh, the flag clears.
 - [ ] Gas behaves the same as electricity.
