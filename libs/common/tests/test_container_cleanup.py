@@ -3,7 +3,10 @@
 The mariadb image declares an anonymous data volume. Removing its container with a
 bare `docker rm -f` leaves that volume behind, and a few hundred test runs filled the
 Pi's disk (CI then failed with "MariaDB container ... never became ready"). These
-tests need no docker: they check the removal command the fixture would run."""
+tests need no docker: they check the removal command the fixture would run, and drive
+the real fixture against a fake `docker` to check that a failed start is still cleaned up.
+(A `docker run` timeout takes the same exception path as the failure simulated here; it
+is not simulated because the fixture's 30s timeout would make the test slow.)"""
 
 import os
 import shutil
@@ -70,7 +73,7 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
     (project / "test_probe.py").write_text(_PROBE_TEST)
     log = tmp_path / "docker.log"
 
-    subprocess.run(
+    child = subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q"],
         cwd=project,
         env={
@@ -84,6 +87,9 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
         check=False,
     )
 
+    assert log.exists(), (
+        "the child pytest never called docker:\n" + child.stdout + child.stderr
+    )
     calls = log.read_text().splitlines()
     started = [
         words[words.index("--name") + 1]
@@ -91,6 +97,13 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
         if words[0] == "run"
     ]
     assert len(started) == 1, f"expected one docker run, got {calls}"
-    assert any(
-        c.startswith("rm ") and c.endswith(started[0]) for c in calls
+    removals = [
+        c.split() for c in calls if c.startswith("rm ") and c.endswith(started[0])
+    ]
+    assert (
+        removals
     ), f"a container whose start failed must still be removed, got {calls}"
+    flags = "".join(w[1:] for w in removals[0][1:-1] if w.startswith("-"))
+    assert (
+        "f" in flags and "v" in flags
+    ), f"removal must be forced and take the volumes too, got {removals[0]}"
