@@ -22,6 +22,7 @@ hive-app tells a Hive API timeout apart from a genuine re-authentication require
 - When `startSession` raises apyhiveapi's `HiveReauthRequired` and a timeout was recorded in the same session, a new `HiveApiUnavailable` exception (this repo's own type, not a `HiveReauthRequired`) is raised instead. Every other path still raises `HiveReauthRequired`.
 - `HiveApiUnavailable` is handled by the existing generic failure path (retry with backoff, failed `job_run`); `ReauthAlert` never sees it.
 - Document in ADR-0018 that a timeout is not a re-auth trigger and why it must be observed rather than inferred; update the `HiveReauthRequired` docstring accordingly.
+- Only apyhiveapi's own `HiveReauthRequired` is reclassified; the other re-login exceptions still alert after a timeout. Startup login and resume share this handling, so a timeout there is also transient (startup only logs non-reauth failures).
 - No config, schema or alert-format changes. Alert timing is unchanged.
 
 ## Testing Decisions
@@ -34,7 +35,7 @@ hive-app tells a Hive API timeout apart from a genuine re-authentication require
 
 - Retry count, delays or poll interval; alert timing or delaying alerts until retries are exhausted.
 - Changing apyhiveapi, or classifying other API failures.
-- The residual case of a genuine auth failure coinciding with a timeout in the same call (the next poll still alerts).
+- The residual case of a genuine bare `HiveReauthRequired` coinciding with a timeout in the same call (the next poll still alerts).
 
 ## Further Notes
 

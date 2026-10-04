@@ -150,7 +150,8 @@ class _TimingOutApyHive:
     swallows it, and startSession then raises HiveReauthRequired because a
     fresh Hive has no devices."""
 
-    def __init__(self, **_: Any) -> None:
+    def __init__(self, raises: Exception | None = None, **_: Any) -> None:
+        self._raises = raises or hive_exceptions.HiveReauthRequired()
         self.tokens = SimpleNamespace(tokenData={})
         self.auth = SimpleNamespace(SMS_MFA_CHALLENGE="SMS_MFA")
         self.api = SimpleNamespace(getAll=self._get_all)
@@ -166,24 +167,20 @@ class _TimingOutApyHive:
             await self.api.getAll()
         except TimeoutError:
             pass
-        raise hive_exceptions.HiveReauthRequired()
+        raise self._raises
 
 
 @responses.activate
 def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_alert(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
-    topic_url = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
-    responses.add(responses.POST, topic_url, status=200)
-    settings = HiveSettings(
-        username="user@example.com",
-        password="hunter2",
-        auth_state_path=str(tmp_path / "hive_auth_state.json"),
+    responses.add(
+        responses.POST,
+        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
+        status=200,
     )
-    source = HiveApiSource(settings, mariadb_client)
-    source.persist_auth_state(_persisted_state())
     monkeypatch.setattr("hive_app.data.hive_client.Hive", _TimingOutApyHive)
-    heating = HeatingRetriever(source, ReauthAlert(NtfyReauthNotifier(topic_url)))
+    heating = _polling_heating(mariadb_client, tmp_path)
 
     with pytest.raises(HiveApiUnavailable):
         heating.refresh()
@@ -243,6 +240,35 @@ def test_a_hive_api_timeout_does_not_taint_a_later_genuine_reauth_requirement(
 
     with pytest.raises(HiveApiUnavailable):
         heating.refresh()
+    with pytest.raises(HiveReauthRequired):
+        heating.refresh()
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    "exception",
+    _NEEDS_LIVE_RELOGIN[1:],  # all but the bare HiveReauthRequired
+    ids=_exception_id,
+)
+def test_an_auth_failure_other_than_an_empty_device_list_still_alerts_after_a_timeout(
+    mariadb_client: MariaDBClient,
+    monkeypatch: Any,
+    tmp_path: Path,
+    exception: Exception,
+) -> None:
+    responses.add(
+        responses.POST,
+        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
+        status=200,
+    )
+    monkeypatch.setattr(
+        "hive_app.data.hive_client.Hive",
+        lambda **kwargs: _TimingOutApyHive(raises=exception),
+    )
+    heating = _polling_heating(mariadb_client, tmp_path)
+
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
 

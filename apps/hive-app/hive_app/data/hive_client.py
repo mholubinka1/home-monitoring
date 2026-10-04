@@ -292,7 +292,11 @@ class HiveApiSource:
         own HiveReauthRequired type (see
         HiveReauthRequired's docstring) so every caller in this class
         raises/handles one consistent exception rather than duplicating this
-        try/except at each call site.
+        try/except at each call site. The one exception to that: apyhiveapi's
+        own HiveReauthRequired raised after a Hive API timeout in this
+        session is the empty-device-list artefact, not a real re-auth
+        requirement, so it becomes HiveApiUnavailable (see
+        _record_api_timeouts).
 
         session_config is a real dict, never None -- but it CAN be an
         explicitly empty {}, passed by _fresh_login right after a successful
@@ -316,7 +320,9 @@ class HiveApiSource:
         try:
             await hive.startSession(session_config)
         except _REAUTH_REQUIRED_EXCEPTIONS as e:
-            if getattr(hive, _API_TIMED_OUT_ATTR, False):
+            if isinstance(e, hive_exceptions.HiveReauthRequired) and getattr(
+                hive, _API_TIMED_OUT_ATTR, False
+            ):
                 raise HiveApiUnavailable(_API_TIMED_OUT_MESSAGE) from e
             raise HiveReauthRequired(reauth_message) from e
 
