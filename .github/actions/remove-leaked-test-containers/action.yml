@@ -34,7 +34,19 @@ runs:
         echo "Removing ${#leaked[@]} leaked test container(s) and their volumes:"
         printf '  %s\n' "${leaked[@]}"
         if ! docker rm -fv "${leaked[@]}"; then
-          # docker rm carries on past a failure, so name only what is really still there.
-          remaining=$(docker ps -a --format '{{.Names}}' | grep -E "$pattern" | tr '\n' ' ' || true)
-          echo "::warning::Could not remove every leaked test container; remove by hand: ${remaining:-${leaked[*]}}"
+          # docker rm carries on past a failure, and a `--rm` container can exit on its
+          # own between the listing and the removal ("No such container"), so look again
+          # and name only what is really still there. Only if that look fails too is the
+          # whole list the best answer available.
+          if relisted=$(docker ps -a --format '{{.Names}}'); then
+            remaining=$(grep -E "$pattern" <<<"$relisted" | tr '\n' ' ' || true)
+            if [ -z "$remaining" ]; then
+              echo "Some leaked test containers had already gone by the time they were removed; nothing is left."
+            else
+              echo "::warning::Could not remove every leaked test container; remove by hand: $remaining"
+            fi
+          else
+            echo "::warning::Could not remove every leaked test container or check what is left;" \
+              "remove by hand if still present: ${leaked[*]}"
+          fi
         fi

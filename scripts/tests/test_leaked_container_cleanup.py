@@ -40,6 +40,12 @@ case "$1" in
     echo $((calls + 1)) > "$FAKE_STATE.calls"
     [ -n "$FAKE_PS_FAIL_AFTER" ] && [ "$calls" -ge "$FAKE_PS_FAIL_AFTER" ] && exit 1
     cat "$FAKE_STATE"
+    # FAKE_VANISH=name: that container exits by itself right after the first listing
+    # (a `--rm` container finishing between the sweep's listing and its removal).
+    if [ "$calls" -eq 0 ] && [ -n "$FAKE_VANISH" ]; then
+      grep -vx "$FAKE_VANISH" "$FAKE_STATE" > "$FAKE_STATE.tmp"
+      mv "$FAKE_STATE.tmp" "$FAKE_STATE"
+    fi
     ;;
   rm)
     shift
@@ -48,7 +54,10 @@ case "$1" in
       case "$arg" in
         -*) ;;
         *)
-          if echo " $FAKE_STUCK " | grep -q " $arg "; then
+          if ! grep -qx "$arg" "$FAKE_STATE"; then
+            echo "Error: No such container: $arg" >&2
+            status=1
+          elif echo " $FAKE_STUCK " | grep -q " $arg "; then
             status=1
           else
             grep -vx "$arg" "$FAKE_STATE" > "$FAKE_STATE.tmp"
@@ -90,6 +99,7 @@ def _run_sweep(
     ps_fails: bool = False,
     stuck: list[str] | None = None,
     ps_fails_after: int | None = None,
+    vanishes: str | None = None,
 ) -> tuple["subprocess.CompletedProcess[str]", list[str]]:
     fake = tmp_path / "docker"
     fake.write_text(FAKE_DOCKER)
@@ -108,6 +118,8 @@ def _run_sweep(
         env["FAKE_PS_FAIL"] = "1"
     if ps_fails_after is not None:
         env["FAKE_PS_FAIL_AFTER"] = str(ps_fails_after)
+    if vanishes:
+        env["FAKE_VANISH"] = vanishes
     result = subprocess.run(
         # -eo pipefail: as the Actions runner runs `shell: bash`
         ["bash", "-eo", "pipefail", "-c", _script()],
@@ -220,6 +232,40 @@ def test_a_failed_removal_whose_recheck_also_fails_names_every_container_it_trie
     ), f"the fallback warning must name every container the sweep tried to remove: {warning}"
 
 
+def test_a_container_that_exits_by_itself_before_removal_is_not_blamed_on_the_operator(
+    tmp_path: Path,
+) -> None:
+    # A `--rm` test container can finish between the sweep's listing and its removal;
+    # `docker rm` then fails with "No such container". Nothing is left, so the sweep must
+    # not tell the operator to go and remove a container that no longer exists.
+    gone, stuck = "common-schema-test-0d0fb3e1", "rename-script-test-20820b0c"
+
+    result, _ = _run_sweep(tmp_path, [gone, stuck], vanishes=gone, stuck=[stuck])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    warning = next(
+        line for line in result.stdout.splitlines() if line.startswith("::warning::")
+    )
+    assert stuck in warning, f"the container really left must be named: {warning}"
+    assert (
+        gone not in warning
+    ), f"a container that exited by itself is not left: {warning}"
+
+
+def test_when_every_container_exited_by_itself_there_is_nothing_to_warn_about(
+    tmp_path: Path,
+) -> None:
+    gone = "common-schema-test-0d0fb3e1"
+
+    result, _ = _run_sweep(tmp_path, [gone], vanishes=gone)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "::warning::" not in result.stdout
+    ), f"nothing is left, so an operator has nothing to do: {result.stdout}"
+    assert "nothing is left" in result.stdout
+
+
 def _sweep_pattern() -> "re.Pattern[str]":
     match = re.search(r"pattern='([^']+)'", _script())
     assert match, "the sweep script no longer defines its container name pattern"
@@ -231,6 +277,12 @@ def test_the_sweep_matches_the_names_the_test_fixtures_really_generate() -> None
     # fixture is renamed and the sweep is not, the sweep silently matches nothing and
     # every other test here still passes -- so tie the sweep to the fixtures' source.
     pattern = _sweep_pattern()
+    build_workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "ci-arm64.yml").read_text(encoding="utf-8")
+    )
+    guard_script = build_workflow["jobs"]["ARM64_App_Image_Build_and_Push"]["steps"][0][
+        "run"
+    ]
     for conftest in FIXTURE_CONFTESTS:
         source = conftest.read_text(encoding="utf-8")
         match = re.search(
@@ -241,3 +293,7 @@ def test_the_sweep_matches_the_names_the_test_fixtures_really_generate() -> None
         assert pattern.match(
             generated
         ), f"the sweep would not remove {conftest.parent.parent.name}'s container {generated!r}"
+        assert match.group(1) in guard_script, (
+            f"the disk guard's hint for finding leaked containers no longer mentions "
+            f"{match.group(1)!r}, the prefix {conftest.parent.parent.name}'s fixture uses"
+        )

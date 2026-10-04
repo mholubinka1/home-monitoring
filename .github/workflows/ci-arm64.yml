@@ -35,7 +35,7 @@ jobs:
             echo "  unused docker volumes: docker volume ls -f dangling=true"
             echo "  docker build cache:    docker builder du"
             echo "  leaked MariaDB test containers (a cancelled run's, each holds a volume):"
-            echo "    docker ps -a --format '{{.Names}}' | grep -E '^(common-schema|rename-script)-test-'"
+            echo "    docker ps -a --format '{{.Names}}' | grep -E '^(common-schema-test|rename-script-test)-'"
             exit 1
           fi
           echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
