@@ -61,15 +61,21 @@ case "$1" in
 esac
 """
 
-_PROBE_BODY = """
+# Printed by the probe test only if it actually runs, i.e. if the fixture did NOT fail
+# during setup.
+_PROBE_RAN_MARKER = "probe test body ran"
+
+# The probe: a test that needs the fixture. With the fake docker above, `docker run`
+# exits non-zero, so the fixture must fail the probe in setup.
+_PROBE_TEST = f"""
 def test_probe(mariadb_container):
-    raise AssertionError("the fixture should have failed during setup")
+    raise AssertionError("{_PROBE_RAN_MARKER}")
 """
 
 # A real `docker run` timeout would make the test wait out the fixture's timeout, so
 # the timeout case has `docker run` (still logged by the fake docker) raise
 # TimeoutExpired straight away.
-_PROBE_TIMES_OUT = """
+_PROBE_TEST_WITH_RUN_TIMEOUT = """
 import subprocess
 
 import pytest
@@ -86,7 +92,11 @@ def _docker_run_times_out(monkeypatch):
         return _real_run(argv, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", run)
-""" + _PROBE_BODY
+""" + _PROBE_TEST
+
+# Generous: the child normally finishes in about a second. If a regression made it wait
+# (for example on `_wait_for_real_server`), the test should fail rather than hang.
+_CHILD_TIMEOUT_SECONDS = 120
 
 
 def _run_fixture_against_fake_docker(
@@ -117,13 +127,34 @@ def _run_fixture_against_fake_docker(
         capture_output=True,
         text=True,
         check=False,
+        timeout=_CHILD_TIMEOUT_SECONDS,
     )
     calls = log.read_text().splitlines() if log.exists() else []
     return child, calls
 
 
+def _started_containers(calls: list[str]) -> list[str]:
+    """Names passed to `docker run --name` in the fake docker's log."""
+    return [
+        words[words.index("--name") + 1]
+        for words in (c.split() for c in calls)
+        if words[0] == "run"
+    ]
+
+
+def _removals_of(calls: list[str], name: str) -> list[list[str]]:
+    """Full `docker rm ... <name>` commands in the fake docker's log."""
+    return [
+        ["docker", *c.split()]
+        for c in calls
+        if c.startswith("rm ") and c.endswith(name)
+    ]
+
+
 @pytest.mark.parametrize(
-    "probe", [_PROBE_BODY, _PROBE_TIMES_OUT], ids=["exits nonzero", "times out"]
+    "probe",
+    [_PROBE_TEST, _PROBE_TEST_WITH_RUN_TIMEOUT],
+    ids=["exits nonzero", "times out"],
 )
 def test_a_container_that_fails_to_start_is_still_removed(
     tmp_path: Path, probe: str
@@ -132,20 +163,12 @@ def test_a_container_that_fails_to_start_is_still_removed(
 
     output = child.stdout + child.stderr
     assert (
-        child.returncode != 0 and "should have failed" not in child.stdout
+        child.returncode != 0 and _PROBE_RAN_MARKER not in child.stdout
     ), f"the fixture must fail the probe test during setup, not let it run:\n{output}"
     assert calls, f"the child pytest never called docker:\n{output}"
-    started = [
-        words[words.index("--name") + 1]
-        for words in (c.split() for c in calls)
-        if words[0] == "run"
-    ]
+    started = _started_containers(calls)
     assert len(started) == 1, f"expected one docker run, got {calls}"
-    removals = [
-        ["docker", *c.split()]
-        for c in calls
-        if c.startswith("rm ") and c.endswith(started[0])
-    ]
+    removals = _removals_of(calls, started[0])
     assert (
         removals
     ), f"a container whose start failed must still be removed, got {calls}"
