@@ -183,6 +183,43 @@ def test_a_cost_forecast_table_predating_the_energy_column_gets_it_added(
     assert row.projected_total_cost == Decimal("110.00")
 
 
+def test_a_cost_forecast_table_predating_the_estimation_flag_gets_both_columns_added(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A pre-existing row is seeded before sync: the NOT NULL rates_estimated
+    # column is only addable to a populated table because it has a server
+    # default, and that row must then read as "not estimated".
+    engine = _sqlite_engine()
+    _StrippedBase.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(
+        _StrippedCostForecast(
+            id="pre-existing-row",
+            billing_period_start=date(2026, 7, 6),
+            billing_period_end=date(2026, 8, 6),
+            actual_cost_to_date=Decimal("42.50"),
+            projected_total_cost=Decimal("110.00"),
+            computed_at=datetime(2026, 7, 22, 4, 0, tzinfo=UTC),
+        )
+    )
+    session.commit()
+
+    _sync_against(engine, monkeypatch)
+
+    columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("cost_forecast")
+    }
+    assert columns["rates_estimated"]["nullable"] is False
+    assert columns["estimated_days"]["nullable"] is True
+
+    read_session = sessionmaker(bind=engine)()
+    row = read_session.query(model.cost_forecast).filter_by(id="pre-existing-row").one()
+    assert row.rates_estimated is False
+    assert row.estimated_days is None
+    assert row.actual_cost_to_date == Decimal("42.50")
+
+
 def test_an_index_missing_from_an_existing_table_is_created_on_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

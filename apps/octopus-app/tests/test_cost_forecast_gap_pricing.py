@@ -633,15 +633,18 @@ def test_a_fully_covered_standing_charge_only_day_uses_the_rate_at_local_midday(
 
 
 @responses.activate
-def test_a_past_gap_day_needing_a_variable_cost_still_requires_the_whole_day_covered(
+def test_a_past_gap_day_needing_a_variable_cost_with_incomplete_rates_is_estimated_and_flagged(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Only the standing-charge-only path was relaxed. Oct3 is a strictly-past
-    # trailing gap (as_of is Oct4), so it gets an estimated variable cost
-    # spread across the whole day -- and the published rates end at 22:00 UTC,
-    # an hour short of the day's local end (23:00 UTC). The unpriced final
-    # hour would be silently omitted, so the strict check must still raise.
+    # Oct3 is a strictly-past trailing gap (as_of is Oct4) needing a
+    # variable cost, and the published rates end at 22:00 UTC, an hour short
+    # of the day's local end (23:00 UTC). The unpublished final hour is priced
+    # at the day's average published rate (a flat 10p here) and the day is
+    # flagged, rather than the whole refresh failing.
     _mock_billing_period("2026-10-03", "2026-11-03")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 4), 31, "15.00")
+    )
 
     with mariadb_client.session_write_scope() as s:
         s.add(
@@ -665,6 +668,18 @@ def test_a_past_gap_day_needing_a_variable_cost_still_requires_the_whole_day_cov
                 standing_charge=Decimal("50.00"),
             )
         )
+        # Rates resume from 23:00 UTC so today's standing charge is readable.
+        s.add(
+            model.product_rate(
+                id=f"{AGILE_PRODUCT_CODE}_{REGION}_202610032300",
+                product_code=AGILE_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 10, 3, 23, 0, tzinfo=UTC),
+                valid_to=None,
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("50.00"),
+            )
+        )
         _seed_complete_day(s, date(2026, 10, 2), "0.1")
         # No consumption at all for 2026-10-03 (a past trailing gap by Oct4).
 
@@ -679,9 +694,14 @@ def test_a_past_gap_day_needing_a_variable_cost_still_requires_the_whole_day_cov
         )
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match=rf"No product_rate found for {AGILE_PRODUCT_CODE} on 2026-10-03 "
-        "-- cannot compute actual_cost_to_date without silently omitting",
-    ):
-        retriever.refresh(as_of=datetime(2026, 10, 4, 4, 0, tzinfo=UTC))
+    retriever.refresh(as_of=datetime(2026, 10, 4, 4, 0, tzinfo=UTC))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    assert row.rates_estimated is True
+    assert row.estimated_days == "2026-10-03"
+    # Oct2: 0.98; Oct3: (4.8 kWh * 10p + 50p)/100 = 0.98; today: 0.50.
+    assert row.actual_cost_to_date == Decimal("0.98") + Decimal("0.98") + Decimal(
+        "0.50"
+    )

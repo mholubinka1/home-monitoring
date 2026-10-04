@@ -213,6 +213,8 @@ class MariaDBClient(MariaDBClientBase):
             projected_total_cost=forecast.projected_total_cost,
             computed_at=forecast.computed_at,
             energy=as_energy_char(forecast.energy),
+            rates_estimated=forecast.rates_estimated,
+            estimated_days=forecast.estimated_days,
         )
         self._write_all([record], "Cost forecast data")
 

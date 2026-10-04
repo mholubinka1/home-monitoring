@@ -28,7 +28,7 @@ When a past gap day has missing or incomplete rates, the forecast prices the unc
 - **Flag meaning.** `rates_estimated` means a past gap day was priced with an estimated rate. kWh-estimated gap days with fully published rates remain unflagged, as in ADR-0023.
 - **Model.** `DailyCostSummary` gains `rates_estimated: bool = False`. `CostForecast` gains `rates_estimated: bool` and `estimated_days` (the estimated dates, comma-separated ISO, or none).
 - **Schema.** `cost_forecast` gains `rates_estimated` (boolean, not null, default false) and `estimated_days` (nullable text), added through the existing additive schema sync. Existing rows read as not estimated.
-- **Persistence.** `write_cost_forecast` writes both columns. Each refresh overwrites the row, so the flag clears when rates arrive.
+- **Persistence.** `write_cost_forecast` writes both columns. Each refresh appends a new `cost_forecast` row (history is kept), so the flag clears when the newest row for the energy and billing period is unflagged. Anything reading the flag, including the dashboard, must read the latest row.
 - **Cadence.** `cost_forecast_refresh` is scheduled every hour, like `pricing_refresh` and `consumption_refresh`. The five-attempt backoff is unchanged. No new alert.
 - **Dashboard.** The Grafana dashboard JSON shows the flag and the estimated days alongside the cost forecast. The current JSON is to be supplied by the user from their live Grafana instance before this slice; it is compared with the repo copy first.
 - **Records.** New ADR-0026 records the policy; a pointer note in ADR-0023 replaces its "a day not fully covered by known rates still raises" statement; `context.md` gains the terms for estimated rates and the flag.
