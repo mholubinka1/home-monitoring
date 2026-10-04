@@ -73,11 +73,15 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
             SMS_MFA_CHALLENGE="SMS_MFA",
             device_registration=self._device_registration,
         )
+        self.api = SimpleNamespace(getAll=self._get_all)
         self.deviceList: dict[str, Any] = {}
         self.call_order: list[str] = []
         self.submitted_codes: list[str] = []
         self.submitted_sessions: list[str] = []
         self.start_session_configs: list[dict[str, Any] | None] = []
+
+    async def _get_all(self) -> dict[str, Any]:
+        return {}
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")

@@ -16,7 +16,7 @@ from apyhiveapi import Hive
 from apyhiveapi.helper import hive_exceptions
 
 from hive_app.common.config import HiveSettings
-from hive_app.common.exceptions import HiveReauthRequired
+from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
@@ -48,6 +48,12 @@ _REAUTH_REQUIRED_EXCEPTIONS = (
     hive_exceptions.HiveFailedToRefreshTokens,
     hive_exceptions.HiveInvalid2FACode,
     hive_exceptions.HiveUnknownConfiguration,
+)
+
+_API_TIMED_OUT_ATTR = "_hive_app_api_timed_out"
+_API_TIMED_OUT_MESSAGE = (
+    "Hive's API timed out while starting a session, so the re-authentication "
+    "requirement apyhiveapi reported is not real."
 )
 
 
@@ -218,8 +224,7 @@ class HiveApiSource:
             await HiveApiSource._fresh_login(hive)
         else:
             logger.info(
-                "Persisted Hive auth state found -- resuming via token/device "
-                "refresh."
+                "Persisted Hive auth state found -- resuming via token/device refresh."
             )
             await HiveApiSource._start_session(
                 hive,
@@ -287,7 +292,11 @@ class HiveApiSource:
         own HiveReauthRequired type (see
         HiveReauthRequired's docstring) so every caller in this class
         raises/handles one consistent exception rather than duplicating this
-        try/except at each call site.
+        try/except at each call site. The one exception to that: apyhiveapi's
+        own HiveReauthRequired raised after a Hive API timeout in this
+        session is the empty-device-list artefact, not a real re-auth
+        requirement, so it becomes HiveApiUnavailable (see
+        _record_api_timeouts).
 
         session_config is a real dict, never None -- but it CAN be an
         explicitly empty {}, passed by _fresh_login right after a successful
@@ -311,6 +320,10 @@ class HiveApiSource:
         try:
             await hive.startSession(session_config)
         except _REAUTH_REQUIRED_EXCEPTIONS as e:
+            if isinstance(e, hive_exceptions.HiveReauthRequired) and getattr(
+                hive, _API_TIMED_OUT_ATTR, False
+            ):
+                raise HiveApiUnavailable(_API_TIMED_OUT_MESSAGE) from e
             raise HiveReauthRequired(reauth_message) from e
 
     @asynccontextmanager
@@ -325,13 +338,32 @@ class HiveApiSource:
         asyncio.run() per call, not a long-lived Hive instance)."""
         session = ClientSession()
         try:
-            yield Hive(
+            hive = Hive(
                 username=self._settings.username,
                 password=self._settings.password,
                 websession=session,
             )
+            self._record_api_timeouts(hive)
+            yield hive
         finally:
             await session.close()
+
+    @staticmethod
+    def _record_api_timeouts(hive: Hive) -> None:
+        """Flags hive when its getAll() times out. apyhiveapi's getDevices
+        swallows that TimeoutError, so startSession later fails with a bare
+        HiveReauthRequired indistinguishable from a genuine one; the flag is
+        the only way _start_session can tell them apart."""
+        get_all = hive.api.getAll
+
+        async def get_all_recording_timeouts(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await get_all(*args, **kwargs)
+            except TimeoutError:
+                setattr(hive, _API_TIMED_OUT_ATTR, True)
+                raise
+
+        hive.api.getAll = get_all_recording_timeouts
 
     @staticmethod
     def _resume_config(state: HiveAuthState) -> dict[str, Any]:
