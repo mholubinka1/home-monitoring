@@ -1,9 +1,11 @@
 # Issues: feature-hive-ntfy-reauth-notifications
 
 > Work complete — [PR #563](https://github.com/mholubinka1/home-monitoring/pull/563) ready to merge.
-> The two `docker compose config` criteria are left unchecked: docker was not
-> available where this was built, so run `docker compose -f
-> deployments/docker-compose.yml config` before deploying.
+> The two `docker compose config` criteria were left unchecked when this was
+> built (docker was not available there). They were checked later, in
+> [#582](https://github.com/mholubinka1/home-monitoring/issues/582):
+> `docker compose -f deployments/docker-compose.yml config` exits 0 and the
+> hive-app compose mounts the log directory.
 
 ## hive-app: interactive Hive SMS login command and re-auth runbook — [#559](https://github.com/mholubinka1/home-monitoring/issues/559)
 
@@ -92,7 +94,7 @@ context.md. Live config untouched.
 - [x] Template contains a topic placeholder and format comment; no real GUID
       anywhere in the repo.
 - [x] ADR-0018 and context.md updated.
-- [ ] Docs/yaml/markdown pre-commit checks and combined compose `config`
+- [x] Docs/yaml/markdown pre-commit checks and combined compose `config`
       pass.
 
 ---
@@ -117,7 +119,7 @@ the UID 999 write-permission note. mariadb unchanged.
       handler at the expected path plus console.
 - [x] Given an unwritable/missing directory, the config is console-only and
       warns; the app does not crash.
-- [ ] hive-app compose mounts the log directory; combined compose `config`
+- [x] hive-app compose mounts the log directory; combined compose `config`
       passes.
 
 ---

@@ -1,6 +1,8 @@
 # Issues: chore-database-and-image-rename-prep
 
 > Prep work complete (#542-546) — PR ready to merge. #547 (execute the Pi cutover) stays open and explicitly blocked on user confirmation and #549 (a new prerequisite discovered during review: the MariaDB schema is hardcoded rather than config-driven).
+>
+> Since then: #549 was resolved by ADR-0025 (`schema_translate_map`) and #547 was executed during the live Pi cutover on 2026-10-01; both issues are closed.
 
 ## Record the Docker Hub image target name (ADR)
 
@@ -113,6 +115,10 @@ Update `.agent-docs/context.md`'s deferred-rename mentions and ADR-0022 to refer
 ## [Blocked — do not start without explicit confirmation] Execute the Pi cutover
 
 **GitHub issue**: #547
+
+> Since resolved: this cutover was executed on 2026-10-01 and #547 is closed. The
+> boxes below are left as originally written, as the plan at the time; the record of
+> what was done is in #547 and `deployments/CUTOVER_RUNBOOK.md`.
 
 **Blocked by**: Explicit user confirmation of the Pi cutover window, and [#549](https://github.com/mholubinka1/home-monitoring/issues/549) (not by any issue above technically otherwise, but do not start until #542, #543, #544, #545, #546 are merged)
 

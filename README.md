@@ -56,9 +56,9 @@ providing:
 
 - Your Octopus API key and account number, [available from your Octopus dashboard](https://octopus.energy/dashboard/new/accounts/personal-details/api-access).
 - MariaDB connection details (`host`, `port`, `database`, `username`, `password`).
-  **`database` must be `octopus`** — `deployments/mariadb/docker-compose.yml` hardcodes
-  that name for the database MariaDB actually creates, so any other value here means
-  the app can never connect to a database that exists.
+  **`database` must be `home_monitoring`** — `deployments/mariadb/docker-compose.yml`
+  hardcodes that name (`MARIADB_DATABASE`) for the database MariaDB actually creates,
+  so any other value here means the app can never connect to a database that exists.
 - Data refresh settings: `refresh_interval_hours` (how often consumption is polled) and
   `retention_days` (how far back to backfill on every startup, and the raw-data
   retention window enforced weekly by the `prune_old_data` job, see
@@ -149,10 +149,10 @@ a live SMS 2FA code; see the runbook.
    ```
 
    On first run, MariaDB initializes its (empty) data directory: it creates the
-   `octopus` database (via the mounted `init.sql`) and the app's MariaDB user (via the
-   `.env` credentials), then reports healthy. The `octopus-app` container waits for
-   that healthcheck before starting, connects, runs its additive schema sync (creating
-   every table from scratch — see
+   `home_monitoring` database (via the mounted `init.sql`) and the app's MariaDB user
+   (via the `.env` credentials), then reports healthy. The `octopus-app` container
+   waits for that healthcheck before starting, connects, runs its additive schema
+   sync (creating every table from scratch — see
    [ADR-0005](.agent-docs/adr/0005-additive-only-schema-sync.md)), and begins polling.
 5. **Verify it worked:**
 
