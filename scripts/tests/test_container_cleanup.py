@@ -45,8 +45,8 @@ def test_the_test_container_is_removed_together_with_its_volumes(
     ), f"anonymous volumes must be removed, got {argv}"
 
 
-# Records every call, then fails `docker run` the way a pull timeout or a daemon error
-# would -- after the container name has been claimed.
+# Records every call, then fails `docker run` the way a daemon error would -- after
+# the container name has been claimed.
 _FAKE_DOCKER = """#!/bin/sh
 echo "$*" >> "$FAKE_DOCKER_LOG"
 case "$1" in
@@ -87,6 +87,10 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
         check=False,
     )
 
+    assert child.returncode != 0 and "should have failed" not in child.stdout, (
+        "the fixture must fail the probe test during setup, not let it run:\n"
+        + child.stdout
+    )
     assert log.exists(), (
         "the child pytest never called docker:\n" + child.stdout + child.stderr
     )
@@ -103,7 +107,13 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
     assert (
         removals
     ), f"a container whose start failed must still be removed, got {calls}"
-    flags = "".join(w[1:] for w in removals[0][1:-1] if w.startswith("-"))
+    options = removals[0][1:-1]
+    short_flags = "".join(
+        arg[1:] for arg in options if arg.startswith("-") and not arg.startswith("--")
+    )
     assert (
-        "f" in flags and "v" in flags
-    ), f"removal must be forced and take the volumes too, got {removals[0]}"
+        "f" in short_flags or "--force" in options
+    ), f"removal must be forced, got {removals[0]}"
+    assert (
+        "v" in short_flags or "--volumes" in options
+    ), f"removal must take the volumes too, got {removals[0]}"
