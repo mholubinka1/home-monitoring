@@ -409,10 +409,10 @@ class CostForecastRetriever:
                     raise RuntimeError(
                         f"More than {MAX_RATE_ESTIMATED_DAYS} days need "
                         f"their {agreement.product_code} rates estimated "
-                        f"(the cap is at most {MAX_RATE_ESTIMATED_DAYS} "
-                        f"per refresh; reached {day}) -- refusing to "
-                        "persist a cost forecast this dependent on "
-                        "estimated rates."
+                        f"(cap reached at {day}, at most "
+                        f"{MAX_RATE_ESTIMATED_DAYS} per energy per refresh) "
+                        "-- refusing to persist a cost forecast this "
+                        "dependent on estimated rates."
                     )
             day += timedelta(days=1)
         return filled
@@ -494,24 +494,38 @@ class CostForecastRetriever:
                 "actual_cost_to_date."
             )
         rates_estimated = False
+        standing_segments, standing_start = segments, day_start
+        variable_cost = self._segments_variable_cost(segments, daily_kwh)
         if daily_kwh is not None and not self._segments_fully_cover_day(
             segments, day_start, day_end
         ):
             # A past day needing a variable cost with an upstream rate hole
-            # is estimated rather than failing the whole refresh. A day with
-            # no published segment, or none covering local midday (so no
-            # standing charge), borrows the nearest earlier fully published
-            # day's rates instead; with none to borrow from it is an error.
-            if not self._covers_midday(segments, day_start):
-                return self._price_from_earlier_full_day(agreement, day, daily_kwh)
+            # is estimated rather than failing the whole refresh (ADR-0026):
+            # the uncovered hours are priced at the day's own time-weighted
+            # average published unit rate. Only what is genuinely missing is
+            # borrowed from the nearest earlier fully published day: the
+            # standing charge when no rate covers local midday, and the unit
+            # rate too when nothing is published for the day at all.
             rates_estimated = True
-
-        standing_charge = self._midday_standing_charge(segments, day_start)
-        variable_cost = self._segments_variable_cost(segments, daily_kwh)
-        if rates_estimated and daily_kwh is not None:
-            variable_cost += self._uncovered_variable_cost(
-                segments, daily_kwh, day_start, day_end
+            if not self._covers_midday(segments, day_start):
+                standing_segments, standing_start = self._nearest_earlier_full_day(
+                    agreement, day
+                )
+            if segments:
+                variable_cost += self._uncovered_variable_cost(
+                    segments, daily_kwh, day_start, day_end
+                )
+            else:
+                variable_cost = daily_kwh * self._average_unit_rate(standing_segments)
+            logger.warning(
+                f"Cost forecast: {agreement.product_code} rates for {day} are "
+                "missing or incomplete; pricing that day at estimated rates "
+                f"({'its own published average' if segments else 'the nearest earlier full day'})."
             )
+
+        standing_charge = self._midday_standing_charge(
+            standing_segments, standing_start
+        )
 
         return DailyCostSummary(
             date=day,
@@ -521,12 +535,13 @@ class CostForecastRetriever:
             rates_estimated=rates_estimated,
         )
 
-    def _price_from_earlier_full_day(
-        self, agreement: Agreement, day: date, daily_kwh: Decimal
-    ) -> DailyCostSummary:
+    def _nearest_earlier_full_day(
+        self, agreement: Agreement, day: date
+    ) -> tuple[list[tuple[datetime, datetime, Rate]], datetime]:
         # Walks back one day at a time (never reaching `day` itself, so never
-        # today) to the nearest day whose rates are fully published. Only that
-        # day's rates matter -- it may well be a consumption gap day itself.
+        # today) to the nearest day whose rates are fully published, and
+        # returns its segments and local start. Only that day's rates matter
+        # -- it may well be a consumption gap day itself.
         for offset in range(1, RATE_FALLBACK_LOOKBACK_DAYS + 1):
             earlier_day = day - timedelta(days=offset)
             earlier_start = local_day.start_of_local_day(earlier_day)
@@ -538,26 +553,16 @@ class CostForecastRetriever:
                 earlier_start,
                 earlier_end,
             )
-            if not self._segments_fully_cover_day(
+            if self._segments_fully_cover_day(
                 earlier_segments, earlier_start, earlier_end
             ):
-                continue
-            average_rate = self._average_unit_rate(earlier_segments)
-            standing_charge = self._midday_standing_charge(
-                earlier_segments, earlier_start
-            )
-            return DailyCostSummary(
-                date=day,
-                total_kwh=daily_kwh,
-                day_cost_gbp=(daily_kwh * average_rate + standing_charge) / 100,
-                is_gap_filled=True,
-                rates_estimated=True,
-            )
+                return earlier_segments, earlier_start
         raise RuntimeError(
             f"No product_rate found for {agreement.product_code} "
-            f"on {day} -- cannot compute actual_cost_to_date "
-            "without silently omitting that day's standing charge or "
-            "estimated variable cost."
+            f"on {day}, and no fully published day in the previous "
+            f"{RATE_FALLBACK_LOOKBACK_DAYS} days to estimate it from -- "
+            "cannot compute actual_cost_to_date without silently omitting "
+            "that day's standing charge or estimated variable cost."
         )
 
     @staticmethod
@@ -570,24 +575,25 @@ class CostForecastRetriever:
         return any(start <= midday < end for start, end, _ in segments)
 
     @staticmethod
+    def _published_hours(segments: list[tuple[datetime, datetime, Rate]]) -> Decimal:
+        return sum(
+            (_hours_between(start, end) for start, end, _ in segments), Decimal(0)
+        )
+
+    @staticmethod
     def _average_unit_rate(
         segments: list[tuple[datetime, datetime, Rate]],
     ) -> Decimal:
         # Time-weighted by duration, so an Agile day's expensive peak counts
         # for as long as it was actually published.
-        published_hours = sum(
-            (_hours_between(start, end) for start, end, _ in segments), Decimal(0)
+        weighted_rate = sum(
+            (
+                _hours_between(start, end) * rate.unit_rate
+                for start, end, rate in segments
+            ),
+            Decimal(0),
         )
-        return (
-            sum(
-                (
-                    _hours_between(start, end) * rate.unit_rate
-                    for start, end, rate in segments
-                ),
-                Decimal(0),
-            )
-            / published_hours
-        )
+        return weighted_rate / CostForecastRetriever._published_hours(segments)
 
     @staticmethod
     def _uncovered_variable_cost(
@@ -599,11 +605,10 @@ class CostForecastRetriever:
         # Uncovered stretches are priced at the time-weighted average unit
         # rate of the day's published segments (weight = duration), so the
         # hole neither inflates nor deflates the day's cost.
-        published_hours = sum(
-            (_hours_between(start, end) for start, end, _ in segments), Decimal(0)
-        )
         average_rate = CostForecastRetriever._average_unit_rate(segments)
-        uncovered_hours = _hours_between(day_start, day_end) - published_hours
+        uncovered_hours = _hours_between(
+            day_start, day_end
+        ) - CostForecastRetriever._published_hours(segments)
         return (uncovered_hours / 24) * daily_kwh * average_rate
 
     @staticmethod
@@ -715,8 +720,8 @@ class CostForecastRetriever:
         # billing_period_end -- unlike remaining_days, this correctly
         # includes the *rest of today* whenever as_of has already been
         # counted as an elapsed day (i.e. whenever as_of isn't exactly
-        # midnight, the normal production case since the daily job runs at
-        # DAILY_JOB_TIME = "04:00"). Today's standing charge is already
+        # midnight, the normal production case since the hourly job runs at
+        # a non-midnight minute). Today's standing charge is already
         # fully covered by the elapsed-days query/gap-fill above (a flat
         # per-day fee, not prorated), so remaining_days alone is correct for
         # standing_cost -- but the *variable* (unit-rate) cost for today's
@@ -753,7 +758,7 @@ class CostForecastRetriever:
         # it: read_elapsed_billing_period_costs exempts it from the
         # completeness guard precisely because it's still partial, so it
         # would otherwise silently understate this average every single
-        # refresh (the daily job always runs mid-day). Falls back to the
+        # refresh (the hourly job never runs at exact midnight). Falls back to the
         # full (unfiltered, today included) list on the rare
         # day-one-of-a-billing-period case where every elapsed day so far
         # is gap-filled or still-partial -- there's no complete day to

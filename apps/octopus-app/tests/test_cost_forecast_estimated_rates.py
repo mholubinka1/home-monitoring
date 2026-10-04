@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 import responses
+from sqlalchemy.orm import Session
 
 from octopus_app.data.cost_forecast import CostForecastRetriever
 from octopus_app.data.local_day import start_of_local_day
@@ -120,7 +121,7 @@ def test_a_past_gap_day_with_an_upstream_rate_hole_is_estimated_and_flagged(
     assert row.actual_cost_to_date == expected.quantize(Decimal("0.01"))
 
 
-def _seed_agreement(s) -> None:
+def _seed_agreement(s: Session) -> None:
     s.add(
         model.agreement(
             id="E20220101000000",
@@ -187,7 +188,7 @@ def test_a_fourth_rate_estimated_day_fails_the_refresh_and_writes_nothing(
         assert session.query(model.cost_forecast).count() == 0
 
 
-def _refresh_oct4_after_seeding_oct3_rates(
+def _seed_rates(
     mariadb_client: MariaDBClient,
     rate_ids_and_windows: list[tuple[str, datetime, datetime | None]],
 ) -> None:
@@ -229,9 +230,7 @@ def test_a_past_gap_day_with_fully_published_rates_is_not_flagged(
     mariadb_client: MariaDBClient,
 ) -> None:
     _seed_oct3_gap_scenario(mariadb_client)
-    _refresh_oct4_after_seeding_oct3_rates(
-        mariadb_client, [("all", datetime(2026, 1, 1, tzinfo=UTC), None)]
-    )
+    _seed_rates(mariadb_client, [("all", datetime(2026, 1, 1, tzinfo=UTC), None)])
 
     _retriever(mariadb_client).refresh(as_of=AS_OF)
 
@@ -246,7 +245,7 @@ def test_the_flag_clears_on_a_later_refresh_once_the_missing_rates_arrive(
     mariadb_client: MariaDBClient,
 ) -> None:
     _seed_oct3_gap_scenario(mariadb_client)
-    _refresh_oct4_after_seeding_oct3_rates(
+    _seed_rates(
         mariadb_client,
         [
             (
@@ -261,7 +260,7 @@ def test_the_flag_clears_on_a_later_refresh_once_the_missing_rates_arrive(
 
     # The missing 21:00-23:00 UTC rate is published before the next refresh.
     _mock_billing_period("2026-10-03", "2026-11-03")
-    _refresh_oct4_after_seeding_oct3_rates(
+    _seed_rates(
         mariadb_client,
         [
             (
@@ -290,9 +289,7 @@ def test_a_past_gap_day_with_no_published_rates_and_no_earlier_full_day_still_fa
     # With no published segment and no earlier fully published day to borrow
     # rates from, there is nothing to estimate with.
     _seed_oct3_gap_scenario(mariadb_client)
-    _refresh_oct4_after_seeding_oct3_rates(
-        mariadb_client, [("c", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None)]
-    )
+    _seed_rates(mariadb_client, [("c", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None)])
 
     with pytest.raises(RuntimeError, match="No product_rate found"):
         _retriever(mariadb_client).refresh(as_of=AS_OF)
@@ -418,12 +415,14 @@ def test_a_past_gap_day_with_no_published_rates_is_priced_from_the_earlier_full_
 
 
 @responses.activate
-def test_a_past_day_whose_rates_miss_local_midday_takes_the_earlier_days_rates(
+def test_a_past_day_whose_rates_miss_local_midday_borrows_only_the_earlier_standing_charge(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Oct3 has one published stretch (21:00-23:00 UTC) that does not cover
-    # local midday, so its own rates are unusable: Oct2's 12.00p / 55.00p are
-    # used instead, never the stray 99.00p / 77.00p segment.
+    # Oct3 has one published stretch (21:00-23:00 UTC, 99.00p / 77.00p) that
+    # does not cover local midday. Its unit rate is still the day's own
+    # published average (99.00p, applied to the whole day), but with no
+    # midday rate its standing charge comes from the nearest earlier full
+    # day (Oct2's 55.00p), never the stray segment's 77.00p.
     _seed_oct3_gap_scenario(mariadb_client)
     with mariadb_client.session_write_scope() as s:
         s.add(
@@ -457,8 +456,9 @@ def test_a_past_day_whose_rates_miss_local_midday_takes_the_earlier_days_rates(
 
     assert row.rates_estimated is True
     assert row.estimated_days == "2026-10-03"
-    # Oct2 (1.126) + Oct3 at Oct2's rates (1.126) + today's standing (0.50).
-    assert row.actual_cost_to_date == Decimal("2.75")
+    # Oct2 (1.126) + Oct3 (4.8*99.00 + 55.00)/100 = 5.302 + today's
+    # standing (0.50) = 6.928, persisted at pence precision.
+    assert row.actual_cost_to_date == Decimal("6.93")
 
 
 @responses.activate

@@ -22,8 +22,8 @@ When a past gap day has missing or incomplete rates, the forecast prices the unc
 ## Implementation Decisions
 
 - **Which days qualify.** Only past gap days whose rates are missing or incomplete (any part of the local day not covered by published rates) and which need a variable cost. Today (standing-charge-only) is unchanged from ADR-0023's 2026-10-03 note.
-- **Cap.** At most 3 days per refresh have their rates estimated. A 4th raises the existing error. The cap counts rate-estimated days only, not all gap-filled days.
-- **Estimated unit rate.** The uncovered stretches of the day are priced at the time-weighted average unit rate of that same day's published segments (each segment weighted by its duration). If the day has no published segments at all, the unit rate is the time-weighted average of the nearest earlier fully published day. If no earlier fully published day exists, raise as before.
+- **Cap.** At most 3 days per energy per refresh have their rates estimated. A 4th raises the existing error. The cap counts rate-estimated days only, not all gap-filled days.
+- **Estimated unit rate.** The uncovered stretches of the day are priced at the time-weighted average unit rate of that same day's published segments (each segment weighted by its duration). If the day has no published segments at all, the unit rate is the time-weighted average of the nearest earlier fully published day, searched back at most 7 days. If none exists in that window, raise as before.
 - **Estimated standing charge.** If the day has a rate covering local midday, use it as now. Otherwise use the standing charge from the same nearest earlier fully published day used for the unit rate.
 - **Flag meaning.** `rates_estimated` means a past gap day was priced with an estimated rate. kWh-estimated gap days with fully published rates remain unflagged, as in ADR-0023.
 - **Model.** `DailyCostSummary` gains `rates_estimated: bool = False`. `CostForecast` gains `rates_estimated: bool` and `estimated_days` (the estimated dates, comma-separated ISO, or none).
