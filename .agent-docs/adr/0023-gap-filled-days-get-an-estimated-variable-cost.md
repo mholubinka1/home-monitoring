@@ -26,3 +26,7 @@ Applies uniformly to electricity and gas.
 Rate coverage is required only where it is used. A gap day with no estimated kWh (today) needs the rate at local midday for its standing charge, not the whole day; days needing a variable cost keep the full-day requirement and the original error.
 
 Reason: Agile publishes to 23:00 UK local the next day, which in BST (22:00 UTC) is an hour short of local midnight (23:00 UTC). The strict whole-day check therefore made the forecast fail on every daily 04:00 UTC run during BST, even though today's standing-charge-only pricing reads a single midday rate (#574). The wider missing-rate policy and cadence question is tracked separately in #575.
+
+## Note (2026-10-04): the "still raises" rule is superseded for past days
+
+A past gap day whose rates are missing or incomplete no longer raises: it is estimated and flagged, up to 3 days per refresh, and the job now runs hourly. See [ADR-0026](0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md). Today's standing-charge-only rule above is unchanged.

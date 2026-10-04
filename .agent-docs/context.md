@@ -117,8 +117,12 @@ Cost computed directly from real consumption × the real rates actually charged 
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period, built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh.
+A projection of total cost for the current billing period, built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
+
+**Estimated Rates**:
+The rates used to price a past gap day whose published rates are missing or incomplete: the time-weighted average unit rate of that day's own published segments, or, with none, the unit rate and standing charge of the nearest earlier fully published day. At most 3 days per refresh; beyond that the refresh fails. The Cost Forecast row records it in `rates_estimated` and `estimated_days`, which flag only rate estimation, not kWh-estimated gap-filled days. See `.agent-docs/adr/0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md`.
+_Avoid_: fallback rates, guessed rates
 
 **Agile Predict**:
 A third-party public service (`agilepredict.com`, backed by the same Fly.io app historically documented at `prices.fly.dev` — that domain's `/v2/<region>/` path now serves the HTML frontend, not JSON) providing a hard-capped 14-day-ahead Agile price forecast per GSP region via `GET https://agilepredict.com/api/{region}/`, no authentication required. The primary source for the Agile Forecast Refresh job; consumed as an external API rather than reimplemented in-house — see `.agent-docs/adr/0002-agile-predict-forecast-dependency.md`.
@@ -129,7 +133,7 @@ A second third-party hobby forecast service (`api.x2r.uk`, independent hosting f
 _Avoid_: the fallback API, backup forecast
 
 **Agile Forecast Refresh**:
-The hourly job that fetches Agile price forecast readings (Agile Predict primarily, falling back to x2r.uk on failure) and upserts them into `agile_forecast`. Runs on its own cadence, decoupled from Cost Forecast's daily 04:00 job, so an outage of one or both forecast sources no longer blocks the same-day cost projection from recomputing off whatever forecast data is already stored.
+The hourly job that fetches Agile price forecast readings (Agile Predict primarily, falling back to x2r.uk on failure) and upserts them into `agile_forecast`. Runs on its own cadence, decoupled from the Cost Forecast job, so an outage of one or both forecast sources no longer blocks the same-day cost projection from recomputing off whatever forecast data is already stored.
 _Avoid_: forecast sync, price forecast job
 
 **Job Run**:
