@@ -9,8 +9,7 @@ from hive_app.data.model import WeatherForecastDay, WeatherObservation
 from hive_app.data.weather_types import REQUEST_TIMEOUT_SECONDS, FiniteFloat
 
 CURRENT_FIELDS = (
-    "temperature_2m,relative_humidity_2m,surface_pressure,"
-    "wind_speed_10m,precipitation"
+    "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,precipitation"
 )
 DAILY_FIELDS = "temperature_2m_max"
 

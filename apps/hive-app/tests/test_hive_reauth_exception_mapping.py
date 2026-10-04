@@ -6,14 +6,17 @@ from typing import Any
 import pytest
 import responses
 from apyhiveapi.helper import hive_exceptions
+from schedule import Scheduler
 
 from hive_app.common.config import HiveSettings
-from hive_app.common.exceptions import HiveReauthRequired
+from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import _LOGIN_REQUIRES_SMS_MESSAGE, HiveApiSource
 from hive_app.data.model import HiveAuthState
+from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert
+from hive_app.main import register_heating_refresh_job
 
 
 class _RaisingApyHive:
@@ -25,6 +28,10 @@ class _RaisingApyHive:
         self._raises = raises
         self.tokens = SimpleNamespace(tokenData={})
         self.auth = SimpleNamespace(SMS_MFA_CHALLENGE="SMS_MFA")
+        self.api = SimpleNamespace(getAll=self._get_all)
+
+    async def _get_all(self) -> dict[str, Any]:
+        return {}
 
     async def login(self) -> dict[str, Any]:
         raise self._raises
@@ -135,3 +142,145 @@ def test_unrecognised_device_during_a_poll_sends_one_reauth_alert(
 
     assert len(responses.calls) == 1
     assert responses.calls[0].request.url == topic_url
+
+
+class _TimingOutApyHive:
+    """Stands in for apyhiveapi's `Hive` as it behaves when Hive's API times
+    out: getAll() raises asyncio.TimeoutError, the library's own getDevices
+    swallows it, and startSession then raises HiveReauthRequired because a
+    fresh Hive has no devices."""
+
+    def __init__(self, **_: Any) -> None:
+        self.tokens = SimpleNamespace(tokenData={})
+        self.auth = SimpleNamespace(SMS_MFA_CHALLENGE="SMS_MFA")
+        self.api = SimpleNamespace(getAll=self._get_all)
+
+    async def _get_all(self) -> dict[str, Any]:
+        raise TimeoutError
+
+    async def login(self) -> dict[str, Any]:
+        return {"AuthenticationResult": {}}
+
+    async def startSession(self, _config: dict[str, Any] | None = None) -> None:
+        try:
+            await self.api.getAll()
+        except TimeoutError:
+            pass
+        raise hive_exceptions.HiveReauthRequired()
+
+
+@responses.activate
+def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_alert(
+    mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
+) -> None:
+    topic_url = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
+    responses.add(responses.POST, topic_url, status=200)
+    settings = HiveSettings(
+        username="user@example.com",
+        password="hunter2",
+        auth_state_path=str(tmp_path / "hive_auth_state.json"),
+    )
+    source = HiveApiSource(settings, mariadb_client)
+    source.persist_auth_state(_persisted_state())
+    monkeypatch.setattr("hive_app.data.hive_client.Hive", _TimingOutApyHive)
+    heating = HeatingRetriever(source, ReauthAlert(NtfyReauthNotifier(topic_url)))
+
+    with pytest.raises(HiveApiUnavailable):
+        heating.refresh()
+
+    assert len(responses.calls) == 0
+
+
+def _polling_heating(mariadb_client: MariaDBClient, tmp_path: Path) -> HeatingRetriever:
+    settings = HiveSettings(
+        username="user@example.com",
+        password="hunter2",
+        auth_state_path=str(tmp_path / "hive_auth_state.json"),
+    )
+    source = HiveApiSource(settings, mariadb_client)
+    source.persist_auth_state(_persisted_state())
+    return HeatingRetriever(
+        source,
+        ReauthAlert(
+            NtfyReauthNotifier("https://ntfy.sh/home-monitoring-hive-auth-ntfy-test")
+        ),
+    )
+
+
+@responses.activate
+def test_a_genuine_reauth_requirement_during_a_poll_still_sends_one_alert(
+    mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
+) -> None:
+    responses.add(
+        responses.POST,
+        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
+        status=200,
+    )
+    _install_hive_raising(monkeypatch, hive_exceptions.HiveReauthRequired())
+    heating = _polling_heating(mariadb_client, tmp_path)
+
+    with pytest.raises(HiveReauthRequired):
+        heating.refresh()
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_hive_api_timeout_does_not_taint_a_later_genuine_reauth_requirement(
+    mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
+) -> None:
+    responses.add(
+        responses.POST,
+        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
+        status=200,
+    )
+    hives: list[Any] = [
+        _TimingOutApyHive(),
+        _RaisingApyHive(hive_exceptions.HiveReauthRequired()),
+    ]
+    monkeypatch.setattr("hive_app.data.hive_client.Hive", lambda **kwargs: hives.pop(0))
+    heating = _polling_heating(mariadb_client, tmp_path)
+
+    with pytest.raises(HiveApiUnavailable):
+        heating.refresh()
+    with pytest.raises(HiveReauthRequired):
+        heating.refresh()
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+@pytest.mark.parametrize("entry_point", ["login", "resume"])
+def test_a_hive_api_timeout_during_startup_authentication_is_not_a_reauth(
+    mariadb_client: MariaDBClient, monkeypatch: Any, entry_point: str
+) -> None:
+    monkeypatch.setattr("hive_app.data.hive_client.Hive", _TimingOutApyHive)
+    source = HiveApiSource(_hive_settings(), mariadb_client)
+
+    with pytest.raises(HiveApiUnavailable):
+        if entry_point == "login":
+            source.login()
+        else:
+            source.resume(_persisted_state())
+
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_a_scheduled_poll_hitting_a_hive_api_timeout_is_retried_without_alerting(
+    mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
+) -> None:
+    sleep_delays: list[int] = []
+    monkeypatch.setattr("hive_app.common.decorator.time.sleep", sleep_delays.append)
+    monkeypatch.setattr("hive_app.data.hive_client.Hive", _TimingOutApyHive)
+    heating = _polling_heating(mariadb_client, tmp_path)
+
+    job = register_heating_refresh_job(Scheduler(), heating, mariadb_client)
+    job.run().join()
+
+    assert sleep_delays == [60, 120, 240, 480]
+    assert len(responses.calls) == 0
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).all()
+    assert len(runs) == 5
+    assert all(run.status == "failure" for run in runs)

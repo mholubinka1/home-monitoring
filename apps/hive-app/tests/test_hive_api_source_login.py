@@ -29,6 +29,7 @@ class _FakeApyHive:
             # SMS_MFA_CHALLENGE), not invented.
             SMS_MFA_CHALLENGE="SMS_MFA",
         )
+        self.api = SimpleNamespace(getAll=self._get_all)
         self.deviceList: dict[str, Any] = {}
         self.start_session_configs: list[dict[str, Any] | None] = []
         # Records call order, not just counts -- proves login() genuinely
@@ -36,6 +37,9 @@ class _FakeApyHive:
         # createDevices() tail) rather than just each being called once in
         # an unverified order. Call counts are read back via .count(...).
         self.call_order: list[str] = []
+
+    async def _get_all(self) -> dict[str, Any]:
+        return {}
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")

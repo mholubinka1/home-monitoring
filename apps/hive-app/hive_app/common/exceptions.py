@@ -13,6 +13,13 @@ class HiveReauthRequired(Exception):
     exception so callers (startup auth and the heating-poll job, both
     alerting via the shared ReauthAlert) depend only on this repo's own
     exception type, not an apyhiveapi implementation detail. Every other
-    failure (network errors, ordinary API errors) is NOT this type, so
-    generic job-failure handling treats it as an ordinary transient
-    failure."""
+    failure (network errors, ordinary API errors, and a Hive API timeout --
+    see HiveApiUnavailable) is NOT this type, so generic job-failure
+    handling treats it as an ordinary transient failure."""
+
+
+class HiveApiUnavailable(Exception):
+    """Raised when Hive's API timed out while a session was starting, so
+    apyhiveapi saw no devices and reported a re-authentication requirement
+    that is not real. An ordinary transient poll failure: retried and
+    recorded, never alerted."""
