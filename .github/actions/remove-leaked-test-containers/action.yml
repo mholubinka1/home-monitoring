@@ -6,7 +6,9 @@ description: >-
   fixture's `finally` never runs, and `--rm` only applies once a container exits, so the
   container keeps running and its anonymous volume stays, next to the production database
   on the self-hosted runner. Removes only containers matching those two exact name
-  patterns, never prunes anything, and warns instead of failing when docker misbehaves.
+  patterns, never prunes anything, and warns instead of failing when docker misbehaves
+  (so a persistent failure to remove shows up only as a warning annotation; leaks that
+  pile up would eventually trip the disk guard).
   Relies on the runner executing one job at a time and on nobody running the MariaDB
   tests by hand on the same host while a job starts or ends: a live test container
   matching those names would be force-removed too.

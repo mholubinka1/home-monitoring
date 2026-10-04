@@ -34,7 +34,8 @@ jobs:
             echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
             echo "  unused docker volumes: docker volume ls -f dangling=true"
             echo "  docker build cache:    docker builder du"
-            echo "  leaked MariaDB test containers (a cancelled run's, each holds a volume): docker ps -a --filter name=-test-"
+            echo "  leaked MariaDB test containers (a cancelled run's, each holds a volume):"
+            echo "    docker ps -a --format '{{.Names}}' | grep -E '^(common-schema|rename-script)-test-'"
             exit 1
           fi
           echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
@@ -46,12 +47,16 @@ jobs:
       # After Checkout because a local action only exists once the repo is checked out.
       # Runs once the disk guard and Checkout have succeeded (no `if:`, so the implicit
       # success()); the final sweep below is the one that also runs on failure or cancel.
-      # continue-on-error: housekeeping must never fail a build. Both sweeps assume one job
-      # at a time (every ARM64-labelled job here is served by the same single runner) and
-      # nobody running the MariaDB tests by hand on this host: a live test container would
-      # be removed too.
+      # So this is a backstop only while the disk is not already full: if leaked volumes
+      # fill it, the guard above fails first and the leak has to be cleaned by hand (the
+      # guard's hint says how). continue-on-error and timeout-minutes: housekeeping must
+      # never fail a build or hold the single runner if docker hangs. Both sweeps assume
+      # one job at a time (every ARM64-labelled job here is served by the same single
+      # runner) and nobody running the MariaDB tests by hand on this host: a live test
+      # container would be removed too.
       - name: Remove test containers left by an earlier run
         continue-on-error: true
+        timeout-minutes: 5
         uses: ./.github/actions/remove-leaked-test-containers
 
       - name: Install uv
@@ -194,4 +199,5 @@ jobs:
       - name: Remove test containers this run may have left behind
         if: always()
         continue-on-error: true
+        timeout-minutes: 5
         uses: ./.github/actions/remove-leaked-test-containers

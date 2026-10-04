@@ -35,6 +35,10 @@ echo "$*" >> "$FAKE_DOCKER_LOG"
 case "$1" in
   ps)
     [ -n "$FAKE_PS_FAIL" ] && exit 1
+    # FAKE_PS_FAIL_AFTER=N: the (N+1)th and later listings fail.
+    calls=$(cat "$FAKE_STATE.calls" 2>/dev/null || echo 0)
+    echo $((calls + 1)) > "$FAKE_STATE.calls"
+    [ -n "$FAKE_PS_FAIL_AFTER" ] && [ "$calls" -ge "$FAKE_PS_FAIL_AFTER" ] && exit 1
     cat "$FAKE_STATE"
     ;;
   rm)
@@ -85,6 +89,7 @@ def _run_sweep(
     containers: list[str],
     ps_fails: bool = False,
     stuck: list[str] | None = None,
+    ps_fails_after: int | None = None,
 ) -> tuple["subprocess.CompletedProcess[str]", list[str]]:
     fake = tmp_path / "docker"
     fake.write_text(FAKE_DOCKER)
@@ -101,6 +106,8 @@ def _run_sweep(
     }
     if ps_fails:
         env["FAKE_PS_FAIL"] = "1"
+    if ps_fails_after is not None:
+        env["FAKE_PS_FAIL_AFTER"] = str(ps_fails_after)
     result = subprocess.run(
         # -eo pipefail: as the Actions runner runs `shell: bash`
         ["bash", "-eo", "pipefail", "-c", _script()],
@@ -170,6 +177,10 @@ def test_an_unreachable_docker_daemon_warns_and_does_not_fail_the_job(
     assert result.returncode == 0, result.stdout + result.stderr
     assert "::warning::" in result.stdout
     assert not _removals(calls), f"no removal may be attempted blind, got {calls}"
+    assert "No leaked test containers" not in result.stdout, (
+        "a daemon that could not be asked must not be reported as a clean runner: "
+        + result.stdout
+    )
 
 
 def test_a_failed_removal_warns_naming_what_is_left_and_does_not_fail_the_job(
@@ -189,6 +200,24 @@ def test_a_failed_removal_warns_naming_what_is_left_and_does_not_fail_the_job(
     assert (
         removed not in warning
     ), f"the warning must not name a container that was removed: {warning}"
+
+
+def test_a_failed_removal_whose_recheck_also_fails_names_every_container_it_tried(
+    tmp_path: Path,
+) -> None:
+    # If the second listing fails there is no way to know what is left, so the warning
+    # falls back to everything the sweep tried to remove rather than saying nothing.
+    leaked = ["common-schema-test-0d0fb3e1", "rename-script-test-20820b0c"]
+
+    result, _ = _run_sweep(tmp_path, leaked, stuck=leaked[:1], ps_fails_after=1)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    warning = next(
+        line for line in result.stdout.splitlines() if line.startswith("::warning::")
+    )
+    assert all(
+        name in warning for name in leaked
+    ), f"the fallback warning must name every container the sweep tried to remove: {warning}"
 
 
 def _sweep_pattern() -> "re.Pattern[str]":

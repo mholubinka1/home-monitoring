@@ -382,7 +382,7 @@ def test_coverage_that_has_not_risen_makes_no_commit(tmp_path: Path) -> None:
 
 
 SWEEP_ACTION = "./.github/actions/remove-leaked-test-containers"
-BUILD_FILE, BUILD_JOB = SELF_HOSTED_JOBS[0]
+BUILD_FILE, BUILD_JOB = "ci-arm64.yml", "ARM64_App_Image_Build_and_Push"
 
 
 def _index_of(steps: list[dict[str, Any]], name: str) -> int:
@@ -415,6 +415,10 @@ def test_the_build_job_sweeps_leaked_test_containers_after_checkout_and_before_t
     assert (
         steps[start].get("continue-on-error") is True
     ), "housekeeping must never fail the build"
+    assert steps[start].get("timeout-minutes"), (
+        "a hung docker call must not hold the single runner for the default six hours: "
+        "bound the sweep with timeout-minutes"
+    )
 
 
 def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
@@ -428,6 +432,9 @@ def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
         "the final sweep must never change the job result "
         "(for example if the job failed before Checkout and the action is missing)"
     )
+    assert last.get(
+        "timeout-minutes"
+    ), "the final sweep must be bounded by timeout-minutes so a hung docker cannot hold the runner"
 
 
 def test_the_checks_workflow_needs_no_sweep_because_it_never_runs_pytest() -> None:
