@@ -166,8 +166,24 @@ class _TimingOutApyHive:
         try:
             await self.api.getAll()
         except TimeoutError:
-            pass
+            pass  # mirrors apyhiveapi's getDevices swallowing the timeout
         raise self._raises
+
+
+def _polling_heating(mariadb_client: MariaDBClient, tmp_path: Path) -> HeatingRetriever:
+    settings = HiveSettings(
+        username="user@example.com",
+        password="hunter2",
+        auth_state_path=str(tmp_path / "hive_auth_state.json"),
+    )
+    source = HiveApiSource(settings, mariadb_client)
+    source.persist_auth_state(_persisted_state())
+    return HeatingRetriever(
+        source,
+        ReauthAlert(
+            NtfyReauthNotifier("https://ntfy.sh/home-monitoring-hive-auth-ntfy-test")
+        ),
+    )
 
 
 @responses.activate
@@ -186,22 +202,6 @@ def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_alert(
         heating.refresh()
 
     assert len(responses.calls) == 0
-
-
-def _polling_heating(mariadb_client: MariaDBClient, tmp_path: Path) -> HeatingRetriever:
-    settings = HiveSettings(
-        username="user@example.com",
-        password="hunter2",
-        auth_state_path=str(tmp_path / "hive_auth_state.json"),
-    )
-    source = HiveApiSource(settings, mariadb_client)
-    source.persist_auth_state(_persisted_state())
-    return HeatingRetriever(
-        source,
-        ReauthAlert(
-            NtfyReauthNotifier("https://ntfy.sh/home-monitoring-hive-auth-ntfy-test")
-        ),
-    )
 
 
 @responses.activate
