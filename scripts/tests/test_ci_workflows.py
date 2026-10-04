@@ -386,8 +386,9 @@ BUILD_FILE, BUILD_JOB = SELF_HOSTED_JOBS[0]
 
 
 def _index_of(steps: list[dict[str, Any]], name: str) -> int:
-    (index,) = [i for i, step in enumerate(steps) if step.get("name") == name]
-    return index
+    matches = [i for i, step in enumerate(steps) if step.get("name") == name]
+    assert len(matches) == 1, f"expected exactly one step named {name!r}, got {matches}"
+    return matches[0]
 
 
 def test_the_build_job_sweeps_leaked_test_containers_after_checkout_and_before_the_tests() -> (
@@ -407,7 +408,10 @@ def test_the_build_job_sweeps_leaked_test_containers_after_checkout_and_before_t
     assert start < _index_of(
         steps, "Run tests"
     ), "the start-of-job sweep must run before the tests that create containers"
-    assert "if" not in steps[start], "the start-of-job sweep must always run"
+    assert "if" not in steps[start], (
+        "the start-of-job sweep takes the implicit success(): it runs once the disk "
+        "guard and Checkout passed, and the final always() sweep covers failure/cancel"
+    )
     assert (
         steps[start].get("continue-on-error") is True
     ), "housekeeping must never fail the build"
@@ -429,7 +433,9 @@ def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
 def test_the_checks_workflow_needs_no_sweep_because_it_never_runs_pytest() -> None:
     # Only ci-arm64.yml runs pytest, so only it can leak MariaDB test containers. If
     # ci-checks.yml (or the shared quality action it uses) ever runs pytest, it needs the
-    # same sweep.
+    # same sweep. This only inspects the `run:` scripts of that job and of the one local
+    # composite action it uses; a new third-party action that runs pytest internally
+    # would not be caught.
     quality_action = WORKFLOWS_DIR.parent / "actions" / "code-quality-checks"
     action_steps = yaml.safe_load(
         (quality_action / "action.yml").read_text(encoding="utf-8")

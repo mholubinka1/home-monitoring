@@ -26,17 +26,34 @@ FIXTURE_CONFTESTS = [
     ROOT / "scripts" / "tests" / "conftest.py",
 ]
 
-# Records every call; `ps` lists $FAKE_CONTAINERS (one name per word), and either command
-# can be made to fail.
+# Records every call. `ps` lists the containers in the $FAKE_STATE file; `rm` removes its
+# arguments from that file, except any named in $FAKE_STUCK (space separated), which stay
+# and make `rm` exit non-zero -- as the real `docker rm` carries on past a failure. `ps`
+# can also be made to fail (daemon down).
 FAKE_DOCKER = """#!/bin/sh
 echo "$*" >> "$FAKE_DOCKER_LOG"
 case "$1" in
   ps)
     [ -n "$FAKE_PS_FAIL" ] && exit 1
-    printf '%s\\n' $FAKE_CONTAINERS
+    cat "$FAKE_STATE"
     ;;
   rm)
-    [ -n "$FAKE_RM_FAIL" ] && exit 1
+    shift
+    status=0
+    for arg in "$@"; do
+      case "$arg" in
+        -*) ;;
+        *)
+          if echo " $FAKE_STUCK " | grep -q " $arg "; then
+            status=1
+          else
+            grep -vx "$arg" "$FAKE_STATE" > "$FAKE_STATE.tmp"
+            mv "$FAKE_STATE.tmp" "$FAKE_STATE"
+          fi
+          ;;
+      esac
+    done
+    exit $status
     ;;
 esac
 exit 0
@@ -52,6 +69,8 @@ PRODUCTION_AND_LOOKALIKES = [
     "common-schema-test-0d0fb3e",  # nor a 7-character id
     "common-schema-test-0d0fb3e1f",  # nor a 9-character id
     "common-schema-test-0D0FB3E1",  # nor uppercase hex (uuid hex is lowercase)
+    "common-schema-test-0d0fb3eg",  # nor 8 characters that are not all hex
+    "rename-script-test-zzzzzzzz",
 ]
 
 
@@ -65,22 +84,23 @@ def _run_sweep(
     tmp_path: Path,
     containers: list[str],
     ps_fails: bool = False,
-    rm_fails: bool = False,
+    stuck: list[str] | None = None,
 ) -> tuple["subprocess.CompletedProcess[str]", list[str]]:
     fake = tmp_path / "docker"
     fake.write_text(FAKE_DOCKER)
     fake.chmod(0o755)
     log = tmp_path / "docker.log"
+    state = tmp_path / "containers.txt"
+    state.write_text("".join(f"{name}\n" for name in containers))
     env = {
         **os.environ,
         "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
         "FAKE_DOCKER_LOG": str(log),
-        "FAKE_CONTAINERS": " ".join(containers),
+        "FAKE_STATE": str(state),
+        "FAKE_STUCK": " ".join(stuck or []),
     }
     if ps_fails:
         env["FAKE_PS_FAIL"] = "1"
-    if rm_fails:
-        env["FAKE_RM_FAIL"] = "1"
     result = subprocess.run(
         # -eo pipefail: as the Actions runner runs `shell: bash`
         ["bash", "-eo", "pipefail", "-c", _script()],
@@ -155,20 +175,25 @@ def test_an_unreachable_docker_daemon_warns_and_does_not_fail_the_job(
 def test_a_failed_removal_warns_naming_what_is_left_and_does_not_fail_the_job(
     tmp_path: Path,
 ) -> None:
-    result, _ = _run_sweep(tmp_path, ["common-schema-test-0d0fb3e1"], rm_fails=True)
+    removed, stuck = "common-schema-test-0d0fb3e1", "rename-script-test-20820b0c"
+
+    result, _ = _run_sweep(tmp_path, [removed, stuck], stuck=[stuck])
 
     assert result.returncode == 0, result.stdout + result.stderr
     warning = next(
         line for line in result.stdout.splitlines() if line.startswith("::warning::")
     )
     assert (
-        "common-schema-test-0d0fb3e1" in warning
-    ), f"the warning must name the containers still to remove by hand: {warning}"
+        stuck in warning
+    ), f"the warning must name the container still to remove by hand: {warning}"
+    assert (
+        removed not in warning
+    ), f"the warning must not name a container that was removed: {warning}"
 
 
 def _sweep_pattern() -> "re.Pattern[str]":
-    match = re.search(r"grep -E '([^']+)'", _script())
-    assert match, "the sweep script no longer greps for the container names"
+    match = re.search(r"pattern='([^']+)'", _script())
+    assert match, "the sweep script no longer defines its container name pattern"
     return re.compile(match.group(1))
 
 

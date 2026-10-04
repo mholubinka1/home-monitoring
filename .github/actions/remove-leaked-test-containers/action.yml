@@ -17,11 +17,12 @@ runs:
     - name: Remove leaked test containers
       shell: bash
       run: |
+        pattern='^(common-schema-test|rename-script-test)-[0-9a-f]{8}$'
         if ! listed=$(docker ps -a --format '{{.Names}}'); then
           echo "::warning::Could not list containers (is docker running?); skipping the leaked test container sweep."
           exit 0
         fi
-        matched=$(grep -E '^(common-schema-test|rename-script-test)-[0-9a-f]{8}$' <<<"$listed" || true)
+        matched=$(grep -E "$pattern" <<<"$listed" || true)
         if [ -z "$matched" ]; then
           echo "No leaked test containers."
           exit 0
@@ -31,5 +32,7 @@ runs:
         echo "Removing ${#leaked[@]} leaked test container(s) and their volumes:"
         printf '  %s\n' "${leaked[@]}"
         if ! docker rm -fv "${leaked[@]}"; then
-          echo "::warning::Could not remove every leaked test container; remove by hand: ${leaked[*]}"
+          # docker rm carries on past a failure, so name only what is really still there.
+          remaining=$(docker ps -a --format '{{.Names}}' | grep -E "$pattern" | tr '\n' ' ' || true)
+          echo "::warning::Could not remove every leaked test container; remove by hand: ${remaining:-${leaked[*]}}"
         fi

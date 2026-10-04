@@ -23,8 +23,8 @@ step.
       `-f` and `-v`, in one `docker rm`.
 - [ ] Given nothing to remove, no `docker rm` runs and the step passes.
 - [ ] Given an unreachable docker daemon or a failing removal, the step warns
-      (naming the containers left, for a failed removal) and does not fail the
-      job.
+      (naming only the containers actually still there, for a failed or
+      partial removal) and does not fail the job.
 - [ ] The script only lists and removes containers: it never prunes or touches
       volumes or anything else directly.
 - [ ] The sweep's name pattern matches the names the two MariaDB test fixtures

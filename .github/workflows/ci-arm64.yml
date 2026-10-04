@@ -34,6 +34,7 @@ jobs:
             echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
             echo "  unused docker volumes: docker volume ls -f dangling=true"
             echo "  docker build cache:    docker builder du"
+            echo "  leaked MariaDB test containers (a cancelled run's, each holds a volume): docker ps -a --filter name=-test-"
             exit 1
           fi
           echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
@@ -43,10 +44,12 @@ jobs:
 
       # Backstop for a previous run that was killed too hard to clean up after itself.
       # After Checkout because a local action only exists once the repo is checked out.
-      # No `if: success()` like the steps below: this must run whatever happened before.
-      # continue-on-error: housekeeping must never fail a build. This sweep (and the one at
-      # the end) assumes a single runner executing one job at a time and nobody running the
-      # MariaDB tests by hand on this host: a live test container would be removed too.
+      # Runs once the disk guard and Checkout have succeeded (no `if:`, so the implicit
+      # success()); the final sweep below is the one that also runs on failure or cancel.
+      # continue-on-error: housekeeping must never fail a build. Both sweeps assume one job
+      # at a time (every ARM64-labelled job here is served by the same single runner) and
+      # nobody running the MariaDB tests by hand on this host: a live test container would
+      # be removed too.
       - name: Remove test containers left by an earlier run
         continue-on-error: true
         uses: ./.github/actions/remove-leaked-test-containers
