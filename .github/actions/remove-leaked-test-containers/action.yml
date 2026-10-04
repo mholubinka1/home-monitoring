@@ -4,10 +4,12 @@ description: >-
   common-schema-test-<8 hex> or rename-script-test-<8 hex>) when a test run was killed
   before its fixture could clean up. A cancelled CI run is killed mid-pytest, so the
   fixture's `finally` never runs, and `--rm` only applies once a container exits, so the
-  container and its anonymous volume keep running next to the production database on the
-  self-hosted runner. Removes only containers matching those two exact name patterns,
-  never prunes anything, and never fails the job. Assumes the runner executes one job at
-  a time, so no live test run owns a container at the moment this runs.
+  container keeps running and its anonymous volume stays, next to the production database
+  on the self-hosted runner. Removes only containers matching those two exact name
+  patterns, never prunes anything, and warns instead of failing when docker misbehaves.
+  Relies on the runner executing one job at a time and on nobody running the MariaDB
+  tests by hand on the same host while a job starts or ends: a live test container
+  matching those names would be force-removed too.
 
 runs:
   using: composite
@@ -29,5 +31,5 @@ runs:
         echo "Removing ${#leaked[@]} leaked test container(s) and their volumes:"
         printf '  %s\n' "${leaked[@]}"
         if ! docker rm -fv "${leaked[@]}"; then
-          echo "::warning::Could not remove every leaked test container; remove them by hand."
+          echo "::warning::Could not remove every leaked test container; remove by hand: ${leaked[*]}"
         fi

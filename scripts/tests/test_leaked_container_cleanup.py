@@ -2,27 +2,29 @@
 
 Incident (2026-10-04): cancel-superseded-runs kills a run mid-pytest when a newer push
 arrives, so the MariaDB test fixtures never reach their `finally`. `--rm` only applies when
-a container exits, so the container keeps running (with its anonymous volume) next to the
-production database on the same Pi. Four of them were found, each created seconds before a
-cancelled run ended.
+a container exits, so the container keeps running (and keeps its anonymous volume) next to
+the production database on the same Pi. Four of them were found, each created seconds
+before a cancelled run ended.
 
 The cleanup is a composite action used by the build workflow (the only workflow that runs
 pytest), at the start of the job as a backstop for a run killed too hard to clean up after
-itself, and again in an `if: always()` step, which still runs when a job is cancelled. These
-tests run the action's real script against a fake `docker`."""
+itself, and again in an `if: always()` step, which still runs when a job is cancelled.
+These tests run the action's real script against a fake `docker`; the workflow structure
+is pinned in test_ci_workflows.py."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github" / "actions" / "remove-leaked-test-containers" / "action.yml"
-BUILD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-arm64.yml"
-BUILD_JOB = "ARM64_App_Image_Build_and_Push"
-ACTION_USE = "./.github/actions/remove-leaked-test-containers"
+FIXTURE_CONFTESTS = [
+    ROOT / "libs" / "common" / "tests" / "conftest.py",
+    ROOT / "scripts" / "tests" / "conftest.py",
+]
 
 # Records every call; `ps` lists $FAKE_CONTAINERS (one name per word), and either command
 # can be made to fail.
@@ -47,6 +49,9 @@ PRODUCTION_AND_LOOKALIKES = [
     "common-schema-test-0d0fb3e1-old",  # nor is a suffix
     "common-schema-test-xyz",  # nor a non-hex id
     "rename-script-test-",  # nor an empty id
+    "common-schema-test-0d0fb3e",  # nor a 7-character id
+    "common-schema-test-0d0fb3e1f",  # nor a 9-character id
+    "common-schema-test-0D0FB3E1",  # nor uppercase hex (uuid hex is lowercase)
 ]
 
 
@@ -116,6 +121,19 @@ def test_leaked_test_containers_are_removed_with_their_volumes_and_nothing_else(
     ), f"only the leaked test containers may be removed, got {removals[0]}"
 
 
+def test_the_sweep_only_lists_and_removes_containers(tmp_path: Path) -> None:
+    _, calls = _run_sweep(tmp_path, ["common-schema-test-0d0fb3e1"])
+
+    assert {call.split()[0] for call in calls} == {
+        "ps",
+        "rm",
+    }, f"the sweep may only list and remove containers (no prune, no volume or system commands): {calls}"
+    listing = next(call for call in calls if call.startswith("ps"))
+    assert (
+        "-a" in listing.split() and "{{.Names}}" in listing
+    ), f"the sweep must list every container, running or not, by name: {listing}"
+
+
 def test_a_clean_runner_makes_no_removal_and_passes(tmp_path: Path) -> None:
     result, calls = _run_sweep(tmp_path, PRODUCTION_AND_LOOKALIKES)
 
@@ -134,62 +152,38 @@ def test_an_unreachable_docker_daemon_warns_and_does_not_fail_the_job(
     assert not _removals(calls), f"no removal may be attempted blind, got {calls}"
 
 
-def test_a_failed_removal_warns_and_does_not_fail_the_job(tmp_path: Path) -> None:
+def test_a_failed_removal_warns_naming_what_is_left_and_does_not_fail_the_job(
+    tmp_path: Path,
+) -> None:
     result, _ = _run_sweep(tmp_path, ["common-schema-test-0d0fb3e1"], rm_fails=True)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "::warning::" in result.stdout
-
-
-def test_the_cleanup_never_prunes_anything() -> None:
-    script = _script()
-
-    for forbidden in ("prune", "system rm", "volume rm"):
-        assert forbidden not in script, f"found {forbidden!r} in the cleanup script"
-
-
-def _build_steps() -> list[dict[str, Any]]:
-    workflow = yaml.safe_load(BUILD_WORKFLOW.read_text(encoding="utf-8"))
-    return workflow["jobs"][BUILD_JOB]["steps"]
-
-
-def _index_of(steps: list[dict[str, Any]], name: str) -> int:
-    (index,) = [i for i, step in enumerate(steps) if step.get("name") == name]
-    return index
-
-
-def test_the_build_job_sweeps_leaked_containers_after_checkout_and_before_the_tests() -> (
-    None
-):
-    steps = _build_steps()
-    sweeps = [i for i, step in enumerate(steps) if step.get("uses") == ACTION_USE]
-
-    assert len(sweeps) == 2, f"expected a start and an end sweep, got steps {sweeps}"
-    start = sweeps[0]
-    assert start > _index_of(steps, "Checkout"), (
-        "a local action only exists once the repo is checked out, so the sweep "
-        "must come after the Checkout step"
+    warning = next(
+        line for line in result.stdout.splitlines() if line.startswith("::warning::")
     )
-    assert start < _index_of(
-        steps, "Run tests"
-    ), "the start-of-job sweep must run before the tests that create containers"
-    assert "if" not in steps[start], "the start-of-job sweep must always run"
-
-
-def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
-    last = _build_steps()[-1]
-
-    assert last.get("uses") == ACTION_USE, f"the last step must be the cleanup: {last}"
     assert (
-        last.get("if") == "always()"
-    ), "the final sweep must use always() so it still runs when the job is cancelled"
-    assert last.get("continue-on-error") is True, (
-        "the final sweep must never change the job result "
-        "(for example if the job failed before Checkout and the action is missing)"
-    )
+        "common-schema-test-0d0fb3e1" in warning
+    ), f"the warning must name the containers still to remove by hand: {warning}"
 
 
-def test_the_disk_guard_is_still_the_first_step_of_the_build_job() -> None:
-    first = _build_steps()[0]
+def _sweep_pattern() -> "re.Pattern[str]":
+    match = re.search(r"grep -E '([^']+)'", _script())
+    assert match, "the sweep script no longer greps for the container names"
+    return re.compile(match.group(1))
 
-    assert "MIN_FREE_GB" in first.get("env", {}), f"the disk guard moved: {first}"
+
+def test_the_sweep_matches_the_names_the_test_fixtures_really_generate() -> None:
+    # The two MariaDB fixtures name their container f"<prefix>-{uuid4().hex[:N]}". If a
+    # fixture is renamed and the sweep is not, the sweep silently matches nothing and
+    # every other test here still passes -- so tie the sweep to the fixtures' source.
+    pattern = _sweep_pattern()
+    for conftest in FIXTURE_CONFTESTS:
+        source = conftest.read_text(encoding="utf-8")
+        match = re.search(
+            r'name = f"([a-z-]+-test)-\{uuid\.uuid4\(\)\.hex\[:(\d+)\]\}"', source
+        )
+        assert match, f"{conftest} no longer builds its container name this way"
+        generated = f"{match.group(1)}-{'0123456789abcdef'[: int(match.group(2))]}"
+        assert pattern.match(
+            generated
+        ), f"the sweep would not remove {conftest.parent.parent.name}'s container {generated!r}"

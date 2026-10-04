@@ -379,3 +379,67 @@ def test_coverage_that_has_not_risen_makes_no_commit(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert repo.tested_sha() == tested
     assert repo.origin_tip() == tested
+
+
+SWEEP_ACTION = "./.github/actions/remove-leaked-test-containers"
+BUILD_FILE, BUILD_JOB = SELF_HOSTED_JOBS[0]
+
+
+def _index_of(steps: list[dict[str, Any]], name: str) -> int:
+    (index,) = [i for i, step in enumerate(steps) if step.get("name") == name]
+    return index
+
+
+def test_the_build_job_sweeps_leaked_test_containers_after_checkout_and_before_the_tests() -> (
+    None
+):
+    # A cancelled run is killed mid-pytest and leaks its MariaDB test container; see
+    # test_leaked_container_cleanup.py for the script's behaviour.
+    steps = _steps(BUILD_FILE, BUILD_JOB)
+    sweeps = [i for i, step in enumerate(steps) if step.get("uses") == SWEEP_ACTION]
+
+    assert len(sweeps) == 2, f"expected a start and an end sweep, got steps {sweeps}"
+    start = sweeps[0]
+    assert start > _index_of(steps, "Checkout"), (
+        "a local action only exists once the repo is checked out, so the sweep "
+        "must come after the Checkout step"
+    )
+    assert start < _index_of(
+        steps, "Run tests"
+    ), "the start-of-job sweep must run before the tests that create containers"
+    assert "if" not in steps[start], "the start-of-job sweep must always run"
+    assert (
+        steps[start].get("continue-on-error") is True
+    ), "housekeeping must never fail the build"
+
+
+def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
+    last = _steps(BUILD_FILE, BUILD_JOB)[-1]
+
+    assert last.get("uses") == SWEEP_ACTION, f"the last step must be the sweep: {last}"
+    assert (
+        last.get("if") == "always()"
+    ), "the final sweep must use always() so it still runs when the job is cancelled"
+    assert last.get("continue-on-error") is True, (
+        "the final sweep must never change the job result "
+        "(for example if the job failed before Checkout and the action is missing)"
+    )
+
+
+def test_the_checks_workflow_needs_no_sweep_because_it_never_runs_pytest() -> None:
+    # Only ci-arm64.yml runs pytest, so only it can leak MariaDB test containers. If
+    # ci-checks.yml (or the shared quality action it uses) ever runs pytest, it needs the
+    # same sweep.
+    quality_action = WORKFLOWS_DIR.parent / "actions" / "code-quality-checks"
+    action_steps = yaml.safe_load(
+        (quality_action / "action.yml").read_text(encoding="utf-8")
+    )["runs"]["steps"]
+    commands = [
+        str(step["run"])
+        for step in _steps("ci-checks.yml", "checks") + action_steps
+        if "run" in step
+    ]
+
+    assert not any(
+        "pytest" in command for command in commands
+    ), "ci-checks now runs pytest: add the leaked-container sweep to its job as well"
