@@ -134,7 +134,7 @@ def _seed_agreement(s: Session) -> None:
     )
 
 
-def _seed_days_each_missing_their_last_hour(s, days: list[date]) -> None:
+def _seed_days_each_missing_their_last_hour(s: Session, days: list[date]) -> None:
     for day in days:
         start = start_of_local_day(day)
         s.add(_agile_rate(f"hole{day}", start, start + timedelta(hours=23), "10.00"))

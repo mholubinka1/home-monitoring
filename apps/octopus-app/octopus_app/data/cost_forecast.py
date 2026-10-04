@@ -517,10 +517,17 @@ class CostForecastRetriever:
                 )
             else:
                 variable_cost = daily_kwh * self._average_unit_rate(standing_segments)
+            if not segments:
+                borrowed = "unit rate and standing charge"
+            elif not self._covers_midday(segments, day_start):
+                borrowed = "standing charge"
+            else:
+                borrowed = "nothing"
             logger.warning(
                 f"Cost forecast: {agreement.product_code} rates for {day} are "
                 "missing or incomplete; pricing that day at estimated rates "
-                f"({'its own published average' if segments else 'the nearest earlier full day'})."
+                f"(uncovered hours at its own average; borrowed from the "
+                f"nearest earlier full day: {borrowed})."
             )
 
         standing_charge = self._midday_standing_charge(
@@ -720,8 +727,8 @@ class CostForecastRetriever:
         # billing_period_end -- unlike remaining_days, this correctly
         # includes the *rest of today* whenever as_of has already been
         # counted as an elapsed day (i.e. whenever as_of isn't exactly
-        # midnight, the normal production case since the hourly job runs at
-        # a non-midnight minute). Today's standing charge is already
+        # midnight, the normal production case in practice, since the hourly
+        # job is not scheduled to land on it). Today's standing charge is already
         # fully covered by the elapsed-days query/gap-fill above (a flat
         # per-day fee, not prorated), so remaining_days alone is correct for
         # standing_cost -- but the *variable* (unit-rate) cost for today's
@@ -758,7 +765,7 @@ class CostForecastRetriever:
         # it: read_elapsed_billing_period_costs exempts it from the
         # completeness guard precisely because it's still partial, so it
         # would otherwise silently understate this average every single
-        # refresh (the hourly job never runs at exact midnight). Falls back to the
+        # refresh (in practice the hourly job does not run at exact midnight). Falls back to the
         # full (unfiltered, today included) list on the rare
         # day-one-of-a-billing-period case where every elapsed day so far
         # is gap-filled or still-partial -- there's no complete day to
