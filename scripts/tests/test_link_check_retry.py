@@ -45,7 +45,9 @@ def _step_script() -> str:
     return str(step["run"])
 
 
-def _run_step(tmp_path: Path, failures: int) -> tuple[subprocess.CompletedProcess[str], int]:
+def _run_step(
+    tmp_path: Path, failures: int
+) -> tuple[subprocess.CompletedProcess[str], int]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name, body in (
@@ -77,11 +79,15 @@ def _run_step(tmp_path: Path, failures: int) -> tuple[subprocess.CompletedProces
     return result, calls
 
 
-def test_a_transient_failure_is_retried_and_the_check_then_passes(tmp_path: Path) -> None:
+def test_a_transient_failure_is_retried_and_the_check_then_passes(
+    tmp_path: Path,
+) -> None:
     result, calls = _run_step(tmp_path, failures=1)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert calls == 2, f"expected one retry after the transient failure, got {calls} calls"
+    assert (
+        calls == 2
+    ), f"expected one retry after the transient failure, got {calls} calls"
 
 
 def test_a_link_that_stays_dead_still_fails_the_check_after_the_retries(
@@ -89,7 +95,9 @@ def test_a_link_that_stays_dead_still_fails_the_check_after_the_retries(
 ) -> None:
     result, calls = _run_step(tmp_path, failures=99)
 
-    assert result.returncode != 0, "a persistently failing link must still fail the build"
+    assert (
+        result.returncode != 0
+    ), "a persistently failing link must still fail the build"
     assert calls == 3, f"expected three attempts in total, got {calls}"
 
 

@@ -69,10 +69,20 @@ jobs:
 
       - name: Raise coverage baseline
         if: success() && github.event_name == 'push'
+        # Raising the baseline is a nicety, never a gate: nothing here may fail a build
+        # whose tests passed. Every command on the raise path is guarded below (the
+        # runner's bash is fail-fast), and continue-on-error is the backstop for anything
+        # those guards miss.
+        continue-on-error: true
         shell: bash
         run: |
-          BASELINE=$(cat .github/coverage-baseline.txt)
-          ACTUAL=$(uv run python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))")
+          skip() {
+            echo "::warning::$1; the next run will try again."
+            exit 0
+          }
+          BASELINE=$(cat .github/coverage-baseline.txt) || skip "Could not read the coverage baseline"
+          ACTUAL=$(uv run python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))") \
+            || skip "Could not read the measured coverage"
           if [ "$ACTUAL" -le "$BASELINE" ]; then
             echo "Coverage unchanged at ${ACTUAL}%, baseline stays at ${BASELINE}%."
             exit 0
@@ -86,11 +96,11 @@ jobs:
             echo "Branch moved (or could not be checked) since this run's commit; skipping the baseline raise, the next run will raise it."
             exit 0
           fi
-          echo "$ACTUAL" > .github/coverage-baseline.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/coverage-baseline.txt
-          git commit -m "Raise coverage baseline to ${ACTUAL}% [skip ci]"
+          echo "$ACTUAL" > .github/coverage-baseline.txt || skip "Could not write the coverage baseline"
+          git config user.name "github-actions[bot]" || skip "Could not configure git"
+          git config user.email "github-actions[bot]@users.noreply.github.com" || skip "Could not configure git"
+          git add .github/coverage-baseline.txt || skip "Could not stage the coverage baseline"
+          git commit -m "Raise coverage baseline to ${ACTUAL}% [skip ci]" || skip "Could not commit the coverage baseline raise"
           if ! git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"; then
             echo "::warning::Could not push the coverage baseline raise to ${GITHUB_REF_NAME}; the next run will raise it."
           fi

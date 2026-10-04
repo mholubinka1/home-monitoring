@@ -229,6 +229,14 @@ class _BaselineRepo:
         self._git(other, "commit", "-m", "pushed during the run")
         self._git(other, "push", "origin", self.BRANCH)
 
+    def reject_commits(self) -> None:
+        hook = self.work / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+
+    def remove_baseline_file(self) -> None:
+        (self.work / ".github" / "coverage-baseline.txt").unlink()
+
     def reject_all_pushes(self) -> None:
         hook = self.origin / "hooks" / "pre-receive"
         hook.write_text("#!/bin/sh\nexit 1\n")
@@ -297,6 +305,41 @@ def test_a_risen_coverage_on_a_moved_branch_skips_the_raise_without_failing(
     assert "branch moved" in result.stdout.lower()
     assert repo.origin_tip() == moved_tip, "must not push when the branch has moved"
     assert repo.tested_sha() == tested, "must not leave a stray local commit"
+
+
+def test_a_commit_that_fails_is_a_warning_not_a_failure(tmp_path: Path) -> None:
+    # Not only the push: every command on the raise path runs under the runner's
+    # fail-fast bash, so each one needs its own guard.
+    repo = _BaselineRepo(tmp_path)
+    tested = repo.tested_sha()
+    repo.reject_commits()
+
+    result = repo.run_step(actual=85, tested_sha=tested)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "::warning::" in result.stdout
+    assert repo.origin_tip() == tested, "nothing may be pushed when the commit failed"
+
+
+def test_an_unreadable_baseline_file_is_a_warning_not_a_failure(tmp_path: Path) -> None:
+    repo = _BaselineRepo(tmp_path)
+    tested = repo.tested_sha()
+    repo.remove_baseline_file()
+
+    result = repo.run_step(actual=85, tested_sha=tested)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "::warning::" in result.stdout
+
+
+def test_the_baseline_step_is_also_marked_continue_on_error_as_a_backstop() -> None:
+    steps = _steps("ci-arm64.yml", "ARM64_App_Image_Build_and_Push")
+    (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
+
+    assert step.get("continue-on-error") is True, (
+        "raising the baseline is a nicety, never a gate: anything the explicit "
+        "guards miss must still not fail the job"
+    )
 
 
 def test_a_push_that_is_still_rejected_is_a_warning_not_a_failure(
