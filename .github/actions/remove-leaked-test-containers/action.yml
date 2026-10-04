@@ -1,0 +1,52 @@
+name: Remove leaked test containers
+description: >-
+  Removes MariaDB containers left running by the test fixtures (named
+  common-schema-test-<8 hex> or rename-script-test-<8 hex>) when a test run was killed
+  before its fixture could clean up. A cancelled CI run is killed mid-pytest, so the
+  fixture's `finally` never runs, and `--rm` only applies once a container exits, so the
+  container keeps running and its anonymous volume stays, next to the production database
+  on the self-hosted runner. Removes only containers matching those two exact name
+  patterns, never prunes anything, and warns instead of failing when docker misbehaves
+  (so a persistent failure to remove shows up only as a warning annotation; leaks that
+  pile up would eventually trip the disk guard).
+  Relies on the runner executing one job at a time and on nobody running the MariaDB
+  tests by hand on the same host while a job starts or ends: a live test container
+  matching those names would be force-removed too.
+
+runs:
+  using: composite
+  steps:
+    - name: Remove leaked test containers
+      shell: bash
+      run: |
+        pattern='^(common-schema-test|rename-script-test)-[0-9a-f]{8}$'
+        if ! listed=$(docker ps -a --format '{{.Names}}'); then
+          echo "::warning::Could not list containers (is docker running?); skipping the leaked test container sweep."
+          exit 0
+        fi
+        matched=$(grep -E "$pattern" <<<"$listed" || true)
+        if [ -z "$matched" ]; then
+          echo "No leaked test containers."
+          exit 0
+        fi
+        leaked=()
+        while IFS= read -r name; do leaked+=("$name"); done <<<"$matched"
+        echo "Removing ${#leaked[@]} leaked test container(s) and their volumes:"
+        printf '  %s\n' "${leaked[@]}"
+        if ! docker rm -fv "${leaked[@]}"; then
+          # docker rm carries on past a failure, and a `--rm` container can exit on its
+          # own between the listing and the removal ("No such container"), so look again
+          # and name only what is really still there. Only if that look fails too is the
+          # whole list the best answer available.
+          if relisted=$(docker ps -a --format '{{.Names}}'); then
+            remaining=$(grep -E "$pattern" <<<"$relisted" | tr '\n' ' ' || true)
+            if [ -z "$remaining" ]; then
+              echo "Some leaked test containers had already gone by the time they were removed; nothing is left."
+            else
+              echo "::warning::Could not remove every leaked test container; remove by hand: $remaining"
+            fi
+          else
+            echo "::warning::Could not remove every leaked test container or check what is left;" \
+              "remove by hand if still present: ${leaked[*]}"
+          fi
+        fi
