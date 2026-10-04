@@ -1,5 +1,11 @@
 # Issues: feature-cost-forecast-estimate-missing-rates
 
+> Work complete — [PR #596](https://github.com/mholubinka1/home-monitoring/pull/596) ready to merge.
+> After deploy, import the dashboard and confirm the panels load (#584) and the
+> Billing Period Progress title shows no estimated note while the forecast is not
+> estimated (#594). Known follow-up: gap days are priced with the agreement current at
+> `as_of`, not the one covering the day (pre-existing; raised in Copilot review).
+
 Parent: [#575](https://github.com/mholubinka1/home-monitoring/issues/575)
 
 ## octopus-app: estimate and flag incomplete rates on a past cost-forecast gap day — [#591](https://github.com/mholubinka1/home-monitoring/issues/591)
@@ -14,13 +20,13 @@ When a past gap day that needs a variable cost has missing or incomplete publish
 
 ### Acceptance criteria
 
-- [ ] Given a BST day whose last Agile slots before local midnight are unpublished, refresh writes the forecast with `rates_estimated` true and that date in `estimated_days`, priced at the same-day time-weighted average unit rate (hand-computed figure).
-- [ ] Given 4 past days missing rates, refresh raises and writes no forecast for that energy.
-- [ ] Given fully published rates, `rates_estimated` is false and `estimated_days` is null.
-- [ ] Given the rates arrive before a later refresh, the flag clears.
-- [ ] Gas behaves the same as electricity.
-- [ ] The additive schema sync adds both columns to an existing table; existing rows read as not estimated.
-- [ ] kWh-estimated gap days with fully published rates remain unflagged.
+- [x] Given a BST day whose last Agile slots before local midnight are unpublished, refresh writes the forecast with `rates_estimated` true and that date in `estimated_days`, priced at the same-day time-weighted average unit rate (hand-computed figure).
+- [x] Given 4 past days missing rates, refresh raises and writes no forecast for that energy.
+- [x] Given fully published rates, `rates_estimated` is false and `estimated_days` is null.
+- [x] Given the rates arrive before a later refresh, the flag clears.
+- [x] Gas behaves the same as electricity.
+- [x] The additive schema sync adds both columns to an existing table; existing rows read as not estimated.
+- [x] kWh-estimated gap days with fully published rates remain unflagged.
 
 ---
 
@@ -36,10 +42,10 @@ A past gap day with no published rates at all is priced at the time-weighted ave
 
 ### Acceptance criteria
 
-- [ ] Given a past day with no rates and a fully published earlier day, the day is priced at that earlier day's time-weighted average unit rate and its standing charge, and flagged.
-- [ ] Given no earlier fully published day exists, refresh raises.
-- [ ] A day with no midday rate takes the earlier day's standing charge.
-- [ ] Such days count toward the cap of 3.
+- [x] Given a past day with no rates and a fully published earlier day, the day is priced at that earlier day's time-weighted average unit rate and its standing charge, and flagged.
+- [x] Given no earlier fully published day exists, refresh raises.
+- [x] A day with no midday rate takes the earlier day's standing charge.
+- [x] Such days count toward the cap of 3.
 
 ---
 
@@ -55,8 +61,8 @@ Schedule `cost_forecast_refresh` every hour, like `pricing_refresh` and `consump
 
 ### Acceptance criteria
 
-- [ ] The scheduling test shows the cost forecast job registered to run every hour.
-- [ ] The existing backoff and job-run recording behave as before.
+- [x] The scheduling test shows the cost forecast job registered to run every hour.
+- [x] The existing backoff and job-run recording behave as before.
 
 ---
 
@@ -72,9 +78,9 @@ Show the `rates_estimated` flag and `estimated_days` alongside the cost forecast
 
 ### Acceptance criteria
 
-- [ ] The live dashboard JSON was compared with the repo copy before editing.
-- [ ] The dashboard visibly indicates when the forecast is estimated and for which days, and shows nothing extra when it is not.
-- [ ] Dashboard JSON validates and the existing panels are unchanged.
+- [x] The live dashboard JSON was compared with the repo copy before editing.
+- [x] The dashboard visibly indicates when the forecast is estimated and for which days, and shows nothing extra when it is not.
+- [x] Dashboard JSON validates and the existing panels are unchanged.
 
 ---
 
@@ -90,9 +96,9 @@ Add ADR-0026 recording the policy (estimate and flag, fallback chain, cap of 3, 
 
 ### Acceptance criteria
 
-- [ ] ADR-0026 exists in the repo's ADR format.
-- [ ] ADR-0023 points to ADR-0026 and the 2026-10-03 note is left in place.
-- [ ] `context.md` defines the new terms.
+- [x] ADR-0026 exists in the repo's ADR format.
+- [x] ADR-0023 points to ADR-0026 and the 2026-10-03 note is left in place.
+- [x] `context.md` defines the new terms.
 
 ---
 
@@ -104,7 +110,7 @@ Folded into the #594 change at the user's request: the old `octopus` database wa
 
 ### Acceptance criteria
 
-- [ ] No `"dataset": "octopus"` remains in `data/grafana/dashboard.json`.
-- [ ] After import, the dashboard panels load without the 500.
+- [x] No `"dataset": "octopus"` remains in `data/grafana/dashboard.json`.
+- [ ] After import, the dashboard panels load without the 500 (to confirm by the user after deploy and import).
 
 ---
