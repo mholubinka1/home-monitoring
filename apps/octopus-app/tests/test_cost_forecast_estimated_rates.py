@@ -29,7 +29,11 @@ from .test_cost_forecast_gas import _source as gas_source
 
 
 def _agile_rate(
-    s_id: str, valid_from: datetime, valid_to: datetime | None, unit_rate: str
+    s_id: str,
+    valid_from: datetime,
+    valid_to: datetime | None,
+    unit_rate: str,
+    standing_charge: str = "50.00",
 ) -> model.product_rate:
     return model.product_rate(
         id=f"{AGILE_PRODUCT_CODE}_{REGION}_{s_id}",
@@ -38,7 +42,7 @@ def _agile_rate(
         valid_from=valid_from,
         valid_to=valid_to,
         unit_rate=Decimal(unit_rate),
-        standing_charge=Decimal("50.00"),
+        standing_charge=Decimal(standing_charge),
     )
 
 
@@ -280,11 +284,11 @@ def test_the_flag_clears_on_a_later_refresh_once_the_missing_rates_arrive(
 
 
 @responses.activate
-def test_a_past_gap_day_with_no_published_rates_at_all_still_fails_the_refresh(
+def test_a_past_gap_day_with_no_published_rates_and_no_earlier_full_day_still_fails_the_refresh(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Guards the boundary with the no-rates fallback (issue #593): with no
-    # published segment there is no average to estimate from.
+    # With no published segment and no earlier fully published day to borrow
+    # rates from, there is nothing to estimate with.
     _seed_oct3_gap_scenario(mariadb_client)
     _refresh_oct4_after_seeding_oct3_rates(
         mariadb_client, [("c", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None)]
@@ -374,3 +378,162 @@ def test_a_gas_past_gap_day_with_an_upstream_rate_hole_is_estimated_and_flagged(
     # Oct2 (48 kWh @ 7p + 29p) = 3.65; Oct3 (48 kWh priced flat 7p across
     # the hole, + 29p) = 3.65; today standing charge only = 0.29.
     assert gas_row.actual_cost_to_date == Decimal("7.59")
+
+
+@responses.activate
+def test_a_past_gap_day_with_no_published_rates_is_priced_from_the_earlier_full_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Oct3 is a past trailing gap with no published rates at all. The nearest
+    # earlier fully published day (Oct2: 12.00p unit rate, 55.00p standing
+    # charge) supplies both, and the day is flagged as estimated.
+    _seed_oct3_gap_scenario(mariadb_client)
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            _agile_rate(
+                "oct2",
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 10, 2, 23, 0, tzinfo=UTC),
+                "12.00",
+                standing_charge="55.00",
+            )
+        )
+        s.add(
+            _agile_rate(
+                "today", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None, "10.00"
+            )
+        )
+
+    _retriever(mariadb_client).refresh(as_of=AS_OF)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    assert row.rates_estimated is True
+    assert row.estimated_days == "2026-10-03"
+    # Oct2 (4.8 kWh real): (4.8*12.00+55.00)/100 = 1.126. Oct3 (4.8 kWh
+    # estimated at Oct2's rate and standing charge): 1.126. Today (Oct4):
+    # standing charge only, 50.00/100 = 0.50. Persisted at pence precision.
+    assert row.actual_cost_to_date == Decimal("2.75")
+
+
+@responses.activate
+def test_a_past_day_whose_rates_miss_local_midday_takes_the_earlier_days_rates(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Oct3 has one published stretch (21:00-23:00 UTC) that does not cover
+    # local midday, so its own rates are unusable: Oct2's 12.00p / 55.00p are
+    # used instead, never the stray 99.00p / 77.00p segment.
+    _seed_oct3_gap_scenario(mariadb_client)
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            _agile_rate(
+                "oct2",
+                datetime(2026, 1, 1, tzinfo=UTC),
+                datetime(2026, 10, 2, 23, 0, tzinfo=UTC),
+                "12.00",
+                standing_charge="55.00",
+            )
+        )
+        s.add(
+            _agile_rate(
+                "stray",
+                datetime(2026, 10, 3, 21, 0, tzinfo=UTC),
+                datetime(2026, 10, 3, 23, 0, tzinfo=UTC),
+                "99.00",
+                standing_charge="77.00",
+            )
+        )
+        s.add(
+            _agile_rate(
+                "today", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None, "10.00"
+            )
+        )
+
+    _retriever(mariadb_client).refresh(as_of=AS_OF)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    assert row.rates_estimated is True
+    assert row.estimated_days == "2026-10-03"
+    # Oct2 (1.126) + Oct3 at Oct2's rates (1.126) + today's standing (0.50).
+    assert row.actual_cost_to_date == Decimal("2.75")
+
+
+@responses.activate
+def test_four_past_days_with_no_published_rates_fail_the_refresh_and_write_nothing(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Sep30 is fully published and real; Oct1-Oct4 have no rates at all, so
+    # each borrows Sep30's. Four estimated days exceed the cap of three.
+    _mock_billing_period("2026-10-01", "2026-10-31")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 5), 31, "15.00")
+    )
+
+    with mariadb_client.session_write_scope() as s:
+        _seed_agreement(s)
+        s.add(
+            _agile_rate(
+                "sep30",
+                start_of_local_day(date(2026, 9, 30)),
+                start_of_local_day(date(2026, 10, 1)),
+                "10.00",
+            )
+        )
+        s.add(
+            _agile_rate("today", start_of_local_day(date(2026, 10, 5)), None, "10.00")
+        )
+        _seed_complete_day(s, date(2026, 9, 30), "0.1")
+
+    with pytest.raises(RuntimeError, match="at most 3"):
+        _retriever(mariadb_client).refresh(
+            as_of=datetime(2026, 10, 5, 4, 0, tzinfo=UTC)
+        )
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.cost_forecast).count() == 0
+
+
+@responses.activate
+def test_the_fallback_skips_an_incomplete_earlier_day_for_the_nearest_full_one(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Oct1 is real and fully published (12.00p / 55.00p). Oct2 is a gap day
+    # published for 23h only (99.00p / 77.00p), so it is itself estimated and
+    # is not "fully published"; Oct3 has no rates and must borrow from Oct1,
+    # skipping Oct2.
+    _mock_billing_period("2026-10-02", "2026-11-02")
+    _seed_agile_forecast(
+        mariadb_client, _flat_agile_forecast(date(2026, 10, 4), 31, "15.00")
+    )
+    oct2_start = start_of_local_day(date(2026, 10, 2))
+    with mariadb_client.session_write_scope() as s:
+        _seed_agreement(s)
+        _seed_complete_day(s, date(2026, 10, 1), "0.1")
+        s.add(
+            _agile_rate(
+                "oct1", datetime(2026, 1, 1, tzinfo=UTC), oct2_start, "12.00", "55.00"
+            )
+        )
+        s.add(
+            _agile_rate(
+                "oct2", oct2_start, oct2_start + timedelta(hours=23), "99.00", "77.00"
+            )
+        )
+        s.add(
+            _agile_rate(
+                "today", datetime(2026, 10, 3, 23, 0, tzinfo=UTC), None, "10.00"
+            )
+        )
+
+    _retriever(mariadb_client).refresh(as_of=AS_OF)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    assert row.estimated_days == "2026-10-02,2026-10-03"
+    # Oct1 (4.8 kWh real): 1.126. Oct2 (4.8 kWh at its own 99.00p average,
+    # 77.00p standing): 5.522. Oct3 at Oct1's rates: 1.126. Today: 0.50.
+    assert row.actual_cost_to_date == Decimal("8.27")
