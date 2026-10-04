@@ -1,5 +1,7 @@
 # Issues: chore-ci-hardening
 
+> Work complete — PR ready to merge.
+
 ## ci: tolerant baseline step, cancel superseded runs, low-disk guard — [#577](https://github.com/mholubinka1/home-monitoring/issues/577)
 
 **Blocked by**: None
@@ -23,16 +25,16 @@ free space is below a named threshold (default 5 GB), printing `df -h /` and
 
 ### Acceptance criteria
 
-- [ ] Given both workflows, `concurrency` cancels superseded runs for
+- [x] Given both workflows, `concurrency` cancels superseded runs for
       non-main refs and never cancels (or replaces) runs on main.
-- [ ] Given each self-hosted job, the first step is a disk guard with a named
+- [x] Given each self-hosted job, the first step is a disk guard with a named
       threshold that fails with a clear message and contains no delete or
       prune command.
-- [ ] Given the baseline step, it skips the raise when the remote branch has
+- [x] Given the baseline step, it skips the raise when the remote branch has
       moved, and a push that cannot land warns without failing the job.
-- [ ] The structural tests fail when each of these changes is reverted
+- [x] The structural tests fail when each of these changes is reverted
       (mutation-checked), and actionlint/shellcheck pass.
-- [ ] The PR states what the next CI runs should show.
+- [x] The PR states what the next CI runs should show.
 
 ---
 
@@ -58,9 +60,9 @@ with tests that run the real step against a fake checker.
 
 ### Acceptance criteria
 
-- [ ] A transient failure of the check is retried and the step then passes.
-- [ ] A link that stays dead still fails the step after three attempts.
-- [ ] A clean check runs once.
-- [ ] `.markdown-link-check.json` is unchanged and no link is ignored.
+- [x] A transient failure of the check is retried and the step then passes.
+- [x] A link that stays dead still fails the step after three attempts.
+- [x] A clean check runs once.
+- [x] `.markdown-link-check.json` is unchanged and no link is ignored.
 
 ---
