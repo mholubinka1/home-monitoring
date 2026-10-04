@@ -1,7 +1,8 @@
 -- Rename the `octopus` database to `home_monitoring` (ADR-0022).
 --
 -- Run this once, during the confirmed Pi cutover window described in
--- deployments/mariadb/RENAME_RUNBOOK.md, with both app containers stopped.
+-- the retired RENAME_RUNBOOK.md (`git show 9522fda:deployments/mariadb/RENAME_RUNBOOK.md`),
+-- with both app containers stopped.
 -- Moves every table Schema Sync currently owns via RENAME TABLE, which
 -- MariaDB performs as an atomic metadata operation (no data copy). Leaves
 -- `octopus` in place, empty, as the rollback path -- this script never
@@ -9,8 +10,8 @@
 --
 -- Requires MariaDB root (USE mysql, CREATE DATABASE, and a cross-database
 -- RENAME TABLE all need privileges beyond an app user's own
--- GRANT ... ON octopus.* grant) -- see deployments/mariadb/RENAME_RUNBOOK.md
--- for the full procedure, including granting the app user access to the
+-- GRANT ... ON octopus.* grant) -- the retired RENAME_RUNBOOK.md (see git history)
+-- had the full procedure, including granting the app user access to the
 -- new database name afterward (a rename does not carry a grant over).
 --
 -- Usage: export MYSQL_PWD=<root password>; mariadb --user=root < scripts/rename_database.sql
@@ -86,4 +87,4 @@ RENAME TABLE
 
 -- `octopus` is intentionally left in place, now empty -- do not DROP it here.
 -- Dropping it is a later, separately-confirmed step, once home_monitoring
--- has been running successfully for a while (see the runbook).
+-- has been running successfully for a while (tracked in issue #589).

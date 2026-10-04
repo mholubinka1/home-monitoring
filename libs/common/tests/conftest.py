@@ -14,7 +14,7 @@ from common.config import MariaDBSettings
 from common.mariadb.client import MariaDBClientBase
 from common.mariadb.model import SQLBase
 
-# Passed on the CLI below, unlike RENAME_RUNBOOK.md's real credentials (which go
+# Passed on the CLI below, unlike the retired RENAME_RUNBOOK.md's real credentials (which go
 # through MYSQL_PWD instead to stay out of `ps`/shell history) -- that risk doesn't
 # apply here: this is a non-secret, hardcoded password confined to a throwaway,
 # `--rm`, uniquely-named container never reachable off the test host. Mirrors

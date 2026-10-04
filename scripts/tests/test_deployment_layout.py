@@ -191,14 +191,14 @@ def test_every_depends_on_target_is_a_declared_service() -> None:
 def test_no_deployment_file_uses_the_retired_container_or_service_names() -> None:
     # Also catches `energy-monitor-db`, which contains this name.
     retired_container_names = ("energy-monitor",)
-    # Exempt by filename only: the runbooks must name the old containers (and the
+    # Exempt by filename only: the runbook must name the old containers (and the
     # MariaDB user, which is also called `energy-monitor`) to describe the rename.
-    runbooks = {"RENAME_RUNBOOK.md", "CUTOVER_RUNBOOK.md"}
+    cutover_runbook = "CUTOVER_RUNBOOK.md"
 
     still_referenced = {
         str(path.relative_to(REPO_ROOT)): name
         for path in (REPO_ROOT / "deployments").rglob("*")
-        if path.is_file() and path.name not in runbooks
+        if path.is_file() and path.name != cutover_runbook
         for name in retired_container_names
         if name in path.read_text()
     }
