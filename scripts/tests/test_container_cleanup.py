@@ -20,6 +20,21 @@ from pathlib import Path
 import pytest
 
 
+def _assert_forced_with_volumes(argv: list[str]) -> None:
+    """`argv` is a full `docker rm [options] <name>` command."""
+    assert argv[:2] == ["docker", "rm"], f"expected a docker rm, got {argv}"
+    options = argv[2:-1]
+    short_flags = "".join(
+        arg[1:] for arg in options if arg.startswith("-") and not arg.startswith("--")
+    )
+    assert (
+        "f" in short_flags or "--force" in options
+    ), f"container must be force-removed, got {argv}"
+    assert (
+        "v" in short_flags or "--volumes" in options
+    ), f"anonymous volumes must be removed, got {argv}"
+
+
 def test_the_test_container_is_removed_together_with_its_volumes(
     remove_mariadb_container: Callable[[str], None],
     monkeypatch: pytest.MonkeyPatch,
@@ -32,19 +47,8 @@ def test_the_test_container_is_removed_together_with_its_volumes(
     remove_mariadb_container("rename-script-test-abc12345")
 
     assert len(commands) == 1
-    argv = commands[0]
-    assert argv[:2] == ["docker", "rm"]
-    assert argv[-1] == "rename-script-test-abc12345"
-    options = argv[2:-1]
-    short_flags = "".join(
-        arg[1:] for arg in options if arg.startswith("-") and not arg.startswith("--")
-    )
-    assert (
-        "f" in short_flags or "--force" in options
-    ), f"container must be force-removed, got {argv}"
-    assert (
-        "v" in short_flags or "--volumes" in options
-    ), f"anonymous volumes must be removed, got {argv}"
+    assert commands[0][-1] == "rename-script-test-abc12345"
+    _assert_forced_with_volumes(commands[0])
 
 
 # Records every call, then fails `docker run` the way a daemon error would -- after
@@ -62,8 +66,8 @@ def test_probe(mariadb_container):
     raise AssertionError("the fixture should have failed during setup")
 """
 
-# The fixture's real 30s `docker run` timeout would make a test wait 30s, so the
-# timeout case has `docker run` (still logged by the fake docker) raise
+# A real `docker run` timeout would make the test wait out the fixture's timeout, so
+# the timeout case has `docker run` (still logged by the fake docker) raise
 # TimeoutExpired straight away.
 _PROBE_TIMES_OUT = """
 import subprocess
@@ -85,12 +89,11 @@ def _docker_run_times_out(monkeypatch):
 """ + _PROBE_BODY
 
 
-@pytest.mark.parametrize(
-    "probe", [_PROBE_BODY, _PROBE_TIMES_OUT], ids=["exits nonzero", "times out"]
-)
-def test_a_container_that_fails_to_start_is_still_removed(
+def _run_fixture_against_fake_docker(
     tmp_path: Path, probe: str
-) -> None:
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run `probe` in a child pytest that uses this package's real conftest, with a
+    fake `docker` on PATH. Returns the child's result and the docker calls it made."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake = bin_dir / "docker"
@@ -115,15 +118,23 @@ def test_a_container_that_fails_to_start_is_still_removed(
         text=True,
         check=False,
     )
+    calls = log.read_text().splitlines() if log.exists() else []
+    return child, calls
 
-    assert child.returncode != 0 and "should have failed" not in child.stdout, (
-        "the fixture must fail the probe test during setup, not let it run:\n"
-        + child.stdout
-    )
-    assert log.exists(), (
-        "the child pytest never called docker:\n" + child.stdout + child.stderr
-    )
-    calls = log.read_text().splitlines()
+
+@pytest.mark.parametrize(
+    "probe", [_PROBE_BODY, _PROBE_TIMES_OUT], ids=["exits nonzero", "times out"]
+)
+def test_a_container_that_fails_to_start_is_still_removed(
+    tmp_path: Path, probe: str
+) -> None:
+    child, calls = _run_fixture_against_fake_docker(tmp_path, probe)
+
+    output = child.stdout + child.stderr
+    assert (
+        child.returncode != 0 and "should have failed" not in child.stdout
+    ), f"the fixture must fail the probe test during setup, not let it run:\n{output}"
+    assert calls, f"the child pytest never called docker:\n{output}"
     started = [
         words[words.index("--name") + 1]
         for words in (c.split() for c in calls)
@@ -131,18 +142,11 @@ def test_a_container_that_fails_to_start_is_still_removed(
     ]
     assert len(started) == 1, f"expected one docker run, got {calls}"
     removals = [
-        c.split() for c in calls if c.startswith("rm ") and c.endswith(started[0])
+        ["docker", *c.split()]
+        for c in calls
+        if c.startswith("rm ") and c.endswith(started[0])
     ]
     assert (
         removals
     ), f"a container whose start failed must still be removed, got {calls}"
-    options = removals[0][1:-1]
-    short_flags = "".join(
-        arg[1:] for arg in options if arg.startswith("-") and not arg.startswith("--")
-    )
-    assert (
-        "f" in short_flags or "--force" in options
-    ), f"removal must be forced, got {removals[0]}"
-    assert (
-        "v" in short_flags or "--volumes" in options
-    ), f"removal must take the volumes too, got {removals[0]}"
+    _assert_forced_with_volumes(removals[0])
