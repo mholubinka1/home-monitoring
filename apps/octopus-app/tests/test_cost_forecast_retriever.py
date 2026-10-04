@@ -250,8 +250,8 @@ def test_fixed_tariff_actual_cost_and_projection(
 def test_standing_charge_is_charged_exactly_once_per_day_with_a_non_midnight_as_of(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Regression test: the daily job always runs at a non-midnight time
-    # (DAILY_JOB_TIME = "04:00"). Billing period end (Jul 10) is the last
+    # Regression test: the job does not run at exact midnight in practice
+    # (it ran daily at 04:00 when this was written). Billing period end (Jul 10) is the last
     # inclusive billable day, so the full period is Jul6..Jul10 = 5 days.
     # With as_of = Jul8 04:00: elapsed = {Jul6, Jul7, Jul8} (3 days, each
     # already charged a full standing fee via the elapsed query/gap-fill);

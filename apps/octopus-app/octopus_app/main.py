@@ -263,7 +263,7 @@ def register_cost_forecast_refresh_job(
 ) -> Job:
     return _schedule_refresh_job(
         scheduler,
-        lambda s: s.every().day.at(DAILY_JOB_TIME),
+        lambda s: s.every(1).hours,
         COST_FORECAST_REFRESH_JOB,
         cost_forecast.refresh,
         mariadb,

@@ -58,6 +58,7 @@ class DailyCostSummary:
     total_kwh: Decimal
     day_cost_gbp: Decimal
     is_gap_filled: bool = False
+    rates_estimated: bool = False
 
 
 @dataclass
@@ -68,6 +69,8 @@ class CostForecast:
     projected_total_cost: Decimal
     computed_at: datetime
     energy: Energy
+    rates_estimated: bool = False
+    estimated_days: str | None = None
 
 
 def get_raw_unit(energy: Energy) -> Unit:

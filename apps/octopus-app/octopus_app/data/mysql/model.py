@@ -1,6 +1,17 @@
 from typing import ClassVar
 
-from sqlalchemy import Column, Date, DateTime, Index, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    false,
+)
 from sqlalchemy.dialects.mysql import DECIMAL
 
 from common.mariadb.model import SQLBase, job_run
@@ -117,3 +128,10 @@ class cost_forecast(SQLBase):
     # manual backfill runs -- tightening to NOT NULL afterward is a
     # deliberate manual step, out of scope for the automated tool.
     energy = Column(String(1))
+    # server_default so Schema Sync's additive ADD COLUMN is accepted on a
+    # table that already has rows (see ADR-0005); those rows read as "not
+    # estimated".
+    rates_estimated = Column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
+    estimated_days = Column(Text)
