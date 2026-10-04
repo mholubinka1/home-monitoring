@@ -17,11 +17,15 @@ history, and repoint everything that referred to it.
 - [x] `deployments/mariadb/RENAME_RUNBOOK.md` no longer exists.
 - [x] ADR-0022, ADR-0024 and `deployments/CUTOVER_RUNBOOK.md` link to the
       runbook's last version in git history instead of the deleted path.
-- [x] No live file (ADRs, runbooks, SQL script, tests) refers to the deleted
-      path; the comments that mention it say it is retired.
+- [x] No live file (ADRs, runbooks, SQL script, tests) points at the deleted
+      working-tree path; they point at its history or, in comments, say it is
+      retired.
 - [x] The layout test's retired-names check no longer exempts the deleted
       file, and still passes.
-- [x] Historical specs and issue files are left as the records they are.
+- [x] Historical specs and issue files are left as the records they are, except
+      the one markdown link to the deleted file (in
+      `chore-config-driven-mariadb-schema.md`), which now points at the
+      permalink so link-check stays green.
 
 ## Follow-on, not in this PR — [#589](https://github.com/mholubinka1/home-monitoring/issues/589)
 
