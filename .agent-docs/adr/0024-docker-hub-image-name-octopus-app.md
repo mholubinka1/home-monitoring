@@ -6,6 +6,11 @@ The decision: rename the image to `mholubinka1/octopus-app`, matching the `octop
 
 This rename executes together with the database rename ([ADR-0022](0022-single-shared-home-monitoring-database.md)) in one confirmed Pi cutover window, not staggered — see the migration script at `scripts/rename_database.sql` and the runbook, retired after the cutover and kept in [git history](https://github.com/mholubinka1/home-monitoring/blob/9522fda/deployments/mariadb/RENAME_RUNBOOK.md).
 
+> **Since resolved.** The rename was executed during the live Pi cutover on 2026-10-01: the Pi
+> pulls `mholubinka1/octopus-app:latest` and CI publishes that name. The old Docker Hub repo
+> `mholubinka1/octopus-monitoring` is archived, deliberately not deleted. The first paragraph above
+> describes the state before that cutover.
+
 ## Considered Options
 
 - **`mholubinka1/octopus-app` (chosen)** — mirrors `hive-app`'s own image name and the package directory name; no new naming convention introduced.

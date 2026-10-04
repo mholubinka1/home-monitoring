@@ -1,8 +1,8 @@
 # NOTE: this file is a reference copy, not the deployment source of truth.
 # The actual deployed stack lives at /home/pi/git/pi-desktop/docker/docker-compose.yml
 # on pi-desktop (combined with other services, project name "docker"). Keep this file
-# in sync with that one manually until the live Pi cutover to deployments/docker-compose.yml
-# happens (out of scope for the apps/libs/data/deployments restructure itself).
+# in sync with that one manually until #495 (compose/CI/deployment structure) lands
+# a better mechanism.
 #
 # This is an include-only fragment, not standalone-runnable: `depends_on: home-monitoring-db`
 # below refers to the service declared in deployments/mariadb/docker-compose.yml, not
