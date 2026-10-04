@@ -152,25 +152,27 @@ def mariadb_container() -> Iterator[MariaDBContainer]:
     if not _docker_available():
         pytest.skip("docker is not available in this environment")
     name = f"common-schema-test-{uuid.uuid4().hex[:8]}"
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--rm",
-            "--name",
-            name,
-            "-e",
-            f"MARIADB_ROOT_PASSWORD={_ROOT_PASSWORD}",
-            "-p",
-            "127.0.0.1::3306",
-            "mariadb:latest",
-        ],
-        capture_output=True,
-        check=True,
-        timeout=30,
-    )
+    # `docker run` is inside the try: if it times out or errors after the daemon has
+    # created the container, teardown must still remove it (and its anonymous volume).
     try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                name,
+                "-e",
+                f"MARIADB_ROOT_PASSWORD={_ROOT_PASSWORD}",
+                "-p",
+                "127.0.0.1::3306",
+                "mariadb:latest",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
         _wait_for_real_server(name)
         yield MariaDBContainer(name=name, port=_published_port(name))
     finally:

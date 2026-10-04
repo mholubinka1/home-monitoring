@@ -124,23 +124,25 @@ def _wait_for_real_server(container_name: str, timeout_seconds: float = 60) -> N
 def mariadb_container():
     """Start a throwaway MariaDB container, yield its name, and always tear it down."""
     name = f"rename-script-test-{uuid.uuid4().hex[:8]}"
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "-d",
-            "--rm",
-            "--name",
-            name,
-            "-e",
-            f"MARIADB_ROOT_PASSWORD={_ROOT_PASSWORD}",
-            "mariadb:latest",
-        ],
-        capture_output=True,
-        check=True,
-        timeout=30,
-    )
+    # `docker run` is inside the try: if it times out or errors after the daemon has
+    # created the container, teardown must still remove it (and its anonymous volume).
     try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                name,
+                "-e",
+                f"MARIADB_ROOT_PASSWORD={_ROOT_PASSWORD}",
+                "mariadb:latest",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
         _wait_for_real_server(name)
         yield name
     finally:
