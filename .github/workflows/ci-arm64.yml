@@ -41,6 +41,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Backstop for a previous run that was killed too hard to clean up after itself.
+      # After Checkout because a local action only exists once the repo is checked out.
+      - name: Remove test containers left by an earlier run
+        uses: ./.github/actions/remove-leaked-test-containers
+
       - name: Install uv
         if: success()
         uses: astral-sh/setup-uv@v10.0.1
@@ -174,3 +179,11 @@ jobs:
             # same libs/common/-reachability reason. Only the -f path changed for
             # the #530 Dockerfile relocation.
             docker buildx build --push --tag "$TAG" -f deployments/hive-app/Dockerfile .
+
+      # A cancelled run is killed mid-pytest and its fixtures never clean up; always()
+      # still runs when the job is cancelled. continue-on-error: a missing action (the
+      # job failed before Checkout) or a daemon hiccup must never change the job result.
+      - name: Remove test containers this run may have left behind
+        if: always()
+        continue-on-error: true
+        uses: ./.github/actions/remove-leaked-test-containers

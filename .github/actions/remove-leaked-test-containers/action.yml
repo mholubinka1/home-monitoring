@@ -1,0 +1,33 @@
+name: Remove leaked test containers
+description: >-
+  Removes MariaDB containers left running by the test fixtures (named
+  common-schema-test-<8 hex> or rename-script-test-<8 hex>) when a test run was killed
+  before its fixture could clean up. A cancelled CI run is killed mid-pytest, so the
+  fixture's `finally` never runs, and `--rm` only applies once a container exits, so the
+  container and its anonymous volume keep running next to the production database on the
+  self-hosted runner. Removes only containers matching those two exact name patterns,
+  never prunes anything, and never fails the job. Assumes the runner executes one job at
+  a time, so no live test run owns a container at the moment this runs.
+
+runs:
+  using: composite
+  steps:
+    - name: Remove leaked test containers
+      shell: bash
+      run: |
+        if ! listed=$(docker ps -a --format '{{.Names}}'); then
+          echo "::warning::Could not list containers (is docker running?); skipping the leaked test container sweep."
+          exit 0
+        fi
+        matched=$(grep -E '^(common-schema-test|rename-script-test)-[0-9a-f]{8}$' <<<"$listed" || true)
+        if [ -z "$matched" ]; then
+          echo "No leaked test containers."
+          exit 0
+        fi
+        leaked=()
+        while IFS= read -r name; do leaked+=("$name"); done <<<"$matched"
+        echo "Removing ${#leaked[@]} leaked test container(s) and their volumes:"
+        printf '  %s\n' "${leaked[@]}"
+        if ! docker rm -fv "${leaked[@]}"; then
+          echo "::warning::Could not remove every leaked test container; remove them by hand."
+        fi
