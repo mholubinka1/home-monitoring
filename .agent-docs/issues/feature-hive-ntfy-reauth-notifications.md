@@ -92,7 +92,7 @@ context.md. Live config untouched.
 - [x] Template contains a topic placeholder and format comment; no real GUID
       anywhere in the repo.
 - [x] ADR-0018 and context.md updated.
-- [ ] Docs/yaml/markdown pre-commit checks and combined compose `config`
+- [x] Docs/yaml/markdown pre-commit checks and combined compose `config`
       pass.
 
 ---
@@ -117,7 +117,7 @@ the UID 999 write-permission note. mariadb unchanged.
       handler at the expected path plus console.
 - [x] Given an unwritable/missing directory, the config is console-only and
       warns; the app does not crash.
-- [ ] hive-app compose mounts the log directory; combined compose `config`
+- [x] hive-app compose mounts the log directory; combined compose `config`
       passes.
 
 ---
