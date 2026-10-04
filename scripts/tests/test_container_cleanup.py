@@ -138,16 +138,17 @@ def _started_containers(calls: list[str]) -> list[str]:
     return [
         words[words.index("--name") + 1]
         for words in (c.split() for c in calls)
-        if words[0] == "run"
+        if words[:1] == ["run"]
     ]
 
 
 def _removals_of(calls: list[str], name: str) -> list[list[str]]:
-    """Full `docker rm ... <name>` commands in the fake docker's log."""
+    """Full `docker rm [options] <name>` commands in the fake docker's log: `rm` with
+    exactly `name` as the last argument (not merely a name that ends the same way)."""
     return [
-        ["docker", *c.split()]
-        for c in calls
-        if c.startswith("rm ") and c.endswith(name)
+        ["docker", *words]
+        for words in (c.split() for c in calls)
+        if words[:1] == ["rm"] and words[-1] == name
     ]
 
 
