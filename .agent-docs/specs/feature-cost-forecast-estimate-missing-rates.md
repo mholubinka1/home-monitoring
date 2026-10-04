@@ -46,7 +46,7 @@ When a past gap day has missing or incomplete rates, the forecast prices the unc
 - A new alert or notification for a persistent upstream hole.
 - Flagging kWh-estimated gap days.
 - Using `agile_forecast` predictions for past days.
-- #584 and #585 (reserved for another session) and other dashboard issues.
+- #585 (reserved for another session) and other dashboard issues. #584 was folded in at the user's request because it broke every panel and touches the same file.
 
 ## Further Notes
 

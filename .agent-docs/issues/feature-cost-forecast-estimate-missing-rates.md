@@ -95,3 +95,16 @@ Add ADR-0026 recording the policy (estimate and flag, fallback chain, cap of 3, 
 - [ ] `context.md` defines the new terms.
 
 ---
+
+## Folded in: grafana targets still carry "dataset": "octopus" — [#584](https://github.com/mholubinka1/home-monitoring/issues/584)
+
+**Blocked by**: None
+
+Folded into the #594 change at the user's request: the old `octopus` database was dropped, so every panel on the live dashboard returned a 500. All 16 `"dataset"` fields in `dashboard.json` are now `home_monitoring`.
+
+### Acceptance criteria
+
+- [ ] No `"dataset": "octopus"` remains in `data/grafana/dashboard.json`.
+- [ ] After import, the dashboard panels load without the 500.
+
+---
