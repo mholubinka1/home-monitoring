@@ -128,7 +128,7 @@ def test_rejects_running_as_the_ordinary_app_user_and_leaves_no_dangling_databas
     behaviour, not assumed): an app user granted access to only its own database
     (the shape `MARIADB_USER` gets from `deployments/mariadb/docker-compose.yml`)
     cannot run this script -- `USE mysql`, `CREATE DATABASE`, and a cross-database
-    `RENAME TABLE` all need broader privileges. RENAME_RUNBOOK.md documents running
+    `RENAME TABLE` all need broader privileges. The retired RENAME_RUNBOOK.md documented running
     this as root instead. If a future change made the script work for a lesser
     user, the runbook's root-only instruction would need to change too -- this
     test exists so that change doesn't slip through unnoticed.

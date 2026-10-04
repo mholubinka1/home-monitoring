@@ -4,7 +4,7 @@ The live Pi still pulls `mholubinka1/octopus-monitoring:latest` — a name left 
 
 The decision: rename the image to `mholubinka1/octopus-app`, matching the `octopus-app` package/directory name (ADR-0021) and the plain, unprefixed style already used for `hive-app`'s image.
 
-This rename executes together with the database rename ([ADR-0022](0022-single-shared-home-monitoring-database.md)) in one confirmed Pi cutover window, not staggered — see the migration script at `scripts/rename_database.sql` and the runbook at `deployments/mariadb/RENAME_RUNBOOK.md`.
+This rename executes together with the database rename ([ADR-0022](0022-single-shared-home-monitoring-database.md)) in one confirmed Pi cutover window, not staggered — see the migration script at `scripts/rename_database.sql` and the runbook, retired after the cutover and kept in [git history](https://github.com/mholubinka1/home-monitoring/blob/9522fda/deployments/mariadb/RENAME_RUNBOOK.md).
 
 ## Considered Options
 

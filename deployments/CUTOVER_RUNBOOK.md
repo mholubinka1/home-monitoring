@@ -45,7 +45,7 @@ The media drive does not support preserving timestamps or permissions: `cp -p` a
    grep -c '^CREATE TABLE' "$BK"
    ```
 
-   Stop here if the exit code is not `0`. The count must print `11` (one per table — see [RENAME_RUNBOOK.md](mariadb/RENAME_RUNBOOK.md) step 5). Stop and re-run if it doesn't: do not continue to step 3 on an unverified backup. Keep this shell open (or note the value of `$BK`) for the rest of the procedure.
+   Stop here if the exit code is not `0`. The count must print `11` (one per table — see the retired [RENAME_RUNBOOK.md](https://github.com/mholubinka1/home-monitoring/blob/9522fda/deployments/mariadb/RENAME_RUNBOOK.md) step 5). Stop and re-run if it doesn't: do not continue to step 3 on an unverified backup. Keep this shell open (or note the value of `$BK`) for the rest of the procedure.
 
 3. Stop the database and confirm all three containers are stopped:
 
