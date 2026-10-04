@@ -4,9 +4,11 @@ The mariadb image declares an anonymous data volume. Removing its container with
 bare `docker rm -f` leaves that volume behind, and a few hundred test runs filled the
 Pi's disk (CI then failed with "MariaDB container ... never became ready"). These
 tests need no docker: they check the removal command the fixture would run, and drive
-the real fixture against a fake `docker` to check that a failed start is still cleaned up.
-(A `docker run` timeout takes the same exception path as the failure simulated here; it
-is not simulated because the fixture's 30s timeout would make the test slow.)"""
+the real fixture against a fake `docker` to check that a start that fails, or times out,
+after the container was created is still cleaned up.
+
+This module is deliberately duplicated in scripts/tests (as are the two conftests):
+libs/common has no dependency on scripts/."""
 
 import os
 import shutil
@@ -55,13 +57,40 @@ case "$1" in
 esac
 """
 
-_PROBE_TEST = """
+_PROBE_BODY = """
 def test_probe(mariadb_container):
     raise AssertionError("the fixture should have failed during setup")
 """
 
+# The fixture's real 30s `docker run` timeout would make a test wait 30s, so the
+# timeout case has `docker run` (still logged by the fake docker) raise
+# TimeoutExpired straight away.
+_PROBE_TIMES_OUT = """
+import subprocess
 
-def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> None:
+import pytest
+
+_real_run = subprocess.run
+
+
+@pytest.fixture(autouse=True)
+def _docker_run_times_out(monkeypatch):
+    def run(argv, **kwargs):
+        if argv[:2] == ["docker", "run"]:
+            _real_run(argv, **{**kwargs, "check": False})
+            raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+        return _real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+""" + _PROBE_BODY
+
+
+@pytest.mark.parametrize(
+    "probe", [_PROBE_BODY, _PROBE_TIMES_OUT], ids=["exits nonzero", "times out"]
+)
+def test_a_container_that_fails_to_start_is_still_removed(
+    tmp_path: Path, probe: str
+) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake = bin_dir / "docker"
@@ -70,7 +99,7 @@ def test_a_container_that_fails_to_start_is_still_removed(tmp_path: Path) -> Non
     project = tmp_path / "project"
     project.mkdir()
     shutil.copy(Path(__file__).parent / "conftest.py", project / "conftest.py")
-    (project / "test_probe.py").write_text(_PROBE_TEST)
+    (project / "test_probe.py").write_text(probe)
     log = tmp_path / "docker.log"
 
     child = subprocess.run(

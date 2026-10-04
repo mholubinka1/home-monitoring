@@ -18,6 +18,8 @@ cleaned up.
 
 - [x] Given a `docker run` that fails after claiming the container name, when
       the `libs/common` fixture sets up, then `docker rm -fv <name>` still runs.
+- [x] The same holds when `docker run` times out (`TimeoutExpired`) instead of
+      exiting non-zero.
 - [x] The same holds for the `scripts` fixture.
-- [x] Both new tests fail against the old fixture ordering and pass against the
-      new one.
+- [x] Both new tests, in both cases, fail against the old fixture ordering and
+      pass against the new one.
