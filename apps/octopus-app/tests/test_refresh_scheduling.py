@@ -267,7 +267,7 @@ def test_run_initial_cost_forecast_sync_does_not_propagate_a_startup_failure() -
     run_initial_cost_forecast_sync(cost_forecast)
 
 
-def test_cost_forecast_refresh_job_is_registered_daily_at_0400(
+def test_cost_forecast_refresh_job_is_registered_hourly(
     mariadb_client: MariaDBClient,
 ) -> None:
     scheduler = Scheduler()
@@ -276,8 +276,8 @@ def test_cost_forecast_refresh_job_is_registered_daily_at_0400(
         scheduler, Mock(spec=CostForecastRetriever), mariadb_client
     )
 
-    assert job.unit == "days"
-    assert str(job.at_time) == "04:00:00"
+    assert job.interval == 1
+    assert job.unit == "hours"
 
 
 def test_a_successful_cost_forecast_run_is_recorded_as_a_successful_job_run(
