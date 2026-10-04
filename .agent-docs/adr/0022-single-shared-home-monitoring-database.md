@@ -6,6 +6,11 @@ The rename is a one-time migration executed during the Pi cutover window (dump/r
 
 The migration script (`scripts/rename_database.sql`, tested by `scripts/tests/test_rename_database.py`) and the operator runbook (`deployments/mariadb/RENAME_RUNBOOK.md`) are written and verified against a throwaway MariaDB instance; the Docker Hub image rename it pairs with is decided in [ADR-0024](0024-docker-hub-image-name-octopus-app.md). One prerequisite surfaced during review of that runbook remains open before the cutover can actually proceed: every SQLAlchemy model hardcodes `schema="octopus"` rather than deriving it from config, so a config-only database-name change does not retarget the apps on its own ([#549](https://github.com/mholubinka1/home-monitoring/issues/549)).
 
+> **Since resolved.** The rename was executed during the live Pi cutover on 2026-10-01
+> (see the `home_monitoring` entry in `context.md`), and the open prerequisite above
+> (#549, closed) was resolved by [ADR-0025](0025-schema-translate-map-for-config-driven-mariadb-schema.md).
+> The paragraphs above are kept as written, as the record of the decision at the time.
+
 ## Considered Options
 
 - **Per-app databases on the same instance** — rejected: `job_run` (ADR-0020) is deliberately one shared table; splitting the database would force either duplicating it back across two databases (reintroducing the exact drift risk ADR-0020 removed) or cross-database queries, neither of which is worth it for two containers on one Pi.
