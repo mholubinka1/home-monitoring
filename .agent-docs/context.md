@@ -121,7 +121,7 @@ A projection of total cost for the current billing period, built from actual cos
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:
-The rates used to price a past gap day whose published rates are missing or incomplete: the time-weighted average unit rate of that day's own published segments, or, with none, the unit rate and standing charge of the nearest earlier fully published day. At most 3 days per energy per refresh; beyond that the refresh fails. The Cost Forecast row records it in `rates_estimated` and `estimated_days`, which flag only rate estimation, not kWh-estimated gap-filled days. See `.agent-docs/adr/0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md`.
+The rates used to price a past gap day whose published rates are missing or incomplete: the time-weighted average unit rate of that day's own published segments, or, with none, the unit rate and standing charge of the nearest earlier fully published day under the gap day's own agreement. At most 3 days per energy per refresh; beyond that the refresh fails. The Cost Forecast row records it in `rates_estimated` and `estimated_days`, which flag only rate estimation, not kWh-estimated gap-filled days. See `.agent-docs/adr/0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md`.
 _Avoid_: fallback rates, guessed rates
 
 **Agile Predict**:
