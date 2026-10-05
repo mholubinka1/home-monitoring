@@ -18,6 +18,7 @@ Refines [ADR-0023](0023-gap-filled-days-get-an-estimated-variable-cost.md), whos
 
 Gap days (and the earlier-full-day search for a rate-less one) were first priced with the agreement current at `as_of`, so a tariff renewal inside the billing period priced earlier gap days at the new product, or failed the refresh when the new product had no rates for them. Each gap day is now priced with the agreement whose validity range covers its local midday, the same instant the standing charge is read at, so a renewal part-way through a day is decided by midday.
 
+- **Today is the exception.** Today's standing-charge-only day keeps the agreement current at `as_of`, as before: its midday may lie after `as_of`, beyond what the current agreement is known to cover, and requiring midday coverage there would newly fail a refresh run in the hours before an agreement ends.
 - **No covering agreement.** A gap day that no agreement covers raises, naming the day and energy, rather than being skipped; a forecast is never persisted with a silently unpriced day.
 - **Fallback follows the gap day.** The earlier-full-day search uses the same agreement as the day it estimates, not the earlier day's own agreement. Consequence: if the product changed on the renewal day itself and that day has a rate hole, the search looks for the new product's rates on days before it existed and may raise "no fully published day".
 - **Unchanged.** The remaining-days projection still prices at the agreement current at `as_of`; the elapsed-cost join already matched each instant to its own agreement.

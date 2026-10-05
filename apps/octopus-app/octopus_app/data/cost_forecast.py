@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 import logging.config
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -422,7 +423,14 @@ class CostForecastRetriever:
                         billing_period_start,
                     )
                 )
-                gap_agreement = self._agreement_for_day(energy, day)
+                # Today is priced standing-charge-only with the agreement
+                # current at as_of, as before: its midday may lie after as_of,
+                # beyond what the current agreement is known to cover.
+                gap_agreement = (
+                    self._current_agreement(energy, as_of)
+                    if day == as_of_local_date
+                    else self._agreement_for_day(energy, day)
+                )
                 filled.append(self._price_gap_day(gap_agreement, day, daily_kwh))
                 if sum(d.rates_estimated for d in filled) > MAX_RATE_ESTIMATED_DAYS:
                     raise RuntimeError(

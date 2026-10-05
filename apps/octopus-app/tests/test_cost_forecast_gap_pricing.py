@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -927,3 +928,79 @@ def test_a_gap_day_is_priced_with_the_product_in_force_at_its_local_midday(
     )
 
     assert row.actual_cost_to_date == expected_total
+
+
+@responses.activate
+def test_todays_standing_charge_only_day_uses_the_current_agreement_even_if_it_ends_before_midday(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The only agreement ends at 06:00 local today and no successor is
+    # recorded yet; as_of is 01:00 local, so it is still current. Today has no
+    # consumption, so it is priced standing-charge-only (OLD's 20.00p) with
+    # the agreement current at as_of, as before -- not looked up at midday,
+    # which no agreement covers.
+    agreement_end = datetime(2026, 7, 7, 5, 0, tzinfo=UTC)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=OLD_PRODUCT,
+                tariff_code=f"E-1R-{OLD_PRODUCT}-{REGION}",
+                valid_from=_LONG_AGO,
+                valid_to=agreement_end,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{OLD_PRODUCT}_{REGION}_202601010000",
+                product_code=OLD_PRODUCT,
+                region=REGION,
+                valid_from=_RATES_FROM,
+                valid_to=None,
+                unit_rate=Decimal("10.00"),
+                standing_charge=Decimal("20.00"),
+            )
+        )
+        for day in range(1, 7):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+    meter = _make_electricity_meter(
+        tariff_code=f"E-1R-{OLD_PRODUCT}-{REGION}",
+        valid_from=_LONG_AGO,
+        valid_to=agreement_end,
+    )
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, meter, start_of_local_day(date(2026, 7, 7)) + timedelta(hours=1)
+    )
+
+    assert row.actual_cost_to_date == 6 * _OLD_DAY + Decimal("0.20")
+
+
+@responses.activate
+def test_the_rate_estimate_cap_error_names_the_product_of_the_day_that_tripped_it(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Four pre-renewal gap days (Jul2-Jul5) have no OLD rates published, so
+    # the fourth exceeds the cap of three; the error must name OLD (the day's
+    # own product), not NEW (the agreement current at as_of).
+    renewal = datetime(2026, 7, 5, 23, 0, tzinfo=UTC)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(
+            s,
+            renewal,
+            old_windows=[
+                (_RATES_FROM, start_of_local_day(date(2026, 7, 2))),
+                (start_of_local_day(date(2026, 7, 6)), None),
+            ],
+        )
+        for day in (1, 6, 7, 8):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_renewal_meter(renewal)])
+    )
+
+    with pytest.raises(RuntimeError, match=rf"their {OLD_PRODUCT} rates estimated"):
+        retriever.refresh(as_of=start_of_local_day(date(2026, 7, 9)))
