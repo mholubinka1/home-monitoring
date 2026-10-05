@@ -13,6 +13,10 @@ CONSUMPTION_ENDPOINT = (
     "https://api.octopus.energy/v1/electricity-meter-points/"
     "1234567890123/meters/00A1234567/consumption/"
 )
+GAS_CONSUMPTION_ENDPOINT = (
+    "https://api.octopus.energy/v1/gas-meter-points/9876543210/meters/G4A1234567/"
+    "consumption/"
+)
 
 
 def _octopus() -> OctopusEnergyAPIClient:
@@ -28,6 +32,20 @@ def _meter() -> Electricity:
         agreements=[
             Agreement(
                 tariff_code="E-1R-VAR-22-11-01-A",
+                valid_from=datetime(2022, 11, 1, tzinfo=UTC),
+                valid_to=None,
+            )
+        ],
+    )
+
+
+def _gas_meter() -> Gas:
+    return Gas(
+        mprn="9876543210",
+        serial_number="G4A1234567",
+        agreements=[
+            Agreement(
+                tariff_code="G-1R-VAR-22-11-01-A",
                 valid_from=datetime(2022, 11, 1, tzinfo=UTC),
                 valid_to=None,
             )
@@ -62,26 +80,6 @@ def test_a_naive_period_is_rejected_rather_than_silently_using_local_time() -> N
         _octopus().get_consumption(_meter(), naive_period_from)
 
 
-GAS_CONSUMPTION_ENDPOINT = (
-    "https://api.octopus.energy/v1/gas-meter-points/9876543210/meters/G4A1234567/"
-    "consumption/"
-)
-
-
-def _gas_meter() -> Gas:
-    return Gas(
-        mprn="9876543210",
-        serial_number="G4A1234567",
-        agreements=[
-            Agreement(
-                tariff_code="G-1R-VAR-22-11-01-A",
-                valid_from=datetime(2022, 11, 1, tzinfo=UTC),
-                valid_to=None,
-            )
-        ],
-    )
-
-
 @responses.activate
 @pytest.mark.parametrize(
     ("meter", "endpoint"),
@@ -94,9 +92,7 @@ def _gas_meter() -> Gas:
 def test_consumption_is_requested_newest_first_in_pages_of_100(
     meter: Electricity | Gas, endpoint: str
 ) -> None:
-    # Octopus's ascending order (order_by=period) returns overlapping and
-    # skipping pages once a window spans more than one page, so duplicated and
-    # missing intervals corrupt anything built from a paged fetch (ADR-0027).
+    # Ascending order duplicates and skips intervals across pages (ADR-0027).
     responses.add(
         responses.GET,
         endpoint,

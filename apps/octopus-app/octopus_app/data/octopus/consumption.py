@@ -78,8 +78,8 @@ class ConsumptionClient:
         period_to: datetime | None,
         page_size: int,
     ) -> dict[str, Any]:
-        # Newest first: ascending ("period") paging returns overlapping and
-        # skipping pages once a window spans several pages (ADR-0027).
+        # Newest first, not "period": ascending paging duplicates and skips
+        # intervals (ADR-0027).
         params: dict[str, Any] = {"page_size": page_size, "order_by": "-period"}
         if period_from:
             params["period_from"] = to_utc_z(period_from)
