@@ -5,7 +5,7 @@ description = ""
 requires-python = ">=3.13"
 dependencies = [
     "requests>=2.33.1",
-    "cryptography==50.0.1",
+    "cryptography==50.0.2",
     "pyyaml>=6.0.3",
     "sqlalchemy>=2.0.52",
     "pymysql>=1.1.2",
