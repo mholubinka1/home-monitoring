@@ -1,8 +1,7 @@
 # NOTE: this file is a reference copy, not the deployment source of truth.
 # The actual deployed stack lives at /home/pi/git/pi-desktop/docker/docker-compose.yml
 # on pi-desktop (combined with other services, project name "docker"). Keep this file
-# in sync with that one manually until #495 (compose/CI/deployment structure) lands
-# a better mechanism.
+# in sync with that one by hand; it is not itself deployed.
 #
 # Unlike octopus-app/hive-app's compose files, this one has no cross-file
 # dependency, so `docker compose -f deployments/mariadb/docker-compose.yml config`
