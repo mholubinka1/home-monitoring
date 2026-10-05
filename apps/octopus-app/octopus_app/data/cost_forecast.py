@@ -280,7 +280,7 @@ class CostForecastRetriever:
             elapsed_start, as_of, self._client.region_code, energy
         )
         daily_costs = self._fill_zero_consumption_days(
-            energy, billing_period.start, as_of, agreement, daily_costs
+            energy, billing_period.start, as_of, daily_costs
         )
         actual_cost_to_date = sum((d.day_cost_gbp for d in daily_costs), Decimal(0))
 
@@ -312,34 +312,53 @@ class CostForecastRetriever:
             f"£{forecast.projected_total_cost}."
         )
 
-    def _current_agreement(self, energy: Energy, as_of: datetime) -> Agreement:
+    def _agreement_covering(
+        self, energy: Energy, instant: datetime
+    ) -> Agreement | None:
         meter = next((m for m in self._client.meters if m.energy == energy), None)
         if meter is None:
             raise RuntimeError(
                 f"No {energy.name} meter found -- cannot compute a cost forecast."
             )
-        # "Current" = the agreement whose [valid_from, valid_to) range
-        # contains as_of, with valid_to=None treated as unbounded -- not
-        # "valid_to is None". Real Agile contracts renew as fixed one-year
-        # terms, so Octopus's API never returns valid_to=None for them, not
-        # even for the currently-active one; mirrors the range-containment
-        # predicate client.py's read_current_product_rate uses instead of
-        # requiring an open-ended row. Unlike that query, this doesn't order
-        # by valid_from on a tie: Octopus's data model doesn't produce
-        # overlapping agreements for one meter, so the first match in
-        # response order is taken as-is (see spec for this fix).
-        agreement = next(
+        # The agreement whose [valid_from, valid_to) range contains instant,
+        # with valid_to=None treated as unbounded -- not "valid_to is None".
+        # Real Agile contracts renew as fixed one-year terms, so Octopus's API
+        # never returns valid_to=None for them, not even for the
+        # currently-active one; mirrors the range-containment predicate
+        # client.py's read_current_product_rate uses instead of requiring an
+        # open-ended row. Unlike that query, this doesn't order by valid_from
+        # on a tie: Octopus's data model doesn't produce overlapping
+        # agreements for one meter, so the first match in response order is
+        # taken as-is (see spec for this fix).
+        return next(
             (
                 a
                 for a in meter.agreements
-                if a.valid_from <= as_of and (a.valid_to is None or as_of < a.valid_to)
+                if a.valid_from <= instant
+                and (a.valid_to is None or instant < a.valid_to)
             ),
             None,
         )
+
+    def _current_agreement(self, energy: Energy, as_of: datetime) -> Agreement:
+        agreement = self._agreement_covering(energy, as_of)
         if agreement is None:
             raise RuntimeError(
                 f"No current agreement found for the {energy.name} meter as "
                 f"of {as_of} -- cannot compute a cost forecast."
+            )
+        return agreement
+
+    def _agreement_for_day(self, energy: Energy, day: date) -> Agreement:
+        # The agreement covering the day's midday -- the instant its standing
+        # charge is read at (13:00 local on a spring-forward day) -- so a
+        # tariff renewal part-way through a day is decided by midday.
+        midday = local_day.start_of_local_day(day) + timedelta(hours=12)
+        agreement = self._agreement_covering(energy, midday)
+        if agreement is None:
+            raise RuntimeError(
+                f"No {energy.name} agreement covers {day} -- cannot compute a "
+                "cost forecast for that day."
             )
         return agreement
 
@@ -348,7 +367,6 @@ class CostForecastRetriever:
         energy: Energy,
         billing_period_start: date,
         as_of: datetime,
-        agreement: Agreement,
         daily_costs: list[DailyCostSummary],
     ) -> list[DailyCostSummary]:
         # A day with zero consumption rows, or a strictly-past day still
@@ -404,11 +422,12 @@ class CostForecastRetriever:
                         billing_period_start,
                     )
                 )
-                filled.append(self._price_gap_day(agreement, day, daily_kwh))
+                gap_agreement = self._agreement_for_day(energy, day)
+                filled.append(self._price_gap_day(gap_agreement, day, daily_kwh))
                 if sum(d.rates_estimated for d in filled) > MAX_RATE_ESTIMATED_DAYS:
                     raise RuntimeError(
                         f"More than {MAX_RATE_ESTIMATED_DAYS} days need "
-                        f"their {agreement.product_code} rates estimated "
+                        f"their {gap_agreement.product_code} rates estimated "
                         f"(cap reached at {day}, at most "
                         f"{MAX_RATE_ESTIMATED_DAYS} per energy per refresh) "
                         "-- refusing to persist a cost forecast this "

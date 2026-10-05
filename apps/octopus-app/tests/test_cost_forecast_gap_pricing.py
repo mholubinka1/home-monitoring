@@ -705,3 +705,225 @@ def test_a_past_gap_day_needing_a_variable_cost_with_incomplete_rates_is_estimat
     assert row.actual_cost_to_date == Decimal("0.98") + Decimal("0.98") + Decimal(
         "0.50"
     )
+
+
+OLD_PRODUCT, NEW_PRODUCT = "OLD-24-10-01", "NEW-26-07-05"
+_LONG_AGO = datetime(2022, 1, 1, tzinfo=UTC)
+_RATES_FROM = datetime(2026, 1, 1, tzinfo=UTC)
+
+# (valid_from, valid_to) of a product's published rates.
+_RateWindow = tuple[datetime, datetime | None]
+
+
+def _seed_renewal_from_old_to_new(
+    s: Session,
+    renewal: datetime,
+    old_windows: list[_RateWindow] | None = None,
+    new_windows: list[_RateWindow] | None = None,
+) -> None:
+    # OLD is 10.00p unit / 20.00p standing, NEW is 30.00p / 40.00p. Agreement
+    # rows feed the elapsed-cost join; rate windows default to published
+    # throughout.
+    for product, valid_from, valid_to in (
+        (OLD_PRODUCT, _LONG_AGO, renewal),
+        (NEW_PRODUCT, renewal, None),
+    ):
+        s.add(
+            model.agreement(
+                id=f"E{valid_from.strftime('%Y%m%d%H%M%S')}",
+                energy="E",
+                product_code=product,
+                tariff_code=f"E-1R-{product}-{REGION}",
+                valid_from=valid_from,
+                valid_to=valid_to,
+            )
+        )
+    for product, unit_rate, standing_charge, windows in (
+        (OLD_PRODUCT, "10.00", "20.00", old_windows or [(_RATES_FROM, None)]),
+        (NEW_PRODUCT, "30.00", "40.00", new_windows or [(_RATES_FROM, None)]),
+    ):
+        for valid_from, valid_to in windows:
+            s.add(
+                model.product_rate(
+                    id=f"{product}_{REGION}_{valid_from.strftime('%Y%m%d%H%M')}",
+                    product_code=product,
+                    region=REGION,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    unit_rate=Decimal(unit_rate),
+                    standing_charge=Decimal(standing_charge),
+                )
+            )
+
+
+def _renewal_meter(renewal: datetime) -> Electricity:
+    return _make_electricity_meter(
+        tariff_code=f"E-1R-{NEW_PRODUCT}-{REGION}",
+        valid_from=renewal,
+        prior_agreements=[
+            Agreement(
+                tariff_code=f"E-1R-{OLD_PRODUCT}-{REGION}",
+                valid_from=_LONG_AGO,
+                valid_to=renewal,
+            )
+        ],
+    )
+
+
+def _refresh_cost_forecast_row(
+    mariadb_client: MariaDBClient, meter: Electricity, as_of: datetime
+) -> model.cost_forecast:
+    CostForecastRetriever(_source(mariadb_client, [meter])).refresh(as_of=as_of)
+    with mariadb_client.session_read_scope() as session:
+        return session.query(model.cost_forecast).one()
+
+
+# A day of 4.8 kWh costs (4.8 * 10.00 + 20.00) / 100 on OLD and
+# (4.8 * 30.00 + 40.00) / 100 on NEW.
+_OLD_DAY = Decimal("0.68")
+_NEW_DAY = Decimal("1.84")
+
+
+@responses.activate
+def test_a_gap_day_before_a_tariff_renewal_is_priced_with_the_product_it_was_on(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Renewal at local midnight on Jul5 (BST: UTC Jul4 23:00). Jul3 has no
+    # consumption, so it is an interior gap estimated at its neighbours'
+    # 4.8 kWh -- and, being before the renewal, priced on OLD, not on NEW
+    # (the agreement current at as_of).
+    renewal = datetime(2026, 7, 4, 23, 0, tzinfo=UTC)
+    # Kraken reports a period starting the local day before its stated date
+    # (BillingPeriod.from_billing_options), so this period runs from Jul1.
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(s, renewal)
+        for day in (1, 2, 4, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, _renewal_meter(renewal), start_of_local_day(date(2026, 7, 7))
+    )
+
+    assert row.actual_cost_to_date == 4 * _OLD_DAY + 2 * _NEW_DAY
+
+
+@responses.activate
+def test_a_gap_day_after_a_tariff_renewal_is_priced_with_the_new_product(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Renewal at local midnight on Jul2 (UTC Jul1 23:00); Jul4 is an
+    # interior gap, estimated at its neighbours' 4.8 kWh.
+    renewal = datetime(2026, 7, 1, 23, 0, tzinfo=UTC)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(s, renewal)
+        for day in (1, 2, 3, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, _renewal_meter(renewal), start_of_local_day(date(2026, 7, 7))
+    )
+
+    assert row.actual_cost_to_date == _OLD_DAY + 5 * _NEW_DAY
+
+
+@responses.activate
+def test_a_gap_day_before_a_renewal_is_priced_even_when_the_new_product_has_no_rates_yet(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # NEW's rates only start at the renewal (Jul5 local midnight), so none
+    # exist for the Jul3 gap day -- it is priced from OLD, not estimated.
+    renewal = datetime(2026, 7, 4, 23, 0, tzinfo=UTC)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(s, renewal, new_windows=[(renewal, None)])
+        for day in (1, 2, 4, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, _renewal_meter(renewal), start_of_local_day(date(2026, 7, 7))
+    )
+
+    assert row.actual_cost_to_date == 4 * _OLD_DAY + 2 * _NEW_DAY
+    assert row.rates_estimated is False
+
+
+@responses.activate
+def test_a_gap_day_before_a_renewal_with_an_old_rate_hole_is_estimated_from_an_earlier_old_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # OLD publishes nothing for Jul3 (the gap day), while NEW has rates
+    # throughout: the hole is filled from OLD's Jul2, never from NEW.
+    renewal = datetime(2026, 7, 4, 23, 0, tzinfo=UTC)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    jul3_start = start_of_local_day(date(2026, 7, 3))
+    jul4_start = start_of_local_day(date(2026, 7, 4))
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(
+            s,
+            renewal,
+            old_windows=[(_RATES_FROM, jul3_start), (jul4_start, None)],
+        )
+        for day in (1, 2, 4, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, _renewal_meter(renewal), start_of_local_day(date(2026, 7, 7))
+    )
+
+    assert row.actual_cost_to_date == 4 * _OLD_DAY + 2 * _NEW_DAY
+    assert row.rates_estimated is True
+    assert row.estimated_days == "2026-07-03"
+
+
+@responses.activate
+def test_a_gap_day_that_no_agreement_covers_fails_the_refresh_and_writes_nothing(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The meter's only agreement starts on Jul4, after the Jul3 gap day.
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    agreement_start = start_of_local_day(date(2026, 7, 4))
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(s, agreement_start)
+        for day in (1, 2, 4, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+    meter = _make_electricity_meter(
+        tariff_code=f"E-1R-{NEW_PRODUCT}-{REGION}", valid_from=agreement_start
+    )
+    retriever = CostForecastRetriever(_source(mariadb_client, [meter]))
+
+    with pytest.raises(
+        RuntimeError, match="No electricity agreement covers 2026-07-03"
+    ):
+        retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.cost_forecast).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("renewal_local_hour", "expected_total"),
+    [
+        # Renewal after midday: the gap day is still on OLD.
+        (13, 3 * _OLD_DAY + 3 * _NEW_DAY),
+        # Renewal before midday: the gap day is already on NEW.
+        (11, 2 * _OLD_DAY + 4 * _NEW_DAY),
+    ],
+)
+@responses.activate
+def test_a_gap_day_is_priced_with_the_product_in_force_at_its_local_midday(
+    mariadb_client: MariaDBClient, renewal_local_hour: int, expected_total: Decimal
+) -> None:
+    renewal = start_of_local_day(date(2026, 7, 3)) + timedelta(hours=renewal_local_hour)
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    with mariadb_client.session_write_scope() as s:
+        _seed_renewal_from_old_to_new(s, renewal)
+        for day in (1, 2, 4, 5, 6):
+            _seed_complete_day(s, date(2026, 7, day), "0.1")
+
+    row = _refresh_cost_forecast_row(
+        mariadb_client, _renewal_meter(renewal), start_of_local_day(date(2026, 7, 7))
+    )
+
+    assert row.actual_cost_to_date == expected_total
