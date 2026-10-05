@@ -75,7 +75,7 @@ def test_run_summarizes_two_years_of_fetched_consumption_without_writing_raw_row
         responses.GET,
         CONSUMPTION_ENDPOINT
         + f"?page_size=100&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
-        "&order_by=period",
+        "&order_by=-period",
         json={
             "results": [
                 {
@@ -138,7 +138,7 @@ def test_run_anchors_period_from_to_midnight_even_when_as_of_has_a_time_componen
         CONSUMPTION_ENDPOINT
         + "?page_size=100&period_from="
         + expected_period_from.isoformat().replace("+00:00", "Z")
-        + "&order_by=period",
+        + "&order_by=-period",
         json={"results": [], "next": None},
         status=200,
     )
