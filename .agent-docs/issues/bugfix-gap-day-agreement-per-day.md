@@ -2,6 +2,8 @@
 
 ## octopus-app: gap days are priced with the agreement current at as_of, not the one covering the day — [#597](https://github.com/mholubinka1/home-monitoring/issues/597)
 
+> Work complete — [PR #603](https://github.com/mholubinka1/home-monitoring/pull/603) ready to merge.
+
 **Blocked by**: None
 
 **User stories**: 1, 2, 3, 4, 5
@@ -12,10 +14,10 @@ Price each consumption gap day with the agreement whose validity range covers th
 
 ### Acceptance criteria
 
-- [ ] A gap day is priced from the agreement whose validity range covers that local day, not the one current at `as_of`.
-- [ ] The earlier-full-day fallback for a rate-less gap day uses the same agreement as the day it is estimating.
-- [ ] A test covers a renewal boundary inside the billing period (gap day before the renewal, product changes at the boundary).
-- [ ] A gap day that no agreement covers fails the refresh with an error naming the day and energy.
-- [ ] Periods with a single agreement behave as before (existing tests green).
+- [x] A gap day is priced from the agreement whose validity range covers that local day, not the one current at `as_of`.
+- [x] The earlier-full-day fallback for a rate-less gap day uses the same agreement as the day it is estimating.
+- [x] A test covers a renewal boundary inside the billing period (gap day before the renewal, product changes at the boundary).
+- [x] A gap day that no agreement covers fails the refresh with an error naming the day and energy.
+- [x] Periods with a single agreement behave as before (existing tests green).
 
 ---
