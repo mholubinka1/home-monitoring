@@ -20,7 +20,7 @@ class HiveSettings(BaseModel):
 
 class WeatherUndergroundSettings(BaseModel):
     api_key: str
-    station_id: str
+    station_id: str | None = None
 
 
 class NtfySettings(BaseModel):
@@ -35,13 +35,12 @@ class LocationSettings(BaseModel):
 class HiveApplicationSettings(BaseModel):
     hive: HiveSettings
     mariadb: MariaDBSettings
-    # Optional: weather_underground/location are consumed by
-    # weather_observation_refresh (#508) once both are set -- if either is
-    # missing, that job is simply not registered (see main.py's
-    # _build_weather_retriever). Forecast polling (#510) will need the same
-    # two settings. ntfy is consumed by #509's re-auth alerting. All three
-    # stay optional so a #506-only deployment doesn't need to populate
-    # config for capabilities it doesn't use.
+    # Optional: the weather jobs always register. Without `location`, the
+    # Weather Location is derived from the Octopus Account Postcode, then IP
+    # geolocation (ADR-0028); without `weather_underground`, observations come
+    # from Open-Meteo. ntfy is consumed by #509's re-auth alerting. All three
+    # stay optional so a deployment doesn't need to populate config for
+    # capabilities it doesn't use.
     weather_underground: WeatherUndergroundSettings | None = None
     ntfy: NtfySettings | None = None
     location: LocationSettings | None = None

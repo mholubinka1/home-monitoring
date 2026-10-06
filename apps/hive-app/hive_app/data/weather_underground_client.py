@@ -25,22 +25,87 @@ class WeatherUndergroundResponse(BaseModel):
     observations: list[WeatherUndergroundObservation]
 
 
+class WeatherUndergroundNearbyLocation(BaseModel):
+    stationId: list[str]
+    distanceKm: list[FiniteFloat]
+
+
+class WeatherUndergroundNearbyResponse(BaseModel):
+    location: WeatherUndergroundNearbyLocation
+
+
+class WeatherStationNotReportingError(RuntimeError):
+    """The station answered but returned no reading (it may be offline)."""
+
+
 class WeatherUndergroundClient:
     base_url: str = "https://api.weather.com/v2/pws/observations/current"
+    nearby_url: str = "https://api.weather.com/v3/location/near"
 
     def __init__(self, settings: WeatherUndergroundSettings) -> None:
         self._settings = settings
 
-    def get_current_observation(self) -> WeatherObservation:
+    def find_nearby_stations(self, latitude: float, longitude: float) -> list[str]:
+        """Station ids near the point, nearest first."""
+        response = self._get(
+            self.nearby_url,
+            {
+                "geocode": f"{latitude},{longitude}",
+                "product": "pws",
+                "format": "json",
+                "apiKey": self._settings.api_key,
+            },
+        )
+        location = WeatherUndergroundNearbyResponse.model_validate(
+            response.json()
+        ).location
+        by_distance = sorted(
+            zip(location.distanceKm, location.stationId), key=lambda pair: pair[0]
+        )
+        return [station_id for _, station_id in by_distance]
+
+    def get_current_observation(
+        self, station_id: str | None = None
+    ) -> WeatherObservation:
+        """Current reading for `station_id`, defaulting to the configured
+        station. Raises WeatherStationNotReportingError when the station
+        has no reading."""
+        if station_id is None:
+            station_id = self._settings.station_id
+        if station_id is None:
+            raise RuntimeError("No Weather Underground station to read.")
+        response = self._get(
+            self.base_url,
+            {
+                "stationId": station_id,
+                "format": "json",
+                "units": "m",
+                "apiKey": self._settings.api_key,
+            },
+        )
+        parsed = WeatherUndergroundResponse.model_validate(response.json())
+        if not parsed.observations:
+            raise WeatherStationNotReportingError(
+                f"Weather Underground returned no observations for station "
+                f"{station_id!r} (station may be offline)."
+            )
+        observation = parsed.observations[0]
+
+        return WeatherObservation(
+            source="wunderground",
+            observed_at=observation.obsTimeUtc,
+            temp=observation.metric.temp,
+            humidity=observation.humidity,
+            pressure=observation.metric.pressure,
+            wind_speed=observation.metric.windSpeed,
+            precipitation=observation.metric.precipTotal,
+        )
+
+    def _get(self, url: str, params: dict[str, str]) -> requests.Response:
         try:
             response = requests.get(
-                url=self.base_url,
-                params={
-                    "stationId": self._settings.station_id,
-                    "format": "json",
-                    "units": "m",
-                    "apiKey": self._settings.api_key,
-                },
+                url=url,
+                params=params,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
@@ -66,20 +131,4 @@ class WeatherUndergroundClient:
             raise RuntimeError(
                 f"Weather Underground request failed with status {status}."
             ) from None
-        parsed = WeatherUndergroundResponse.model_validate(response.json())
-        if not parsed.observations:
-            raise RuntimeError(
-                f"Weather Underground returned no observations for station "
-                f"{self._settings.station_id!r} (station may be offline)."
-            )
-        observation = parsed.observations[0]
-
-        return WeatherObservation(
-            source="wunderground",
-            observed_at=observation.obsTimeUtc,
-            temp=observation.metric.temp,
-            humidity=observation.humidity,
-            pressure=observation.metric.pressure,
-            wind_speed=observation.metric.windSpeed,
-            precipitation=observation.metric.precipTotal,
-        )
+        return response

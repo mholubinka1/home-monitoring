@@ -27,11 +27,11 @@ see `.agent-docs/specs/` for the roadmap.
 - **MariaDB** — the shared persistence layer for both containers. Each app's own schema
   lives in its own `data/mysql/model.py` (`apps/octopus-app/octopus_app/` and
   `apps/hive-app/hive_app/` respectively, plus `libs/common/common/mariadb/model.py`
-  for `job_run`); each app's own `MariaDBClient` syncs its own tables into the live
+  for `job_run` and `account_postcode`); each app's own `MariaDBClient` syncs its own tables into the live
   database automatically on startup (creating missing tables/columns only — see
   `.agent-docs/adr/0005-additive-only-schema-sync.md`). The two apps' schema syncs run
-  independently against the same database — see the comment on `job_run` in
-  `libs/common/common/mariadb/model.py` for the one table both currently share.
+  independently against the same database — see the header comment in
+  `libs/common/common/mariadb/model.py` for the tables both share.
 - **Grafana** (not included in this repo) — point its MySQL data source at the MariaDB
   instance to build dashboards.
 

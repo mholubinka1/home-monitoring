@@ -46,6 +46,8 @@ class MonitoringClient:
         self.account = account
         self.meters = meters
 
+        self.mariadb.write_account_postcode(account.postcode)
+
         self.region_code = self.octopus.get_region_code(self.account.postcode)
 
     def refresh_meters(

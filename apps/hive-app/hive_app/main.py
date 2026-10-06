@@ -22,6 +22,7 @@ from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert, ReauthNotifier
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
+from hive_app.data.weather_location import WeatherLocationResolver
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -141,6 +142,19 @@ def register_weather_forecast_refresh_job(
     )
 
 
+def register_weather_jobs(
+    scheduler: Scheduler,
+    weather: WeatherRetriever,
+    mariadb: MariaDBClient,
+) -> tuple[Job, Job]:
+    # Always registered, whatever weather config is present: the Weather
+    # Location is derived lazily on each run (ADR-0028).
+    return (
+        register_weather_observation_refresh_job(scheduler, weather, mariadb),
+        register_weather_forecast_refresh_job(scheduler, weather, mariadb),
+    )
+
+
 def run_pending_safely(scheduler: Scheduler) -> None:
     try:
         scheduler.run_pending()
@@ -177,14 +191,9 @@ def _build_weather_retriever(
     wunderground: WeatherUndergroundSettings | None,
     location: LocationSettings | None,
     mariadb: MariaDBClient,
-) -> WeatherRetriever | None:
-    if wunderground is None or location is None:
-        logger.warning(
-            "weather_underground and/or location are not configured; "
-            "hive-app will not register weather_observation_refresh."
-        )
-        return None
-    weather_source = WeatherApiSource(wunderground, location, mariadb)
+) -> WeatherRetriever:
+    locations = WeatherLocationResolver(location, mariadb)
+    weather_source = WeatherApiSource(wunderground, locations, mariadb)
     return WeatherRetriever(weather_source)
 
 
@@ -215,9 +224,7 @@ def main() -> None:
     weather = _build_weather_retriever(
         settings.weather_underground, settings.location, mariadb
     )
-    if weather is not None:
-        register_weather_observation_refresh_job(default_scheduler, weather, mariadb)
-        register_weather_forecast_refresh_job(default_scheduler, weather, mariadb)
+    register_weather_jobs(default_scheduler, weather, mariadb)
 
     while True:
         run_pending_safely(default_scheduler)

@@ -1,17 +1,27 @@
 import logging.config
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from logging import Logger, getLogger
 from typing import Any
+
+from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
 from common.mariadb.client import MariaDBClientBase
 from hive_app.common.logging import APP_LOGGER_NAME, config
-from hive_app.data.model import HeatingStatus, WeatherForecastDay, WeatherObservation
+from hive_app.data.model import (
+    HeatingStatus,
+    ResolvedLocation,
+    WeatherForecastDay,
+    WeatherObservation,
+)
 from hive_app.data.mysql import model as sql_model
 from hive_app.data.mysql.model import SQLBase
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
+
+# weather_location holds a single row at this fixed primary key.
+_WEATHER_LOCATION_ROW_ID = 1
 
 
 def _forecast_scoped_id(source: str, target_date: date) -> str:
@@ -83,3 +93,49 @@ class MariaDBClient(MariaDBClientBase):
             for day in forecast
         ]
         self._write_all(records, "Weather forecast data")
+
+    @staticmethod
+    def _weather_location_row(session: Session) -> sql_model.weather_location | None:
+        return (
+            session.query(sql_model.weather_location)
+            .filter_by(id=_WEATHER_LOCATION_ROW_ID)
+            .first()
+        )
+
+    def write_weather_location(self, location: ResolvedLocation) -> None:
+        # See write_weather_observation for why the float assignments need an
+        # ignore.
+        record = sql_model.weather_location(
+            id=_WEATHER_LOCATION_ROW_ID,
+            latitude=location.latitude,  # type: ignore[misc]
+            longitude=location.longitude,  # type: ignore[misc]
+            source=location.source,
+            resolved_at=datetime.now(UTC),
+        )
+        self._write_all([record], "Weather location")
+
+    def write_weather_station(self, station_id: str | None) -> None:
+        """Sets the station on the cached Weather Location row; a no-op when
+        there is no row (an explicit `location` config caches nothing). The
+        station is cleared when it returns no reading, or when the location
+        changes."""
+        with self.session_write_scope() as session:
+            row = self._weather_location_row(session)
+            if row is not None:
+                row.station_id = station_id  # type: ignore[assignment]
+
+    def read_weather_station(self) -> str | None:
+        with self.session_read_scope() as session:
+            row = self._weather_location_row(session)
+            return row.station_id if row is not None else None  # type: ignore[return-value]
+
+    def read_weather_location(self) -> ResolvedLocation | None:
+        with self.session_read_scope() as session:
+            row = self._weather_location_row(session)
+            if row is None:
+                return None
+            return ResolvedLocation(
+                latitude=float(row.latitude),
+                longitude=float(row.longitude),
+                source=row.source,  # type: ignore[arg-type]
+            )
