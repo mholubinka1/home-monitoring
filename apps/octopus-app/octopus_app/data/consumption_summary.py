@@ -22,9 +22,13 @@ class ConsumptionSummaryRetriever:
     def __init__(self, mariadb: MariaDBClient) -> None:
         self._mariadb = mariadb
 
-    def refresh(self) -> None:
-        as_of = datetime.now(UTC).date()
-        summaries = self._mariadb.read_consumption_summarization_window(as_of)
+    def refresh(self, as_of: datetime | None = None) -> None:
+        # The window is made of local days, so "today" is the local date, which
+        # between 00:00 and 01:00 BST is a day ahead of the UTC date.
+        if as_of is None:
+            as_of = datetime.now(UTC)
+        today = local_day.to_local_date(as_of)
+        summaries = self._mariadb.read_consumption_summarization_window(today)
         self._mariadb.write_consumption_summary(summaries)
         logger.info(f"Consumption summary refresh: {len(summaries)} day(s) summarized.")
 

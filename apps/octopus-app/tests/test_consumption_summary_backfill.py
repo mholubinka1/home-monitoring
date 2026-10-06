@@ -74,7 +74,7 @@ def test_run_summarizes_two_years_of_fetched_consumption_without_writing_raw_row
     responses.add(
         responses.GET,
         CONSUMPTION_ENDPOINT
-        + f"?page_size=100&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
+        + f"?page_size=5000&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
         "&order_by=-period",
         json={
             "results": [
@@ -136,7 +136,7 @@ def test_run_anchors_period_from_to_midnight_even_when_as_of_has_a_time_componen
     responses.add(
         responses.GET,
         CONSUMPTION_ENDPOINT
-        + "?page_size=100&period_from="
+        + "?page_size=5000&period_from="
         + expected_period_from.isoformat().replace("+00:00", "Z")
         + "&order_by=-period",
         json={"results": [], "next": None},
@@ -170,7 +170,7 @@ def test_run_buckets_each_interval_by_its_local_day_across_the_bst_boundary(
     responses.add(
         responses.GET,
         CONSUMPTION_ENDPOINT
-        + f"?page_size=100&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
+        + f"?page_size=5000&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
         "&order_by=-period",
         json={
             "results": [
