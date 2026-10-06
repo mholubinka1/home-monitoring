@@ -16,7 +16,6 @@ VALID_CONFIG: dict[str, Any] = {
         "username": "test",
         "password": "test",
     },
-    "weather_underground": {"api_key": "wu-test-key", "station_id": "IBECKE4"},
     "ntfy": {"topic_url": "https://ntfy.sh/hive-app-reauth"},
     "location": {"latitude": 51.5, "longitude": -0.1},
 }
@@ -30,9 +29,6 @@ def test_valid_config_yaml_produces_correctly_typed_settings() -> None:
     assert settings.mariadb.host == "localhost"
     assert settings.mariadb.port == 3306
     assert settings.mariadb.database == "octopus"
-    assert settings.weather_underground is not None
-    assert settings.weather_underground.api_key == "wu-test-key"
-    assert settings.weather_underground.station_id == "IBECKE4"
     assert settings.ntfy is not None
     assert settings.ntfy.topic_url == "https://ntfy.sh/hive-app-reauth"
     assert settings.location is not None
@@ -46,9 +42,23 @@ def test_config_without_the_not_yet_used_optional_sections_still_loads() -> None
     )
 
     assert settings.hive.username == "someone@example.com"
-    assert settings.weather_underground is None
     assert settings.ntfy is None
     assert settings.location is None
+
+
+def test_a_stale_weather_underground_section_is_ignored_and_the_config_still_loads() -> (
+    None
+):
+    settings = HiveApplicationSettings.model_validate(
+        {
+            **VALID_CONFIG,
+            "weather_underground": {"api_key": "wu-test-key", "station_id": "IBECKE4"},
+        }
+    )
+
+    assert settings.hive.username == "someone@example.com"
+    assert settings.location is not None
+    assert not hasattr(settings, "weather_underground")
 
 
 def test_missing_required_config_field_raises_a_validation_error_naming_the_field() -> (
@@ -57,7 +67,6 @@ def test_missing_required_config_field_raises_a_validation_error_naming_the_fiel
     invalid_config = {
         "hive": {"username": "someone@example.com"},
         "mariadb": VALID_CONFIG["mariadb"],
-        "weather_underground": VALID_CONFIG["weather_underground"],
         "ntfy": VALID_CONFIG["ntfy"],
         "location": VALID_CONFIG["location"],
     }
@@ -75,7 +84,6 @@ def test_malformed_config_field_value_is_not_leaked_to_logs(
     invalid_config = {
         "hive": hive_config,
         "mariadb": VALID_CONFIG["mariadb"],
-        "weather_underground": VALID_CONFIG["weather_underground"],
         "ntfy": VALID_CONFIG["ntfy"],
         "location": VALID_CONFIG["location"],
     }

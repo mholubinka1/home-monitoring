@@ -49,7 +49,7 @@ def test_a_persistently_failing_weather_observation_refresh_retries_with_backoff
     monkeypatch.setattr("hive_app.common.decorator.time.sleep", sleep_delays.append)
     scheduler = Scheduler()
     weather = Mock(spec=WeatherRetriever)
-    weather.refresh.side_effect = RuntimeError("api.weather.com unreachable")
+    weather.refresh.side_effect = RuntimeError("api.open-meteo.com unreachable")
 
     job = register_weather_observation_refresh_job(scheduler, weather, mariadb_client)
     job.run().join()
@@ -62,24 +62,18 @@ def test_a_persistently_failing_weather_observation_refresh_retries_with_backoff
 
     assert len(runs) == 5
     assert all(run.status == "failure" for run in runs)
-    assert all(run.error_message == "api.weather.com unreachable" for run in runs)
+    assert all(run.error_message == "api.open-meteo.com unreachable" for run in runs)
 
 
-class _FallsBackToOpenMeteoSource:
-    """A fake WeatherSource whose primary fetch fails and whose fallback
-    succeeds -- used (unlike the Mock-based tests above) to prove the
-    fallback path is actually wired end-to-end through job registration
-    into a recorded job_run success, not just that WeatherRetriever.refresh()
-    itself falls back correctly (already covered in isolation by
-    test_weather_retrieval.py)."""
+class _OpenMeteoSource:
+    """A fake WeatherSource whose observation fetch succeeds -- used (unlike
+    the Mock-based tests above) to prove observation persistence is wired
+    end-to-end through job registration into a recorded job_run success."""
 
     def __init__(self, mariadb: MariaDBClient) -> None:
         self._mariadb = mariadb
 
     def fetch_current_observation(self) -> WeatherObservation:
-        raise ConnectionError("api.weather.com unreachable")
-
-    def fetch_current_observation_fallback(self) -> WeatherObservation:
         return WeatherObservation(
             source="open-meteo",
             observed_at=datetime(2026, 9, 25, 12, 0, tzinfo=UTC),
@@ -100,11 +94,11 @@ class _FallsBackToOpenMeteoSource:
         raise NotImplementedError
 
 
-def test_a_wunderground_failure_falls_back_and_the_job_still_records_success(
+def test_an_observation_refresh_persists_and_the_job_records_success(
     mariadb_client: MariaDBClient,
 ) -> None:
     scheduler = Scheduler()
-    weather = WeatherRetriever(_FallsBackToOpenMeteoSource(mariadb_client))
+    weather = WeatherRetriever(_OpenMeteoSource(mariadb_client))
 
     job = register_weather_observation_refresh_job(scheduler, weather, mariadb_client)
     job.run().join()

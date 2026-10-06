@@ -49,10 +49,7 @@ class weather_forecast(SQLBase):
 
 class weather_location(SQLBase):
     """One row (fixed id=1): the Weather Location resolved lazily by hive-app
-    -- see ADR-0028. Never written for an explicit `location` config.
-    station_id caches the discovered Weather Underground station; it is
-    cleared when that station returns no reading, or when the
-    location changes."""
+    -- see ADR-0028. Never written for an explicit `location` config."""
 
     __tablename__ = "weather_location"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
@@ -61,5 +58,4 @@ class weather_location(SQLBase):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     source = Column(String(20), nullable=False)
-    station_id = Column(String(50))
     resolved_at = Column(DateTime, nullable=False)

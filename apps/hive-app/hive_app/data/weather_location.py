@@ -28,11 +28,6 @@ class WeatherLocationResolver:
         self._mariadb = mariadb
         self._geocoding = GeocodingClient()
 
-    @property
-    def is_configured(self) -> bool:
-        """True when the location is explicit config rather than derived."""
-        return self._configured is not None
-
     def resolve(self) -> LocationSettings:
         if self._configured is not None:
             return self._configured
