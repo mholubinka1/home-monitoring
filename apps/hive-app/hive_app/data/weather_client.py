@@ -1,14 +1,7 @@
-import logging.config
-from logging import Logger, getLogger
-
-from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import WeatherForecastDay, WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import OpenMeteoClient
 from hive_app.data.weather_location import WeatherLocationResolver
-
-logging.config.dictConfig(config)
-logger: Logger = getLogger(APP_LOGGER_NAME)
 
 
 class WeatherApiSource:

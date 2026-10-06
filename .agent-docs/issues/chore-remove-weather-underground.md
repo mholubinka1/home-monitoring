@@ -1,5 +1,10 @@
 # Issues: chore-remove-weather-underground
 
+> Work complete -- PR ready to merge. #616 closes with the PR. #613 stays open
+> for live verification after deploy (`weather_observation`, `weather_forecast`
+> and `weather_location` fill); #614 is moot (Weather Underground dropped) and
+> is closed or left to the user.
+
 ## hive-app: remove Weather Underground, use Open-Meteo only — [#616](https://github.com/mholubinka1/home-monitoring/issues/616)
 
 **Blocked by**: None
@@ -19,17 +24,17 @@ template.
 
 ### Acceptance criteria
 
-- [ ] With no weather configuration, both weather jobs register and
+- [x] With no weather configuration, both weather jobs register and
       `weather_observation` and `weather_forecast` fill from Open-Meteo at the
       derived Weather Location.
-- [ ] An Open-Meteo observation failure raises after exactly one request, is
+- [x] An Open-Meteo observation failure raises after exactly one request, is
       retried by the existing job wrapper, and logs no "falling back" message.
-- [ ] A config file that still has a `weather_underground` section loads
+- [x] A config file that still has a `weather_underground` section loads
       without error.
-- [ ] No Weather Underground code, config, tests or user-facing docs remain in
+- [x] No Weather Underground code, config, tests or user-facing docs remain in
       hive-app (historical specs/issues excepted); the `station_id` column is
       gone from the `weather_location` model.
-- [ ] Location derivation behaviour is unchanged (postcode, IP fallback and
+- [x] Location derivation behaviour is unchanged (postcode, IP fallback and
       upgrade, config override, privacy).
-- [ ] ADR-0028 has a dated update; `context.md`, README and
+- [x] ADR-0028 has a dated update; `context.md`, README and
       `deployments/hive-app/config.yml.template` match the code.
