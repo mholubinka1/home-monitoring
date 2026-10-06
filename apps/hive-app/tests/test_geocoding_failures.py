@@ -37,7 +37,7 @@ def test_an_ip_geolocation_reply_with_null_coordinates_is_a_failure(
     )
 
     with pytest.raises(WeatherLocationUnavailableError):
-        _build_weather_retriever(None, None, mariadb_client).refresh()
+        _build_weather_retriever(None, mariadb_client).refresh()
 
     with mariadb_client.session_read_scope() as session:
         assert session.query(model.weather_location).count() == 0
@@ -66,7 +66,7 @@ def test_a_postcodes_io_network_failure_falls_back_to_ip_geolocation_without_log
     )
 
     with caplog.at_level(logging.DEBUG):
-        _build_weather_retriever(None, None, mariadb_client).refresh()
+        _build_weather_retriever(None, mariadb_client).refresh()
 
     assert "latitude=53.4" in responses.calls[-1].request.url
     with mariadb_client.session_read_scope() as session:

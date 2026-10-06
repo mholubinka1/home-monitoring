@@ -42,7 +42,7 @@ def test_with_no_weather_config_an_account_postcode_locates_the_observation_and_
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
 
-    retriever = _build_weather_retriever(None, None, mariadb_client)
+    retriever = _build_weather_retriever(None, mariadb_client)
     retriever.refresh()
 
     open_meteo_request = responses.calls[-1].request
@@ -58,28 +58,6 @@ def test_with_no_weather_config_an_account_postcode_locates_the_observation_and_
 
 
 @responses.activate
-def test_upgrading_an_ip_derived_location_clears_the_cached_station(
-    mariadb_client: MariaDBClient,
-) -> None:
-    mariadb_client.write_weather_location(ResolvedLocation(53.4, -2.2, "ip"))
-    mariadb_client.write_weather_station("ISTATIONA")
-    mariadb_client.write_account_postcode("AB12CD")
-    responses.add(
-        responses.GET,
-        POSTCODES_IO_ENDPOINT,
-        json={"status": 200, "result": {"latitude": 51.4, "longitude": -0.05}},
-        status=200,
-    )
-    responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
-    )
-
-    _build_weather_retriever(None, None, mariadb_client).refresh()
-
-    assert mariadb_client.read_weather_station() is None
-
-
-@responses.activate
 def test_a_cached_ip_location_is_kept_when_postcodes_io_cannot_locate_the_postcode(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -90,7 +68,7 @@ def test_a_cached_ip_location_is_kept_when_postcodes_io_cannot_locate_the_postco
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
 
-    _build_weather_retriever(None, None, mariadb_client).refresh()
+    _build_weather_retriever(None, mariadb_client).refresh()
 
     assert "latitude=53.4" in responses.calls[-1].request.url
     assert IPWHO_ENDPOINT not in [c.request.url for c in responses.calls]
@@ -112,7 +90,7 @@ def test_a_cached_location_is_used_without_geocoding_again(
     responses.add(
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
-    retriever = _build_weather_retriever(None, None, mariadb_client)
+    retriever = _build_weather_retriever(None, mariadb_client)
     retriever.refresh()
     calls_so_far = len(responses.calls)
 
@@ -138,7 +116,7 @@ def test_with_no_account_postcode_ip_geolocation_locates_the_observation_and_is_
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
 
-    _build_weather_retriever(None, None, mariadb_client).refresh()
+    _build_weather_retriever(None, mariadb_client).refresh()
 
     open_meteo_request = responses.calls[-1].request
     assert "latitude=53.4" in open_meteo_request.url
@@ -160,7 +138,7 @@ def test_an_explicit_location_config_is_used_and_never_cached(
     )
 
     _build_weather_retriever(
-        None, LocationSettings(latitude=50.1, longitude=-1.2), mariadb_client
+        LocationSettings(latitude=50.1, longitude=-1.2), mariadb_client
     ).refresh()
 
     assert len(responses.calls) == 1
@@ -175,7 +153,7 @@ def test_when_no_location_resolves_the_run_fails_clearly_and_a_later_run_recover
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     responses.add(responses.GET, IPWHO_ENDPOINT, json={"success": False}, status=200)
-    retriever = _build_weather_retriever(None, None, mariadb_client)
+    retriever = _build_weather_retriever(None, mariadb_client)
 
     with pytest.raises(WeatherLocationUnavailableError):
         retriever.refresh()
@@ -229,7 +207,7 @@ def test_with_no_weather_config_both_weather_jobs_register_and_the_forecast_uses
     scheduler = Scheduler()
 
     observation_job, forecast_job = register_weather_jobs(
-        scheduler, _build_weather_retriever(None, None, mariadb_client), mariadb_client
+        scheduler, _build_weather_retriever(None, mariadb_client), mariadb_client
     )
     observation_job.run().join()
     forecast_job.run().join()
@@ -258,7 +236,7 @@ def test_deriving_the_location_logs_its_source_and_coordinates(
     )
 
     with caplog.at_level(logging.INFO):
-        _build_weather_retriever(None, None, mariadb_client).refresh()
+        _build_weather_retriever(None, mariadb_client).refresh()
 
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
     assert any("postcode" in m and "51.4" in m and "-0.05" in m for m in messages)
@@ -288,7 +266,7 @@ def test_when_postcodes_io_cannot_locate_the_postcode_ip_geolocation_is_used(
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
 
-    _build_weather_retriever(None, None, mariadb_client).refresh()
+    _build_weather_retriever(None, mariadb_client).refresh()
 
     assert "latitude=53.4" in responses.calls[-1].request.url
     with mariadb_client.session_read_scope() as session:
@@ -313,7 +291,7 @@ def test_a_postcodes_io_failure_never_puts_the_postcode_in_the_logs(
     )
 
     with caplog.at_level(logging.INFO):
-        _build_weather_retriever(None, None, mariadb_client).refresh()
+        _build_weather_retriever(None, mariadb_client).refresh()
 
     assert "latitude=53.4" in responses.calls[-1].request.url
     assert "AB12CD" not in caplog.text
@@ -334,7 +312,7 @@ def test_an_ip_derived_location_is_upgraded_once_the_account_postcode_exists(
     responses.add(
         responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
     )
-    retriever = _build_weather_retriever(None, None, mariadb_client)
+    retriever = _build_weather_retriever(None, mariadb_client)
     retriever.refresh()
     mariadb_client.write_account_postcode("AB12CD")
     responses.add(
@@ -366,7 +344,7 @@ def test_a_postcodes_io_failure_with_a_cached_ip_location_does_not_claim_a_fallb
     )
 
     with caplog.at_level(logging.WARNING):
-        _build_weather_retriever(None, None, mariadb_client).refresh()
+        _build_weather_retriever(None, mariadb_client).refresh()
 
     assert "postcodes.io could not locate the Account Postcode." in caplog.text
     assert "falling back" not in caplog.text

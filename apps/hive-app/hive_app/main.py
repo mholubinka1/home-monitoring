@@ -10,7 +10,6 @@ from schedule import Job, Scheduler, default_scheduler
 
 from hive_app.common.config import (
     LocationSettings,
-    WeatherUndergroundSettings,
     get_settings,
 )
 from hive_app.common.decorator import retry_with_exponential_backoff
@@ -188,12 +187,11 @@ def _build_reauth_alert(topic_url: str | None) -> ReauthAlert:
 
 
 def _build_weather_retriever(
-    wunderground: WeatherUndergroundSettings | None,
     location: LocationSettings | None,
     mariadb: MariaDBClient,
 ) -> WeatherRetriever:
     locations = WeatherLocationResolver(location, mariadb)
-    weather_source = WeatherApiSource(wunderground, locations, mariadb)
+    weather_source = WeatherApiSource(locations, mariadb)
     return WeatherRetriever(weather_source)
 
 
@@ -221,9 +219,7 @@ def main() -> None:
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)
 
-    weather = _build_weather_retriever(
-        settings.weather_underground, settings.location, mariadb
-    )
+    weather = _build_weather_retriever(settings.location, mariadb)
     register_weather_jobs(default_scheduler, weather, mariadb)
 
     while True:

@@ -18,19 +18,14 @@ def _observation(source: str) -> WeatherObservation:
     )
 
 
-class _FakeWeatherSourceFallsBackToOpenMeteo:
-    """A fake WeatherSource whose primary (Weather Underground) fetch raises
-    and whose fallback (Open-Meteo) fetch succeeds -- proves WeatherRetriever
-    persists the fallback's observation, mirroring
-    AgileForecastRetriever.refresh()'s primary/fallback shape."""
+class _FakeWeatherSourceObservationSucceeds:
+    """A fake WeatherSource whose observation fetch succeeds -- proves
+    WeatherRetriever.refresh() persists exactly what was fetched."""
 
     def __init__(self) -> None:
         self.persisted: WeatherObservation | None = None
 
     def fetch_current_observation(self) -> WeatherObservation:
-        raise ConnectionError("api.weather.com unreachable")
-
-    def fetch_current_observation_fallback(self) -> WeatherObservation:
         return _observation("open-meteo")
 
     def persist_current_observation(self, observation: WeatherObservation) -> None:
@@ -43,8 +38,8 @@ class _FakeWeatherSourceFallsBackToOpenMeteo:
         raise NotImplementedError
 
 
-def test_refresh_falls_back_to_open_meteo_when_wunderground_fetch_fails() -> None:
-    source = _FakeWeatherSourceFallsBackToOpenMeteo()
+def test_refresh_persists_the_fetched_observation() -> None:
+    source = _FakeWeatherSourceObservationSucceeds()
 
     WeatherRetriever(source).refresh()
 
@@ -52,15 +47,12 @@ def test_refresh_falls_back_to_open_meteo_when_wunderground_fetch_fails() -> Non
     assert source.persisted.source == "open-meteo"
 
 
-class _FakeWeatherSourceBothFail:
-    """A fake WeatherSource whose primary and fallback fetches both raise --
-    proves WeatherRetriever.refresh() does no retry/backoff/swallowing of its
-    own (that's the generic job-wrapper's job); it just propagates."""
+class _FakeWeatherSourceObservationFails:
+    """A fake WeatherSource whose observation fetch raises -- proves
+    WeatherRetriever.refresh() does no retry/backoff/swallowing of its own
+    (that's the generic job-wrapper's job); it just propagates."""
 
     def fetch_current_observation(self) -> WeatherObservation:
-        raise ConnectionError("api.weather.com unreachable")
-
-    def fetch_current_observation_fallback(self) -> WeatherObservation:
         raise ConnectionError("api.open-meteo.com unreachable")
 
     def persist_current_observation(self, observation: WeatherObservation) -> None:
@@ -73,8 +65,8 @@ class _FakeWeatherSourceBothFail:
         raise NotImplementedError
 
 
-def test_refresh_propagates_when_both_wunderground_and_open_meteo_fail() -> None:
-    source = _FakeWeatherSourceBothFail()
+def test_refresh_propagates_when_the_observation_fetch_fails() -> None:
+    source = _FakeWeatherSourceObservationFails()
 
     with pytest.raises(ConnectionError, match="api.open-meteo.com unreachable"):
         WeatherRetriever(source).refresh()
@@ -101,9 +93,6 @@ class _FakeWeatherSourceForecastSucceeds:
     def fetch_current_observation(self) -> WeatherObservation:
         raise NotImplementedError
 
-    def fetch_current_observation_fallback(self) -> WeatherObservation:
-        raise NotImplementedError
-
     def persist_current_observation(self, observation: WeatherObservation) -> None:
         raise NotImplementedError
 
@@ -125,14 +114,11 @@ def test_refresh_forecast_persists_the_fetched_forecast() -> None:
 
 class _FakeWeatherSourceForecastFails:
     """A fake WeatherSource whose forecast fetch raises -- proves
-    WeatherRetriever.refresh_forecast() has no fallback and no try/except
-    of its own (AC2: no fallback source attempted), just propagates
+    WeatherRetriever.refresh_forecast() has no try/except of its own,
+    just propagates
     straight to the generic job wrapper."""
 
     def fetch_current_observation(self) -> WeatherObservation:
-        raise NotImplementedError
-
-    def fetch_current_observation_fallback(self) -> WeatherObservation:
         raise NotImplementedError
 
     def persist_current_observation(self, observation: WeatherObservation) -> None:

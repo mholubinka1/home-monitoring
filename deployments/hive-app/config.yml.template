@@ -12,18 +12,9 @@ mariadb:
   username:
   password:
 
-# Everything below is optional. The weather jobs always run: the location is
-# derived from the Octopus account postcode, then IP geolocation, and Open-Meteo
-# is used without Weather Underground. These sections only override that.
-# Open-Meteo needs no API key -- only Weather Underground and ntfy.sh do.
-
-# Optional. Weather Underground API key, used by weather_observation_refresh.
-# The nearest station with a current reading is picked automatically; omit
-# this section to use Open-Meteo for observations instead.
-weather_underground:
-  api_key:
-  # Optional. Pins a specific station and skips the automatic pick.
-  # station_id:
+# Everything below is optional. The weather jobs always run, using Open-Meteo
+# (no API key needed): the location is derived from the Octopus account
+# postcode, then IP geolocation. These sections only override that.
 
 # ntfy.sh topic used for the two hive-app notifications: "re-authentication
 # required" (links to deployments/hive-app/REAUTH_RUNBOOK.md) and
