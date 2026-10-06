@@ -13,7 +13,10 @@ from sqlalchemy.schema import CreateColumn
 
 from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
-from common.mariadb.model import job_run
+from common.mariadb.model import account_postcode, job_run
+
+# account_postcode holds a single row at this fixed primary key.
+_ACCOUNT_POSTCODE_ROW_ID = 1
 
 # MySQL/MariaDB error 1050: "Table '...' already exists".
 _TABLE_ALREADY_EXISTS_ERROR_CODE = 1050
@@ -226,6 +229,27 @@ class MariaDBClientBase:
         except Exception as e:
             self._logger.error(f"Failed to write {description}: {e}")
             raise MariaDBError(e) from e
+
+    def write_account_postcode(self, postcode: str) -> None:
+        self._write_all(
+            [
+                account_postcode(
+                    id=_ACCOUNT_POSTCODE_ROW_ID,
+                    postcode=postcode,
+                    updated_at=datetime.now(UTC),
+                )
+            ],
+            "account postcode",
+        )
+
+    def read_account_postcode(self) -> str | None:
+        with self.session_read_scope() as session:
+            row = (
+                session.query(account_postcode)
+                .filter_by(id=_ACCOUNT_POSTCODE_ROW_ID)
+                .first()
+            )
+            return row.postcode if row is not None else None
 
     def has_successful_job_run(self, job_name: str) -> bool:
         with self.session_read_scope() as session:

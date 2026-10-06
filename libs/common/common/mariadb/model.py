@@ -22,3 +22,17 @@ class job_run(SQLBase):
     status = Column(String(20), nullable=False)
     ran_at = Column(DateTime, nullable=False)
     error_message = Column(String(1000))
+
+
+class account_postcode(SQLBase):
+    """One row (fixed id=1): the Octopus account's property postcode.
+    octopus-app is the only writer; hive-app only reads it. Lives here
+    beside job_run so both apps' Schema Sync create it regardless of start
+    order -- see ADR-0028."""
+
+    __tablename__ = "account_postcode"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    id = Column(Integer, primary_key=True)
+    postcode = Column(String(20), nullable=False)
+    updated_at = Column(DateTime, nullable=False)
