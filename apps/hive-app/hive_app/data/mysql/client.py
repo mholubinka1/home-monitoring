@@ -104,6 +104,27 @@ class MariaDBClient(MariaDBClientBase):
         )
         self._write_all([record], "Weather location")
 
+    def write_weather_station(self, station_id: str | None) -> None:
+        """Sets the station on the cached Weather Location row; a no-op when
+        there is no row (an explicit `location` config caches nothing)."""
+        with self.session_write_scope() as session:
+            row = (
+                session.query(sql_model.weather_location)
+                .filter_by(id=_WEATHER_LOCATION_ROW_ID)
+                .first()
+            )
+            if row is not None:
+                row.station_id = station_id  # type: ignore[assignment]
+
+    def read_weather_station(self) -> str | None:
+        with self.session_read_scope() as session:
+            row = (
+                session.query(sql_model.weather_location)
+                .filter_by(id=_WEATHER_LOCATION_ROW_ID)
+                .first()
+            )
+            return row.station_id if row is not None else None  # type: ignore[return-value]
+
     def read_weather_location(self) -> ResolvedLocation | None:
         with self.session_read_scope() as session:
             row = (

@@ -124,6 +124,23 @@ def test_a_both_sources_failing_makes_no_call_beyond_wunderground_and_open_meteo
 
 
 @responses.activate
+def test_without_wunderground_an_open_meteo_failure_is_not_retried_as_a_fallback(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    responses.add(responses.GET, OPEN_METEO_ENDPOINT, status=500)
+
+    retriever = _build_weather_retriever(
+        None, LocationSettings(latitude=51.5, longitude=-0.1), mariadb_client
+    )
+
+    with pytest.raises(requests.HTTPError):
+        retriever.refresh()
+
+    assert len(responses.calls) == 1
+    assert "Weather Underground fetch failed" not in caplog.text
+
+
+@responses.activate
 def test_wunderground_returning_no_observations_falls_back_to_open_meteo(
     mariadb_client: MariaDBClient,
 ) -> None:

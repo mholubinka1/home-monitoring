@@ -12,7 +12,9 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 class WeatherSource(Protocol):
     def fetch_current_observation(self) -> WeatherObservation: ...
 
-    def fetch_current_observation_fallback(self) -> WeatherObservation: ...
+    def fetch_current_observation_fallback(self) -> WeatherObservation | None:
+        """None when the primary fetch already was the last-resort source."""
+        ...
 
     def persist_current_observation(self, observation: WeatherObservation) -> None: ...
 
@@ -35,11 +37,14 @@ class WeatherRetriever:
         try:
             observation = self._client.fetch_current_observation()
         except Exception:
+            fallback = self._client.fetch_current_observation_fallback()
+            if fallback is None:
+                raise
             logger.warning(
                 "Weather Underground fetch failed; falling back to Open-Meteo.",
                 exc_info=True,
             )
-            observation = self._client.fetch_current_observation_fallback()
+            observation = fallback
 
         self._client.persist_current_observation(observation)
         logger.info(

@@ -20,7 +20,7 @@ class HiveSettings(BaseModel):
 
 class WeatherUndergroundSettings(BaseModel):
     api_key: str
-    station_id: str
+    station_id: str | None = None
 
 
 class NtfySettings(BaseModel):
