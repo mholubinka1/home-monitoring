@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import requests
 import responses
@@ -123,7 +125,35 @@ def test_without_wunderground_an_open_meteo_failure_is_not_retried_as_a_fallback
         retriever.refresh()
 
     assert len(responses.calls) == 1
-    assert "Weather Underground fetch failed" not in caplog.text
+    assert "Primary weather source failed" not in caplog.text
+
+
+@responses.activate
+def test_when_the_fallback_also_fails_the_primary_failure_is_still_logged(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    responses.add(responses.GET, WU_ENDPOINT, status=500)
+    responses.add(responses.GET, OPEN_METEO_ENDPOINT, status=500)
+
+    retriever = _build_weather_retriever(
+        WeatherUndergroundSettings(api_key="secret-test-key", station_id="IBECKE4"),
+        LocationSettings(latitude=51.5, longitude=-0.1),
+        mariadb_client,
+    )
+
+    with pytest.raises(requests.HTTPError):
+        retriever.refresh()
+
+    primary_warnings = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and record.exc_info is not None
+        and "Weather Underground request failed with status 500"
+        in str(record.exc_info[1])
+    ]
+    assert len(primary_warnings) == 1
+    assert "secret-test-key" not in caplog.text
 
 
 @responses.activate

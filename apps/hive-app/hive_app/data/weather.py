@@ -36,13 +36,22 @@ class WeatherRetriever:
         # AgileForecastRetriever.refresh()'s primary/fallback shape.
         try:
             observation = self._client.fetch_current_observation()
-        except Exception:
-            fallback = self._client.fetch_current_observation_fallback()
+        except Exception as primary_error:
+            try:
+                fallback = self._client.fetch_current_observation_fallback()
+            except Exception:
+                # The fallback's own error propagates, but must not bury why
+                # the primary failed.
+                logger.warning(
+                    "Primary weather source failed; Open-Meteo fallback also failed.",
+                    exc_info=primary_error,
+                )
+                raise
             if fallback is None:
                 raise
             logger.warning(
-                "Weather Underground fetch failed; falling back to Open-Meteo.",
-                exc_info=True,
+                "Primary weather source failed; falling back to Open-Meteo.",
+                exc_info=primary_error,
             )
             observation = fallback
 

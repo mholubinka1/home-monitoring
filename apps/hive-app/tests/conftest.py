@@ -41,6 +41,35 @@ def mariadb_client(monkeypatch: pytest.MonkeyPatch) -> MariaDBClient:
     return MariaDBClient(settings)
 
 
+@pytest.fixture
+def unsynced_mariadb_client_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[], MariaDBClient]:
+    """Builds a hive_app MariaDBClient against an EMPTY in-memory SQLite
+    database: unlike mariadb_client, no tables are pre-created, so only the
+    client's own startup Schema Sync can have created them.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    ).execution_options(schema_translate_map={"octopus": "main"})
+
+    monkeypatch.setattr(
+        "common.mariadb.client.create_engine",
+        lambda *args, **kwargs: engine,
+    )
+
+    settings = MariaDBSettings(
+        host="localhost",
+        port=3306,
+        database="main",
+        username="test",
+        password="test",
+    )
+    return lambda: MariaDBClient(settings)
+
+
 class FakeApyHive:  # pylint: disable=too-many-instance-attributes
     """Stands in for apyhiveapi's real `Hive` object at the system boundary
     (see .agent-docs/agent.md's "mock only at system boundaries" rule).

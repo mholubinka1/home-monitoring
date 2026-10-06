@@ -30,7 +30,9 @@ the Octopus account on startup. hive-app only reads it (later slices).
 - [x] Given hive-app starts before octopus-app, then its Schema Sync still
       creates `account_postcode`.
 - [x] Verified at the `MonitoringClient` startup seam (new
-      `test_account_postcode_persistence.py`) against the SQLite fixture DB.
+      `test_account_postcode_persistence.py`, SQLite fixture DB) and against a
+      real MariaDB (`libs/common/tests/test_account_postcode.py`, Docker-gated,
+      so it runs on CI but is skipped where Docker is unavailable).
 
 ---
 
