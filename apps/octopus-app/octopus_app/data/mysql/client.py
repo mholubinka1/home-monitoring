@@ -520,9 +520,8 @@ class MariaDBClient(MariaDBClientBase):
 
             # Grouped in Python by Europe/London local calendar day, not the
             # raw UTC date -- keeps this job's day boundaries consistent
-            # with ConsumptionSummaryBackfill, which already buckets by
-            # local day (it reads the still-locally-offset Octopus response
-            # directly, before any DB round-trip).
+            # with ConsumptionSummaryBackfill, which also buckets by local
+            # day (via local_day.to_local_date).
             daily_totals: dict[tuple[str, date], Decimal] = {}
             for row in raw_rows:
                 day = local_day.to_local_date(row.period_from)

@@ -5,6 +5,7 @@ from logging import Logger, getLogger
 from typing import Protocol
 
 from octopus_app.common.logging import APP_LOGGER_NAME, config
+from octopus_app.data import local_day
 from octopus_app.data.consumption import ConsumptionFetchSource
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql.client import MariaDBClient
@@ -57,7 +58,9 @@ class ConsumptionSummaryBackfill:
             next_page, consumption = self._client.fetch_consumption(meter, period_from)
             while True:
                 for point in consumption:
-                    key = (meter.energy, point.start.date())
+                    # Local day, not point.start.date() (which is the UTC
+                    # date), to match the weekly job (ADR-0027).
+                    key = (meter.energy, local_day.to_local_date(point.start))
                     totals[key] = totals.get(key, Decimal(0)) + point.est_kwh
                 if next_page is None:
                     break

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import responses
@@ -154,3 +154,59 @@ def test_run_anchors_period_from_to_midnight_even_when_as_of_has_a_time_componen
     # being anchored to midnight, the registered response above wouldn't
     # match and `responses` would raise a ConnectionError instead.
     backfill.run(as_of=as_of)
+
+
+@responses.activate
+def test_run_buckets_each_interval_by_its_local_day_across_the_bst_boundary(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Octopus returns local-offset timestamps. On a BST day the first two
+    # half-hours (00:00 and 00:30 +01:00) are 23:00 and 23:30 UTC the day
+    # before, so bucketing by the UTC date would split Jul 10 across two rows
+    # and disagree with the weekly job, which buckets by local day.
+    as_of = datetime(2026, 7, 15, tzinfo=UTC)
+    period_from = as_of - timedelta(days=730)
+
+    responses.add(
+        responses.GET,
+        CONSUMPTION_ENDPOINT
+        + f"?page_size=100&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
+        "&order_by=-period",
+        json={
+            "results": [
+                {
+                    "consumption": "1.0",
+                    "interval_start": "2025-07-10T00:00:00+01:00",
+                    "interval_end": "2025-07-10T00:30:00+01:00",
+                },
+                {
+                    "consumption": "2.0",
+                    "interval_start": "2025-07-10T00:30:00+01:00",
+                    "interval_end": "2025-07-10T01:00:00+01:00",
+                },
+                {
+                    "consumption": "4.0",
+                    "interval_start": "2025-07-10T23:30:00+01:00",
+                    "interval_end": "2025-07-11T00:00:00+01:00",
+                },
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+
+    octopus = OctopusEnergyAPIClient(
+        OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test")
+    )
+    source = _RealConsumptionSummaryBackfillSource(
+        octopus, mariadb_client, [_make_meter()]
+    )
+
+    ConsumptionSummaryBackfill(source).run(as_of=as_of)
+
+    with mariadb_client.session_read_scope() as session:
+        stored = {
+            (row.energy, row.date): row.total_kwh
+            for row in session.query(model.daily_consumption_summary).all()
+        }
+    assert stored == {("E", date(2025, 7, 10)): Decimal("7.00000")}
