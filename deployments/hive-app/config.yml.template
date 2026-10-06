@@ -12,8 +12,9 @@ mariadb:
   username:
   password:
 
-# Everything below is optional -- omit these sections entirely for a
-# #506-only deployment (heating status polling doesn't use any of them).
+# Everything below is optional. The weather jobs always run: the location is
+# derived from the Octopus account postcode, then IP geolocation, and Open-Meteo
+# is used without Weather Underground. These sections only override that.
 # Open-Meteo needs no API key -- only Weather Underground and ntfy.sh do.
 
 # Optional. Weather Underground API key, used by weather_observation_refresh.

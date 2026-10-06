@@ -28,6 +28,11 @@ class WeatherLocationResolver:
         self._mariadb = mariadb
         self._geocoding = GeocodingClient()
 
+    @property
+    def is_configured(self) -> bool:
+        """True when the location is explicit config rather than derived."""
+        return self._configured is not None
+
     def resolve(self) -> LocationSettings:
         if self._configured is not None:
             return self._configured
@@ -63,10 +68,7 @@ class WeatherLocationResolver:
         try:
             latitude, longitude = self._geocoding.geocode_postcode(postcode)
         except Exception:
-            logger.warning(
-                "postcodes.io could not locate the Account Postcode; "
-                "falling back to IP geolocation."
-            )
+            logger.warning("postcodes.io could not locate the Account Postcode.")
             return None
         return ResolvedLocation(latitude, longitude, "postcode")
 

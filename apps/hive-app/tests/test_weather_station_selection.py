@@ -6,6 +6,7 @@ from requests import PreparedRequest
 from responses import matchers
 
 from hive_app.common.config import LocationSettings, WeatherUndergroundSettings
+from hive_app.data.model import ResolvedLocation
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.main import _build_weather_retriever
@@ -13,6 +14,7 @@ from hive_app.main import _build_weather_retriever
 POSTCODES_IO_ENDPOINT = "https://api.postcodes.io/postcodes/AB12CD"
 WU_NEARBY_ENDPOINT = "https://api.weather.com/v3/location/near"
 WU_ENDPOINT = "https://api.weather.com/v2/pws/observations/current"
+OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
 WU_OBSERVATION_RESPONSE = {
     "observations": [
@@ -150,9 +152,6 @@ def test_a_cached_station_is_used_without_another_nearby_stations_lookup(
 
     assert _calls_to(WU_NEARBY_ENDPOINT) == 1
     assert _calls_to(WU_ENDPOINT) == 2
-
-
-OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
 
 def _stub_open_meteo() -> None:
@@ -371,3 +370,79 @@ def test_a_failed_nearby_stations_lookup_falls_back_to_open_meteo_without_leakin
     assert _observation_sources(mariadb_client) == {"open-meteo"}
     assert _cached_station(mariadb_client) is None
     assert "secret-key-123" not in caplog.text
+
+
+@responses.activate
+def test_a_configured_location_ignores_a_stale_cached_station(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # A derived row left over from before the household added `location`.
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    mariadb_client.write_weather_station("ISTALE")
+    responses.add(
+        responses.GET,
+        WU_NEARBY_ENDPOINT,
+        json=_nearby_stations("ISTATIONA"),
+        status=200,
+        match=[
+            matchers.query_param_matcher({"geocode": "51.5,-0.1"}, strict_match=False)
+        ],
+    )
+    _stub_observation("ISTATIONA")
+    retriever = _build_weather_retriever(
+        WeatherUndergroundSettings(api_key="test-key"),
+        LocationSettings(latitude=51.5, longitude=-0.1),
+        mariadb_client,
+    )
+
+    retriever.refresh()
+
+    assert _calls_to(WU_NEARBY_ENDPOINT) == 1
+    requested = [c.request.url for c in responses.calls]
+    assert not any("ISTALE" in url for url in requested)
+
+
+@responses.activate
+def test_the_fifth_nearest_station_is_picked_when_it_is_the_only_one_reporting(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_account_postcode("AB12CD")
+    stations = [f"ISTATION{n}" for n in range(5)]
+    _stub_location_and_nearby(*stations)
+    for station in stations[:4]:
+        _stub_observation(station, reporting=False)
+    _stub_observation(stations[4])
+
+    retriever = _build_weather_retriever(
+        WeatherUndergroundSettings(api_key="test-key"), None, mariadb_client
+    )
+    retriever.refresh()
+
+    assert _calls_to(WU_ENDPOINT) == 5
+    assert _observation_sources(mariadb_client) == {"wunderground"}
+    assert _cached_station(mariadb_client) == "ISTATION4"
+
+
+@responses.activate
+def test_a_station_whose_request_fails_during_discovery_is_skipped_for_the_next(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_account_postcode("AB12CD")
+    _stub_location_and_nearby("ISTATIONA", "ISTATIONB")
+    responses.add(
+        responses.GET,
+        WU_ENDPOINT,
+        status=500,
+        match=[
+            matchers.query_param_matcher({"stationId": "ISTATIONA"}, strict_match=False)
+        ],
+    )
+    _stub_observation("ISTATIONB")
+
+    retriever = _build_weather_retriever(
+        WeatherUndergroundSettings(api_key="test-key"), None, mariadb_client
+    )
+    retriever.refresh()
+
+    assert _observation_sources(mariadb_client) == {"wunderground"}
+    assert _cached_station(mariadb_client) == "ISTATIONB"

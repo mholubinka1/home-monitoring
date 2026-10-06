@@ -44,18 +44,6 @@ def test_without_wunderground_the_retriever_goes_straight_to_open_meteo(
     assert responses.calls[0].request.url.startswith(OPEN_METEO_ENDPOINT)
 
 
-def test_without_location_config_the_retriever_is_still_built(
-    mariadb_client: MariaDBClient,
-) -> None:
-    retriever = _build_weather_retriever(
-        WeatherUndergroundSettings(api_key="test-key", station_id="IBECKE4"),
-        None,
-        mariadb_client,
-    )
-
-    assert retriever is not None
-
-
 @responses.activate
 def test_build_weather_retriever_wires_a_real_source_when_both_settings_are_present(
     mariadb_client: MariaDBClient,
@@ -85,7 +73,6 @@ def test_build_weather_retriever_wires_a_real_source_when_both_settings_are_pres
         LocationSettings(latitude=51.5, longitude=-0.1),
         mariadb_client,
     )
-    assert retriever is not None
 
     retriever.refresh()
 
@@ -113,7 +100,6 @@ def test_a_both_sources_failing_makes_no_call_beyond_wunderground_and_open_meteo
         LocationSettings(latitude=51.5, longitude=-0.1),
         mariadb_client,
     )
-    assert retriever is not None
 
     with pytest.raises(requests.HTTPError):
         retriever.refresh()
@@ -171,7 +157,6 @@ def test_wunderground_returning_no_observations_falls_back_to_open_meteo(
         LocationSettings(latitude=51.5, longitude=-0.1),
         mariadb_client,
     )
-    assert retriever is not None
 
     retriever.refresh()
 
@@ -207,7 +192,6 @@ def test_a_forecast_refresh_persists_rows_and_the_job_records_success(
         LocationSettings(latitude=51.5, longitude=-0.1),
         mariadb_client,
     )
-    assert retriever is not None
 
     scheduler = Scheduler()
     job = register_weather_forecast_refresh_job(scheduler, retriever, mariadb_client)

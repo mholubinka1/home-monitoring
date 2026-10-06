@@ -48,6 +48,10 @@ class WeatherApiSource:
         if self._explicit_station is not None:
             # Explicit station config always wins: no discovery, no caching.
             return self._wunderground.get_current_observation()
+        if self._locations.is_configured:
+            # An explicit location is never cached, so a station cached for an
+            # earlier derived location is stale: rediscover each run.
+            return self._discover_station(self._wunderground)
         cached = self._mariadb.read_weather_station()
         if cached is None:
             return self._discover_station(self._wunderground)

@@ -43,7 +43,6 @@ def test_with_no_weather_config_an_account_postcode_locates_the_observation_and_
     )
 
     retriever = _build_weather_retriever(None, None, mariadb_client)
-    assert retriever is not None
     retriever.refresh()
 
     open_meteo_request = responses.calls[-1].request
@@ -353,3 +352,21 @@ def test_an_ip_derived_location_is_upgraded_once_the_account_postcode_exists(
     assert [(loc.latitude, loc.longitude, loc.source) for loc in locations] == [
         (51.4, -0.05, "postcode")
     ]
+
+
+@responses.activate
+def test_a_postcodes_io_failure_with_a_cached_ip_location_does_not_claim_a_fallback(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(53.4, -2.2, "ip"))
+    mariadb_client.write_account_postcode("AB12CD")
+    responses.add(responses.GET, POSTCODES_IO_ENDPOINT, status=500)
+    responses.add(
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+    )
+
+    with caplog.at_level(logging.WARNING):
+        _build_weather_retriever(None, None, mariadb_client).refresh()
+
+    assert "postcodes.io could not locate the Account Postcode." in caplog.text
+    assert "falling back" not in caplog.text

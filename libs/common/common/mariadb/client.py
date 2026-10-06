@@ -231,16 +231,23 @@ class MariaDBClientBase:
             raise MariaDBError(e) from e
 
     def write_account_postcode(self, postcode: str) -> None:
-        self._write_all(
-            [
-                account_postcode(
-                    id=_ACCOUNT_POSTCODE_ROW_ID,
-                    postcode=postcode,
-                    updated_at=datetime.now(UTC),
+        # Not via _write_all: a SQLAlchemy error message embeds the bound
+        # parameters, i.e. the household postcode. Only the exception type is
+        # logged and raised, with no chained cause.
+        try:
+            with self.session_write_scope() as s:
+                upsert(
+                    s,
+                    account_postcode(
+                        id=_ACCOUNT_POSTCODE_ROW_ID,
+                        postcode=postcode,
+                        updated_at=datetime.now(UTC),
+                    ),
                 )
-            ],
-            "account postcode",
-        )
+        except Exception as e:
+            error_type = type(e).__name__
+            self._logger.error(f"Failed to write account postcode: {error_type}")
+            raise MariaDBError(error_type) from None
 
     def read_account_postcode(self) -> str | None:
         with self.session_read_scope() as session:

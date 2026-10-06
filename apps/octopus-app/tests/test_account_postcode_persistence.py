@@ -1,5 +1,10 @@
-import responses
+import logging
 
+import pytest
+import responses
+from sqlalchemy.exc import DBAPIError
+
+from common.exceptions import MariaDBError
 from common.mariadb.model import account_postcode
 from octopus_app.common.config import (
     ApplicationSettings,
@@ -81,3 +86,27 @@ def test_starting_octopus_app_overwrites_a_previously_recorded_postcode(
     with mariadb_client.session_read_scope() as session:
         postcodes = [row.postcode for row in session.query(account_postcode).all()]
     assert postcodes == ["AB12CD"]
+
+
+def test_a_failed_postcode_write_does_not_leak_the_postcode(
+    mariadb_client: MariaDBClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def failing_scope() -> None:
+        # A DBAPIError's message embeds the statement's bound parameters.
+        raise DBAPIError(
+            "INSERT INTO account_postcode ...",
+            {"postcode": "AB12CD"},
+            Exception("connection lost"),
+        )
+
+    monkeypatch.setattr(mariadb_client, "session_write_scope", failing_scope)
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(MariaDBError) as raised:
+        mariadb_client.write_account_postcode("AB12CD")
+
+    assert "AB12CD" not in caplog.text
+    assert "AB12CD" not in str(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
