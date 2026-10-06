@@ -3,10 +3,10 @@ from typing import ClassVar
 from sqlalchemy import Column, DateTime, Index, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 
-# The one table genuinely shared between octopus-app and hive-app. Each app's
-# own declarative base must extend this SQLBase (not define a fresh one) so
-# that job_run's table is created alongside that app's own tables in the same
-# Schema Sync pass -- see ADR-0020.
+# The tables genuinely shared between octopus-app and hive-app (job_run, and
+# account_postcode -- see ADR-0028). Each app's own declarative base must
+# extend this SQLBase (not define a fresh one) so that these tables are created
+# alongside that app's own tables in the same Schema Sync pass -- see ADR-0020.
 SQLBase = declarative_base()
 
 
