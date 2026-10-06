@@ -58,6 +58,8 @@ class ConsumptionSummaryBackfill:
             next_page, consumption = self._client.fetch_consumption(meter, period_from)
             while True:
                 for point in consumption:
+                    # Local day, not point.start.date() (which is the UTC
+                    # date), to match the weekly job (ADR-0027).
                     key = (meter.energy, local_day.to_local_date(point.start))
                     totals[key] = totals.get(key, Decimal(0)) + point.est_kwh
                 if next_page is None:

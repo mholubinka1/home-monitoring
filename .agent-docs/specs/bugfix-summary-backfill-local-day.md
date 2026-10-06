@@ -20,7 +20,7 @@ The backfill buckets each interval by its Europe/London local date, matching the
 ## Implementation Decisions
 
 - `ConsumptionSummaryBackfill.run` keys each interval by `local_day.to_local_date(point.start)` instead of the UTC date of `point.start`. No other behaviour changes: still summing, still no raw writes, same fetch window.
-- The existing comment in `read_consumption_summarization_window` that the backfill buckets by local day becomes true again; no change needed there.
+- The comment in `read_consumption_summarization_window` that the backfill buckets by local day becomes true again, but its explanation ("reads the still-locally-offset Octopus response") is stale since the UTC normalisation, so it is reworded to say the backfill also buckets by local day via `local_day.to_local_date`.
 - ADR-0027: remove the "wrote wrong history" claim and the one-time repair, add the 2026-10-06 verification (1,408 days matched, partial and trailing days excluded), and add that the backfill's day bucketing is local and why it needed restoring. Keep the paging evidence, the descending decision, the rates finding and the genuine upstream gaps. The Consumption Summary glossary note is already neutral and stays.
 - No schema, config or dashboard changes; no deploy action beyond the normal Watchtower cycle.
 

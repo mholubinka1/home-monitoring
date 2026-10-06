@@ -1,5 +1,7 @@
 # octopus-app: request consumption newest-first so paging returns every interval once
 
+> **Since corrected (2026-10-06).** The claim below that the 2026-07-22 backfill left the summary history over- or under-counted, and the one-time repair that followed from it, were not borne out: the stored `daily_consumption_summary` was compared with an exact fetch and all 1,408 comparable days matched, so no repair was needed or run. The ordering fix stands. See ADR-0027 and the correction comment on #605.
+
 ## Problem Statement
 
 The yearly-comparison panels read `daily_consumption_summary`, whose 2-year history was written by a one-time backfill on 2026-07-22. That backfill fetches consumption with `order_by=period` (oldest first) and `page_size=100`; against the live Octopus API that combination returns overlapping and skipping pages. A full 2-year fetch on 2026-10-05 returned 34,946 electricity rows with only 22,296 distinct interval starts, and 33,654 gas rows with 21,620 distinct. The backfill sums every returned row, so each day's total in the summary is randomly over- or under-counted, for both energies. Raw `consumption` and the cost forecast are unaffected. While investigating 26 apparently missing gas summary days, about 22 of them turned out to be genuine gaps in Octopus's own data.

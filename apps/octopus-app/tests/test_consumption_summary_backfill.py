@@ -162,7 +162,7 @@ def test_run_buckets_each_interval_by_its_local_day_across_the_bst_boundary(
 ) -> None:
     # Octopus returns local-offset timestamps. On a BST day the first two
     # half-hours (00:00 and 00:30 +01:00) are 23:00 and 23:30 UTC the day
-    # before, so bucketing by the UTC date would split Jul10 across two rows
+    # before, so bucketing by the UTC date would split Jul 10 across two rows
     # and disagree with the weekly job, which buckets by local day.
     as_of = datetime(2026, 7, 15, tzinfo=UTC)
     period_from = as_of - timedelta(days=730)
