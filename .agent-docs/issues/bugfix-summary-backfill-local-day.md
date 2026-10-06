@@ -2,6 +2,8 @@
 
 ## octopus-app: summary backfill local-day bucketing, and correct ADR-0027 — [#605](https://github.com/mholubinka1/home-monitoring/issues/605)
 
+> Work complete — [PR #608](https://github.com/mholubinka1/home-monitoring/pull/608) ready to merge.
+
 **Blocked by**: None
 
 **User stories**: 1, 2
@@ -12,9 +14,9 @@ Make `ConsumptionSummaryBackfill` bucket intervals by local date again (commit `
 
 ### Acceptance criteria
 
-- [ ] Intervals at 00:00 and 00:30 local and 23:30 local on a BST day all count towards that local day, with no row stored for the previous UTC date (test fails on UTC bucketing)
-- [ ] Existing summary backfill tests still pass
-- [ ] ADR-0027 no longer claims corrupted history or prescribes a repair, and records the verification and the local bucketing
-- [ ] The earlier acceptance criterion about re-running the backfill after deploy is withdrawn: the stored table was verified correct on 2026-10-06 (see the correction comment on #605)
+- [x] Intervals at 00:00 and 00:30 local and 23:30 local on a BST day all count towards that local day, with no row stored for the previous UTC date (test fails on UTC bucketing)
+- [x] Existing summary backfill tests still pass
+- [x] ADR-0027 no longer claims corrupted history or prescribes a repair, and records the verification and the local bucketing
+- [x] The earlier acceptance criterion about re-running the backfill after deploy is withdrawn: the stored table was verified correct on 2026-10-06 (see the correction comment on #605)
 
 ---
