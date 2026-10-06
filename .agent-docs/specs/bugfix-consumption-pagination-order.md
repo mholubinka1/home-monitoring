@@ -36,7 +36,7 @@ Consumption is requested with `order_by=-period` (newest first), which returns e
 
 ## Out of Scope
 
-- Changing the page size, adding dedupe, or a rows-versus-`count` integrity check.
+- Changing the page size (since done in #609, see ADR-0027), adding dedupe, or a rows-versus-`count` integrity check.
 - Rate, product, account or pricing endpoints.
 - Estimating or filling the genuine upstream gas gaps.
 - A versioned job name or any automatic repair mechanism.

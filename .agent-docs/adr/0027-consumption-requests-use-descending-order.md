@@ -27,7 +27,9 @@ The page size was also raised from 100 to 5,000 (Octopus documents up to 25,000)
 | 45 days (electricity / gas) | 22 requests, 17.0 s / 12.7 s | 1 request, 0.6 s / 0.6 s | 1 request, 1.0 s / 0.5 s |
 | 2 years (electricity / gas) | 349 / 337 requests, 332 s / 298 s | 7 requests, 9.0 s / 7.3 s | 2 requests, 2.7 s / 2.7 s |
 
-Bytes transferred are identical at every size. Peak Python heap per page was 0.7 MB at 1,000, 2.9 MB at 5,000 and 14 MB at 25,000 (process RSS 42 MB to 69 MB at 25,000, against about 2 GB available on the Pi); the slowest single request at 25,000 rows took 1.4 s against the 30 s transport timeout. A failed page restarts the whole window, so the request count is the exposure: routine runs go from about 44 requests a day for the daily backfill (plus the same on each restart) to 2.
+The table omits the 1,000-row runs, which were also exact (the 45-day window took 3 requests and 3.7 s / 1.3 s). Bytes transferred are identical at every size. Peak Python heap per page, measured separately on the 2-year electricity window, was 0.7 MB at 1,000, 2.9 MB at 5,000 and 14 MB at 25,000 rows (process RSS 42 MB to 69 MB at 25,000; `free -m` on the Pi showed about 2 GB available). The slowest single request at 25,000 rows took 1.4 s against the 30 s transport timeout.
+
+A failure on any page re-fetches the whole window from page 1 (rows already written are upserted again, so nothing is lost), so the request count is the exposure. For the daily `consumption_backfill` that is about 44 requests a day (2 meters times 22) falling to 2, and the same again on each container restart; the hourly refresh (about 48 small requests a day) is unchanged. The real failure rate was not measured: the container logs available covered only about 5 hours and showed none.
 
 5,000 rather than the documented maximum because every routine window already fits in one page, 25,000 only shortens the one-off 2-year backfill (done) at about 5 times the memory, and 5,000 leaves a 5 times margin below Octopus's maximum.
 
