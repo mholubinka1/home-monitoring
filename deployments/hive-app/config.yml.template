@@ -16,7 +16,9 @@ mariadb:
 # #506-only deployment (heating status polling doesn't use any of them).
 # Open-Meteo needs no API key -- only Weather Underground and ntfy.sh do.
 
-# Weather Underground station credentials, used by weather_observation_refresh.
+# Optional. Weather Underground station credentials, used by
+# weather_observation_refresh. Omit this section to use Open-Meteo for
+# observations instead.
 weather_underground:
   api_key:
   station_id:
@@ -31,8 +33,9 @@ weather_underground:
 ntfy:
   topic_url:
 
-# Household lat/long, used by weather_observation_refresh (and, once it
-# ships, weather forecast polling).
+# Optional. Household lat/long, used by the weather observation and forecast
+# jobs. Omit this section and the location is derived from the Octopus account
+# postcode (via postcodes.io), then IP geolocation (ipwho.is), and cached.
 location:
   latitude:
   longitude:

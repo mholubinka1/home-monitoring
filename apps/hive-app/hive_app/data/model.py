@@ -35,6 +35,13 @@ class WeatherForecastDay:
 
 
 @dataclass
+class ResolvedLocation:
+    latitude: float
+    longitude: float
+    source: str  # "postcode" | "ip" | "config"
+
+
+@dataclass
 class HiveAuthState:
     refresh_token: str
     device_group_key: str

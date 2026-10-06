@@ -45,3 +45,19 @@ class weather_forecast(SQLBase):
     target_date = Column(Date, nullable=False)
     max_temp = Column(Float)
     fetched_at = Column(DateTime, nullable=False)
+
+
+class weather_location(SQLBase):
+    """One row (fixed id=1): the Weather Location resolved lazily by hive-app
+    -- see ADR-0028. Never written for an explicit `location` config.
+    station_id is unused until station discovery lands."""
+
+    __tablename__ = "weather_location"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    id = Column(Integer, primary_key=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    source = Column(String(20), nullable=False)
+    station_id = Column(String(50))
+    resolved_at = Column(DateTime, nullable=False)

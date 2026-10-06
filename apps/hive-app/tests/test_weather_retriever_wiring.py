@@ -15,17 +15,36 @@ WU_ENDPOINT = "https://api.weather.com/v2/pws/observations/current"
 OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
 
-def test_build_weather_retriever_returns_none_when_wunderground_is_missing(
+@responses.activate
+def test_without_wunderground_the_retriever_goes_straight_to_open_meteo(
     mariadb_client: MariaDBClient,
 ) -> None:
+    responses.add(
+        responses.GET,
+        OPEN_METEO_ENDPOINT,
+        json={
+            "current": {
+                "time": "2026-09-25T12:00",
+                "temperature_2m": 14.5,
+                "relative_humidity_2m": 72,
+                "surface_pressure": 1012.3,
+                "wind_speed_10m": 8.1,
+                "precipitation": 0.0,
+            }
+        },
+        status=200,
+    )
+
     retriever = _build_weather_retriever(
         None, LocationSettings(latitude=51.5, longitude=-0.1), mariadb_client
     )
+    retriever.refresh()
 
-    assert retriever is None
+    assert len(responses.calls) == 1
+    assert responses.calls[0].request.url.startswith(OPEN_METEO_ENDPOINT)
 
 
-def test_build_weather_retriever_returns_none_when_location_is_missing(
+def test_without_location_config_the_retriever_is_still_built(
     mariadb_client: MariaDBClient,
 ) -> None:
     retriever = _build_weather_retriever(
@@ -34,7 +53,7 @@ def test_build_weather_retriever_returns_none_when_location_is_missing(
         mariadb_client,
     )
 
-    assert retriever is None
+    assert retriever is not None
 
 
 @responses.activate
