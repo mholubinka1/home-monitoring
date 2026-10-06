@@ -196,7 +196,8 @@ class Meter(ABC):
 
     @staticmethod
     def _require_agreements(agreements: list[Agreement]) -> None:
-        # Tracked in #387: should extract consumption data even without agreements.
+        # Fail fast on purpose: extracting consumption without agreements was
+        # considered and closed as not planned (#387).
         if len(agreements) == 0:
             raise ArgumentError(
                 "Meter must contain valid tariff information to extract pricing information."
