@@ -7,7 +7,10 @@ from hive_app.data.model import WeatherForecastDay, WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import OpenMeteoClient
 from hive_app.data.weather_location import WeatherLocationResolver
-from hive_app.data.weather_underground_client import WeatherUndergroundClient
+from hive_app.data.weather_underground_client import (
+    WeatherStationNotReportingError,
+    WeatherUndergroundClient,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -50,9 +53,10 @@ class WeatherApiSource:
             return self._discover_station(self._wunderground)
         try:
             return self._wunderground.get_current_observation(cached)
-        except Exception:
+        except WeatherStationNotReportingError:
             # Cleared so the next run re-picks; this run falls through to
-            # Open-Meteo via WeatherRetriever.
+            # Open-Meteo via WeatherRetriever. Any other failure is transient:
+            # the cache is kept and only this run falls back.
             self._mariadb.write_weather_station(None)
             raise
 
@@ -69,6 +73,7 @@ class WeatherApiSource:
             try:
                 observation = wunderground.get_current_observation(station_id)
             except RuntimeError:
+                # Not reporting or a failed request: either way, try the next.
                 continue
             self._mariadb.write_weather_station(station_id)
             logger.info(f"Weather Underground station {station_id} picked.")

@@ -14,5 +14,7 @@ Surprising without context: hive-app has no Octopus credentials, so the postcode
 
 ## Consequences
 
-- IP geolocation is city-level and wrong behind a VPN; it is only the fallback when the postcode is unavailable.
-- The nearest reporting station can change between runs when the cached one goes offline, so the observation series can switch stations.
+- IP geolocation is city-level and wrong behind a VPN; it is only the fallback when the postcode is unavailable. A cached IP-derived location is upgraded to the postcode location once an Account Postcode appears (hive-app booted before octopus-app), and the cached station is cleared with it. A later change to the postcode is not detected, because the postcode is not stored in the cache.
+- The station is chosen from the 5 nearest returned by Weather Underground, nearest first, to bound the lookups per run; a reporting sixth station is ignored.
+- The nearest reporting station can change between runs when the cached one stops returning readings, so the observation series can switch stations. A transient request failure does not clear the cached station; that run falls back to Open-Meteo.
+- With an explicit `location` there is no cache row to hold a station, so it is rediscovered on every run and can switch between runs. Accepted: explicit config is the escape hatch, not the default path.

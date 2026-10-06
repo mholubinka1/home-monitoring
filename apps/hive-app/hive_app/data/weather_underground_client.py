@@ -34,6 +34,10 @@ class WeatherUndergroundNearbyResponse(BaseModel):
     location: WeatherUndergroundNearbyLocation
 
 
+class WeatherStationNotReportingError(RuntimeError):
+    """The station answered but returned no reading (it may be offline)."""
+
+
 class WeatherUndergroundClient:
     base_url: str = "https://api.weather.com/v2/pws/observations/current"
     nearby_url: str = "https://api.weather.com/v3/location/near"
@@ -64,8 +68,10 @@ class WeatherUndergroundClient:
         self, station_id: str | None = None
     ) -> WeatherObservation:
         """Current reading for `station_id`, defaulting to the configured
-        station. Raises when the station has no reading."""
-        station_id = station_id or self._settings.station_id
+        station. Raises WeatherStationNotReportingError when the station
+        has no reading."""
+        if station_id is None:
+            station_id = self._settings.station_id
         if station_id is None:
             raise RuntimeError("No Weather Underground station to read.")
         response = self._get(
@@ -79,7 +85,7 @@ class WeatherUndergroundClient:
         )
         parsed = WeatherUndergroundResponse.model_validate(response.json())
         if not parsed.observations:
-            raise RuntimeError(
+            raise WeatherStationNotReportingError(
                 f"Weather Underground returned no observations for station "
                 f"{station_id!r} (station may be offline)."
             )

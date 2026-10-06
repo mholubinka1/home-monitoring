@@ -16,7 +16,7 @@ GRID_SUPPLY_POINTS_ENDPOINT = (
 )
 
 
-def _account_response(postcode: str) -> dict:
+def _account_response(postcode: str) -> dict[str, object]:
     return {
         "properties": [
             {

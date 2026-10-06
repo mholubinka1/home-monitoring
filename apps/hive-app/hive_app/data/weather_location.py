@@ -32,29 +32,48 @@ class WeatherLocationResolver:
         if self._configured is not None:
             return self._configured
         location = self._mariadb.read_weather_location()
-        if location is None:
-            location = self._derive()
-            self._mariadb.write_weather_location(location)
-            logger.info(
-                f"Weather Location derived from {location.source}: "
-                f"{location.latitude}, {location.longitude}."
-            )
+        if location is None or location.source == "ip":
+            location = self._derive_or_keep(location)
         return LocationSettings(
             latitude=location.latitude, longitude=location.longitude
         )
 
-    def _derive(self) -> ResolvedLocation:
+    def _derive_or_keep(self, cached: ResolvedLocation | None) -> ResolvedLocation:
+        """Derives and caches the location. A cached IP-derived location is
+        upgraded once the Account Postcode exists, and kept if postcodes.io
+        cannot locate it."""
+        if cached is None:
+            location = self._derive()
+        else:
+            postcode_location = self._locate_postcode()
+            if postcode_location is None:
+                return cached
+            location = postcode_location
+        self._mariadb.write_weather_location(location)
+        logger.info(
+            f"Weather Location derived from {location.source}: "
+            f"{location.latitude}, {location.longitude}."
+        )
+        return location
+
+    def _locate_postcode(self) -> ResolvedLocation | None:
         postcode = self._mariadb.read_account_postcode()
-        if postcode is not None:
-            try:
-                latitude, longitude = self._geocoding.geocode_postcode(postcode)
-                return ResolvedLocation(latitude, longitude, "postcode")
-            except Exception:
-                logger.warning(
-                    "postcodes.io could not locate the Account Postcode; "
-                    "falling back to IP geolocation.",
-                    exc_info=True,
-                )
+        if postcode is None:
+            return None
+        try:
+            latitude, longitude = self._geocoding.geocode_postcode(postcode)
+        except Exception:
+            logger.warning(
+                "postcodes.io could not locate the Account Postcode; "
+                "falling back to IP geolocation."
+            )
+            return None
+        return ResolvedLocation(latitude, longitude, "postcode")
+
+    def _derive(self) -> ResolvedLocation:
+        postcode_location = self._locate_postcode()
+        if postcode_location is not None:
+            return postcode_location
         try:
             latitude, longitude = self._geocoding.geolocate_ip()
         except Exception as e:

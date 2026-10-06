@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -38,7 +38,7 @@ class WeatherForecastDay:
 class ResolvedLocation:
     latitude: float
     longitude: float
-    source: str  # "postcode" | "ip" | "config"
+    source: Literal["postcode", "ip"]
 
 
 @dataclass

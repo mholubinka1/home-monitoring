@@ -1,8 +1,8 @@
 import json
-from typing import Any
 
 import pytest
 import responses
+from requests import PreparedRequest
 from responses import matchers
 
 from hive_app.common.config import LocationSettings, WeatherUndergroundSettings
@@ -30,7 +30,7 @@ WU_OBSERVATION_RESPONSE = {
 }
 
 
-def _nearby_stations(*station_ids: str) -> dict:
+def _nearby_stations(*station_ids: str) -> dict[str, object]:
     # Nearest first, as Weather Underground returns them.
     return {
         "location": {
@@ -192,7 +192,7 @@ def test_a_cached_station_that_stops_reporting_is_replaced_on_the_next_run(
     _stub_open_meteo()
     station_a_reporting = True
 
-    def station_a(_request: Any) -> tuple[int, dict, str]:
+    def station_a(_request: PreparedRequest) -> tuple[int, dict[str, str], str]:
         body = WU_OBSERVATION_RESPONSE if station_a_reporting else {"observations": []}
         return 200, {}, json.dumps(body)
 
@@ -218,6 +218,46 @@ def test_a_cached_station_that_stops_reporting_is_replaced_on_the_next_run(
 
     retriever.refresh()
     assert _cached_station(mariadb_client) == "ISTATIONB"
+
+
+@responses.activate
+def test_a_transient_failure_reading_the_cached_station_keeps_it_for_the_next_run(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_account_postcode("AB12CD")
+    _stub_location_and_nearby("ISTATIONA", "ISTATIONB")
+    _stub_open_meteo()
+    station_a_failing = False
+
+    def station_a(_request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        if station_a_failing:
+            return 500, {}, ""
+        return 200, {}, json.dumps(WU_OBSERVATION_RESPONSE)
+
+    responses.add_callback(  # pylint: disable=unexpected-keyword-arg
+        responses.GET,
+        WU_ENDPOINT,
+        callback=station_a,
+        match=[
+            matchers.query_param_matcher({"stationId": "ISTATIONA"}, strict_match=False)
+        ],
+    )
+    retriever = _build_weather_retriever(
+        WeatherUndergroundSettings(api_key="test-key"), None, mariadb_client
+    )
+    retriever.refresh()
+
+    station_a_failing = True
+    retriever.refresh()
+    assert "open-meteo" in _observation_sources(mariadb_client)
+    assert _cached_station(mariadb_client) == "ISTATIONA"
+
+    station_a_failing = False
+    wu_calls_before = _calls_to(WU_ENDPOINT)
+    retriever.refresh()
+    assert _calls_to(WU_ENDPOINT) == wu_calls_before + 1
+    assert _calls_to(WU_NEARBY_ENDPOINT) == 1
+    assert _cached_station(mariadb_client) == "ISTATIONA"
 
 
 @responses.activate
