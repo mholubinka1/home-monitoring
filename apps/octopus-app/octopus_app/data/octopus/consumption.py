@@ -9,7 +9,7 @@ from octopus_app.data.octopus.model import Electricity, Gas, Meter
 from octopus_app.data.octopus.timestamps import to_utc_z
 from octopus_app.data.octopus.transport import OctopusTransport
 
-DEFAULT_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 5000  # a routine 45-day window is one request (ADR-0027)
 
 
 class ConsumptionReading(BaseModel):

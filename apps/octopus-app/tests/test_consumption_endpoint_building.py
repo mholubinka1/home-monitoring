@@ -89,10 +89,11 @@ def test_a_naive_period_is_rejected_rather_than_silently_using_local_time() -> N
     ],
     ids=["electricity", "gas"],
 )
-def test_consumption_is_requested_newest_first_in_pages_of_100(
+def test_consumption_is_requested_newest_first_in_pages_of_5000(
     meter: Electricity | Gas, endpoint: str
 ) -> None:
-    # Ascending order duplicates and skips intervals across pages (ADR-0027).
+    # Ascending order duplicates and skips intervals across pages, and a routine
+    # 45-day window (~2,100 rows) should be one request, not 22 (ADR-0027).
     responses.add(
         responses.GET,
         endpoint,
@@ -104,4 +105,4 @@ def test_consumption_is_requested_newest_first_in_pages_of_100(
 
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     assert query["order_by"] == ["-period"]
-    assert query["page_size"] == ["100"]
+    assert query["page_size"] == ["5000"]

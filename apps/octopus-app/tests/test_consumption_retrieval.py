@@ -76,7 +76,7 @@ def test_refresh_resumes_from_the_true_max_across_all_pages_not_just_the_last(
     responses.add(
         responses.GET,
         CONSUMPTION_ENDPOINT
-        + "?page_size=100&period_from=2026-01-01T00:00:00Z&order_by=-period",
+        + "?page_size=5000&period_from=2026-01-01T00:00:00Z&order_by=-period",
         json={
             "results": [
                 {
@@ -100,7 +100,7 @@ def test_refresh_resumes_from_the_true_max_across_all_pages_not_just_the_last(
     responses.add(
         responses.GET,
         CONSUMPTION_ENDPOINT
-        + "?page_size=100&period_from=2026-01-02T00:00:00Z&order_by=-period",
+        + "?page_size=5000&period_from=2026-01-02T00:00:00Z&order_by=-period",
         json={"results": [], "next": None},
         status=200,
     )
