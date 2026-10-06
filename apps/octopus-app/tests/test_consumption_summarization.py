@@ -196,3 +196,45 @@ def test_an_empty_consumption_table_produces_no_summaries(
     window = mariadb_client.read_consumption_summarization_window(date(2026, 7, 20))
 
     assert window == []
+
+
+def test_the_trailing_window_is_fourteen_local_days_when_the_utc_date_is_a_day_behind(
+    mariadb_client: MariaDBClient,
+) -> None:
+    electricity = _make_electricity_meter()
+    # 23:30 UTC on 15 Jul is 00:30 BST on 16 Jul, so the local date is already
+    # the 16th and the 14-day window starts on 3 Jul. Taking the UTC date
+    # (15 Jul) would start it on 2 Jul and re-summarise a day outside it.
+    as_of = datetime(2026, 7, 15, 23, 30, tzinfo=UTC)
+    outside, edge = date(2026, 7, 2), date(2026, 7, 3)
+
+    for day in (outside, edge):
+        mariadb_client.write_consumption(
+            electricity,
+            [
+                _half_hour(
+                    datetime(day.year, day.month, day.day, 12, tzinfo=UTC),
+                    Decimal("5.0"),
+                )
+            ],
+        )
+    # Existing (stale) summary rows, so neither day is a "gap": only trailing
+    # window inclusion can rewrite them.
+    mariadb_client.write_consumption_summary(
+        [
+            ConsumptionSummary(
+                energy=Energy.electricity, date=day, total_kwh=Decimal("1.0")
+            )
+            for day in (outside, edge)
+        ]
+    )
+
+    ConsumptionSummaryRetriever(mariadb_client).refresh(as_of=as_of)
+
+    with mariadb_client.session_read_scope() as session:
+        stored = {
+            (row.energy, row.date): row.total_kwh
+            for row in session.query(model.daily_consumption_summary).all()
+        }
+    assert stored[("E", outside)] == Decimal("1.00000")
+    assert stored[("E", edge)] == Decimal("5.00000")

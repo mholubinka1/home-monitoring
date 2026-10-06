@@ -26,7 +26,7 @@ Fetch consumption 5,000 rows per page, so every routine window is a single reque
 ## Testing Decisions
 
 - Page size: update the tests that pin `page_size=100`: the endpoint-building test (which becomes the regression test, for both electricity and gas) and the mocked URLs in the retrieval and summary-backfill tests.
-- `as_of`: through `ConsumptionSummaryRetriever.refresh(as_of=...)` with seeded raw rows, at 23:30 UTC on a BST day (00:30 local the next day). A day that only the local date's window reaches must be re-summarised, which fails on the UTC date.
+- `as_of`: through `ConsumptionSummaryRetriever.refresh(as_of=...)` with seeded raw rows, at 23:30 UTC on a BST day (00:30 local the next day). The window must be exactly 14 local days: the day just outside it (an existing, stale summary row) stays untouched and the first day inside it is re-summarised. It fails on the UTC date, which starts the window a day early and rewrites the outside day.
 - Prior art: `test_consumption_endpoint_building.py`, `test_consumption_retrieval.py`, `test_consumption_summary_backfill.py`, and the existing summary-window tests.
 
 ## Out of Scope
