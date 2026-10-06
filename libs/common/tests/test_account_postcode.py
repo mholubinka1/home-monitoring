@@ -49,5 +49,6 @@ def test_a_failed_account_postcode_write_keeps_the_postcode_out_of_the_error_and
     with caplog.at_level("DEBUG"), pytest.raises(MariaDBError) as raised:
         configured_client.write_account_postcode(POSTCODE)
 
+    assert "Failed to write account postcode" in caplog.text
     assert POSTCODE not in str(raised.value)
     assert POSTCODE not in caplog.text
