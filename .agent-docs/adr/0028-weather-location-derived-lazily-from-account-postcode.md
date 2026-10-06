@@ -1,0 +1,18 @@
+# Weather location is derived lazily from the Octopus account postcode, via a cross-app table
+
+Weather Observation and Forecast were silently disabled on the live Pi because `weather_underground` and `location` had to be hand-configured, and `weather_observation` and `weather_forecast` stayed empty. The household's postcode is already known to octopus-app (it fetches the Octopus account). We chose to have octopus-app write it to a one-row `account_postcode` table, defined in `libs/common` like `job_run`, and hive-app derive its Weather Location from it on each run: postcodes.io for coordinates, IP geolocation if there is no postcode or the lookup fails, and Weather Underground's nearby-stations lookup for the station, with Open-Meteo as the observation source whenever Weather Underground is not usable. The result is cached in hive-app's own `weather_location` table. Explicit `location` / `station_id` config always wins and is never cached over.
+
+Surprising without context: hive-app has no Octopus credentials, so the postcode crosses apps through the shared database ([ADR-0022](0022-single-shared-home-monitoring-database.md)) rather than a second Octopus client. The table lives in `common` because Schema Sync only diffs each app's own models ([ADR-0005](0005-additive-only-schema-sync.md)); defined in one app only, a reader that starts first would hit a missing table. Resolution is lazy and retried each run, not done once at startup, so a hive-app that boots before octopus-app, or a lookup that is down at boot, recovers on the next tick instead of disabling the weather jobs until a restart.
+
+## Considered Options
+
+- **Give hive-app Octopus credentials:** self-contained, but duplicates secrets and the account client in a second config.
+- **Move weather polling into octopus-app:** puts weather beside the postcode, but restructures shipped work.
+- **Resolve once at startup:** simpler, but any boot-order or outage failure disables weather until restart.
+- **Pick the station once and store it:** stable, but cannot recover when that station goes offline.
+- **Open-Meteo as the primary observation source:** needs no key or station, but is modelled data rather than a station reading.
+
+## Consequences
+
+- IP geolocation is city-level and wrong behind a VPN; it is only the fallback when the postcode is unavailable.
+- The nearest reporting station can change between runs when the cached one goes offline, so the observation series can switch stations.
