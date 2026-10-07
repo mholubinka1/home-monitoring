@@ -59,7 +59,7 @@ A rolling 7-day line of (gas above baseload) per degree-day, hidden for windows 
 
 ## D2-4 · Weather-normalised year-on-year — [#643](https://github.com/mholubinka1/home-monitoring/issues/643)
 
-**Blocked by**: #629, #624
+**Blocked by**: #629, #624, #646, #647, #648
 
 **User stories**: 5
 
