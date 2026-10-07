@@ -1,8 +1,8 @@
 # Issues: feature-heating-model
 
-## MOD-1 · Complete London-day temperatures and the effective temperature — [#TBD]
+## MOD-1 · Complete London-day temperatures and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
-**Blocked by**: FND-1, BKF-1
+**Blocked by**: #620, #623
 
 **User stories**: 1, 12
 
@@ -20,9 +20,9 @@ octopus-app can read, for each London day, the mean outdoor temperature taken on
 
 ---
 
-## MOD-2 · Fit the model from daily gas and effective temperature — [#TBD]
+## MOD-2 · Fit the model from daily gas and effective temperature — [#626](https://github.com/mholubinka1/home-monitoring/issues/626)
 
-**Blocked by**: None (a pure function; real inputs come from MOD-1)
+**Blocked by**: None (a pure function; real inputs come from #625)
 
 **User stories**: 1, 6, 12
 
@@ -40,9 +40,9 @@ A pure function that, from daily gas and effective temperatures, fits baseload, 
 
 ---
 
-## MOD-3 · Judge every day — [#TBD]
+## MOD-3 · Judge every day — [#627](https://github.com/mholubinka1/home-monitoring/issues/627)
 
-**Blocked by**: MOD-2
+**Blocked by**: #626
 
 **User stories**: 2, 3, 4, 5, 12
 
@@ -61,9 +61,9 @@ Pure functions that give each day an expected gas, a scaled noise margin (growin
 
 ---
 
-## MOD-4 · Thermostat check and the estimated/confirmed label — [#TBD]
+## MOD-4 · Thermostat check and the estimated/confirmed label — [#628](https://github.com/mholubinka1/home-monitoring/issues/628)
 
-**Blocked by**: MOD-2
+**Blocked by**: #626
 
 **User stories**: 7, 12
 
@@ -81,9 +81,9 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ---
 
-## MOD-5 · The daily job and the three tables — [#TBD]
+## MOD-5 · The daily job and the three tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
 
-**Blocked by**: MOD-1, MOD-3, MOD-4
+**Blocked by**: #625, #627, #628
 
 **User stories**: 8, 10
 
@@ -101,9 +101,9 @@ A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes e
 
 ---
 
-## MOD-6 · The cost forecast adopts the model — [#TBD]
+## MOD-6 · The cost forecast adopts the model — [#630](https://github.com/mholubinka1/home-monitoring/issues/630)
 
-**Blocked by**: MOD-5
+**Blocked by**: #629
 
 **User stories**: 9
 
@@ -121,9 +121,9 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 
 ---
 
-## MOD-7 · The plain-language explainer — [#TBD]
+## MOD-7 · The plain-language explainer — [#631](https://github.com/mholubinka1/home-monitoring/issues/631)
 
-**Blocked by**: MOD-3, MOD-4
+**Blocked by**: #627, #628
 
 **User stories**: 11
 

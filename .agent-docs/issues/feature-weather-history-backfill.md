@@ -1,8 +1,8 @@
 # Issues: feature-weather-history-backfill
 
-## BKF-1 · Backfill hourly weather history from the archive — [#TBD]
+## BKF-1 · Backfill hourly weather history from the archive — [#623](https://github.com/mholubinka1/home-monitoring/issues/623)
 
-**Blocked by**: FND-1, FND-2
+**Blocked by**: #620, #621
 
 **User stories**: 1, 2, 3, 6
 
@@ -20,9 +20,9 @@ A re-runnable hive-app command that fills `weather_observation` with hourly weat
 
 ---
 
-## BKF-2 · Fill the recent days and report completeness — [#TBD]
+## BKF-2 · Fill the recent days and report completeness — [#624](https://github.com/mholubinka1/home-monitoring/issues/624)
 
-**Blocked by**: BKF-1
+**Blocked by**: #623
 
 **User stories**: 4, 5
 

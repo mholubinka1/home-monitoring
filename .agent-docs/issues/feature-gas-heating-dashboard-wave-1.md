@@ -1,6 +1,6 @@
 # Issues: feature-gas-heating-dashboard-wave-1
 
-## D1-1 · The new dashboard and the temperatures panel — [#TBD]
+## D1-1 · The new dashboard and the temperatures panel — [#632](https://github.com/mholubinka1/home-monitoring/issues/632)
 
 **Blocked by**: None
 
@@ -20,9 +20,9 @@ A new, separate dashboard file with its own title, uid, variables and defaults, 
 
 ---
 
-## D1-2 · Gas heatmap and monthly gas — [#TBD]
+## D1-2 · Gas heatmap and monthly gas — [#633](https://github.com/mholubinka1/home-monitoring/issues/633)
 
-**Blocked by**: D1-1
+**Blocked by**: #632
 
 **User stories**: 3, 4
 
@@ -39,9 +39,9 @@ The gas heatmap by hour and weekday (London time, last 45 days, mirroring the el
 
 ---
 
-## D1-3 · The gas billing-period predictor — [#TBD]
+## D1-3 · The gas billing-period predictor — [#634](https://github.com/mholubinka1/home-monitoring/issues/634)
 
-**Blocked by**: D1-1
+**Blocked by**: #632
 
 **User stories**: 5
 
@@ -57,9 +57,9 @@ A bar gauge of the latest gas row of the cost forecast (cost so far against proj
 
 ---
 
-## D1-4 · Daily gas with outdoor temperature, kWh or pounds — [#TBD]
+## D1-4 · Daily gas with outdoor temperature, kWh or pounds — [#635](https://github.com/mholubinka1/home-monitoring/issues/635)
 
-**Blocked by**: D1-1, BKF-2, FND-2
+**Blocked by**: #632, #624, #621
 
 **User stories**: 2
 
@@ -77,9 +77,9 @@ Daily gas bars with the daily mean outdoor temperature (complete days only) as a
 
 ---
 
-## D1-5 · Boost minutes and the estimated extra gas cost — [#TBD]
+## D1-5 · Boost minutes and the estimated extra gas cost — [#636](https://github.com/mholubinka1/home-monitoring/issues/636)
 
-**Blocked by**: D1-1
+**Blocked by**: #632
 
 **User stories**: 6
 
@@ -96,9 +96,9 @@ Bars of boost minutes per day (readings with boost active times the 2-minute int
 
 ---
 
-## D1-6 · Minutes below target — [#TBD]
+## D1-6 · Minutes below target — [#637](https://github.com/mholubinka1/home-monitoring/issues/637)
 
-**Blocked by**: D1-1
+**Blocked by**: #632
 
 **User stories**: 7
 
@@ -114,9 +114,9 @@ Minutes per day with a comfort target active (target at or above a dashboard set
 
 ---
 
-## D1-7 · Outdoor temperature band with solar — [#TBD]
+## D1-7 · Outdoor temperature band with solar — [#638](https://github.com/mholubinka1/home-monitoring/issues/638)
 
-**Blocked by**: D1-1, FND-2, BKF-1
+**Blocked by**: #632, #621, #623
 
 **User stories**: 8
 
@@ -132,7 +132,7 @@ Daily minimum, mean and maximum outdoor temperature (complete days) as a band, w
 
 ---
 
-## D1-8 · Validate the heating-on definition against gas — [#TBD]
+## D1-8 · Validate the heating-on definition against gas — [#639](https://github.com/mholubinka1/home-monitoring/issues/639)
 
 **Blocked by**: None (waits for the gas to arrive)
 

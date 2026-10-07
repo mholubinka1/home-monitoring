@@ -1,6 +1,6 @@
 # Issues: feature-weather-data-foundations
 
-## FND-1 · Weather observations cannot be duplicated — [#TBD]
+## FND-1 · Weather observations cannot be duplicated — [#620](https://github.com/mholubinka1/home-monitoring/issues/620)
 
 **Blocked by**: None
 
@@ -20,9 +20,9 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 
 ---
 
-## FND-2 · Solar and forecast mean are collected — [#TBD]
+## FND-2 · Solar and forecast mean are collected — [#621](https://github.com/mholubinka1/home-monitoring/issues/621)
 
-**Blocked by**: FND-1
+**Blocked by**: #620
 
 **User stories**: 3, 4
 
@@ -40,7 +40,7 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ---
 
-## FND-3 · hive-app stores the Hive working flag — [#TBD]
+## FND-3 · hive-app stores the Hive working flag — [#622](https://github.com/mholubinka1/home-monitoring/issues/622)
 
 **Blocked by**: None
 

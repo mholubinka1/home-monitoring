@@ -1,8 +1,8 @@
 # Issues: feature-gas-heating-dashboard-wave-2
 
-## D2-1 · The model chart — [#TBD]
+## D2-1 · The model chart — [#640](https://github.com/mholubinka1/home-monitoring/issues/640)
 
-**Blocked by**: MOD-5, D1-1
+**Blocked by**: #629, #632
 
 **User stories**: 1
 
@@ -19,9 +19,9 @@ Daily gas against effective temperature as points with the latest model's fitted
 
 ---
 
-## D2-2 · Where the gas went — [#TBD]
+## D2-2 · Where the gas went — [#641](https://github.com/mholubinka1/home-monitoring/issues/641)
 
-**Blocked by**: MOD-5, D1-1
+**Blocked by**: #629, #632
 
 **User stories**: 2, 3
 
@@ -39,9 +39,9 @@ Stacked daily bars of five slices that sum to actual gas (baseload, expected hea
 
 ---
 
-## D2-3 · Baseload-adjusted efficiency trend — [#TBD]
+## D2-3 · Baseload-adjusted efficiency trend — [#642](https://github.com/mholubinka1/home-monitoring/issues/642)
 
-**Blocked by**: MOD-5
+**Blocked by**: #629
 
 **User stories**: 4
 
@@ -57,9 +57,9 @@ A rolling 7-day line of (gas above baseload) per degree-day, hidden for windows 
 
 ---
 
-## D2-4 · Weather-normalised year-on-year — [#TBD]
+## D2-4 · Weather-normalised year-on-year — [#643](https://github.com/mholubinka1/home-monitoring/issues/643)
 
-**Blocked by**: MOD-5, BKF-2
+**Blocked by**: #629, #624
 
 **User stories**: 5
 
@@ -76,9 +76,9 @@ Weekly gas above baseload per degree-day, this year against the same weeks last 
 
 ---
 
-## D2-5 · The saving from a lower setpoint — [#TBD]
+## D2-5 · The saving from a lower setpoint — [#644](https://github.com/mholubinka1/home-monitoring/issues/644)
 
-**Blocked by**: MOD-5
+**Blocked by**: #629
 
 **User stories**: 6
 
@@ -94,9 +94,9 @@ Monthly bars of the estimated saving (pounds and kWh) from a thermostat 1 C lowe
 
 ---
 
-## D2-6 · Expected gas for the next 7 days — [#TBD]
+## D2-6 · Expected gas for the next 7 days — [#645](https://github.com/mholubinka1/home-monitoring/issues/645)
 
-**Blocked by**: MOD-5, D1-4
+**Blocked by**: #629, #635
 
 **User stories**: 7
 
