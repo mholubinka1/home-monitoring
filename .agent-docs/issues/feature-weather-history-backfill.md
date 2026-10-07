@@ -17,6 +17,7 @@ A re-runnable hive-app command that fills `weather_observation` with hourly weat
 - [ ] Given live (`open-meteo`) rows for some of the same hours, then they are untouched.
 - [ ] Given a chunk that fails after retries, then earlier chunks stay intact and the message says which range to repeat.
 - [ ] Given no cached Weather Location, then it stops with a clear message.
+- [ ] Given a different current location, then rows are stored under that location's key and the earlier location's rows are untouched.
 
 ---
 

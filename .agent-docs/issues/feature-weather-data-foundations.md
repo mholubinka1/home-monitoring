@@ -8,12 +8,14 @@
 
 ### What to build
 
-Make weather writes safe to repeat. `weather_observation` gets a unique key on `(source, observed_at)` (created additively by Schema Sync) and a keyed upsert that updates the existing row when that pair already exists; the live observation job writes through it. The deploy note includes the read-only duplicate check to run before the key is created.
+Make weather writes safe to repeat. `weather_observation` gets a unique key on `(source, location, observed_at)` (created additively by Schema Sync) and a keyed upsert that updates the existing row when that pair already exists; the live observation job writes through it. The deploy note includes the read-only duplicate check to run before the key is created.
 
 ### Acceptance criteria
 
 - [ ] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
 - [ ] Given the same hour from two different sources, then both rows exist.
+- [ ] Given the same hour at two different locations (different location keys), then both rows exist.
+- [ ] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note's one-off update gives the existing rows the current key.
 - [ ] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture).
 - [ ] The live observation job persists through the keyed upsert.
 - [ ] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
@@ -57,3 +59,23 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 - [ ] Schema Sync adds the column to the existing table and existing rows are unaffected.
 - [ ] The existing heating persistence and retrieval tests still pass.
 - [ ] A note records that the semantics are to be confirmed by an on/off test after deploy.
+
+---
+
+## FND-4 · A changed postcode or location override starts a new weather series — [#652](https://github.com/mholubinka1/home-monitoring/issues/652)
+
+**Blocked by**: #620
+
+**User stories**: 7, 8
+
+### What to build
+
+hive-app's Weather Location resolution records the postcode (or explicit `location`) its cached location was derived from, and re-derives it when the Account Postcode or the override differs, which gives a new location key and so a new weather series. Readers use only the current location's key. The postcode itself is never logged.
+
+### Acceptance criteria
+
+- [ ] Given the Account Postcode changes, then the next weather run re-derives the location and stores the new location key; observations written before keep their old key.
+- [ ] Given an explicit `location` is added or changed, then a new location key is used from the next run.
+- [ ] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
+- [ ] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
+- [ ] The postcode never appears in logs or error messages.
