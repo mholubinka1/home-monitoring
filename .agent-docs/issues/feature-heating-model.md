@@ -28,11 +28,13 @@ octopus-app can read, for each London day, the mean outdoor temperature taken on
 
 ### What to build
 
-A pure function that, from daily gas and effective temperatures, fits baseload, slope and threshold by searching a grid of thresholds and blend weights with least squares, treats zero-gas rows as missing, excludes away days (gas below about a third of baseload) and refits once, and reports whether the fit is usable and why not.
+Pure functions that, from daily gas and effective temperatures, compute a **moving baseload** (the mean of warm-day gas over a 120-day window, at least 8 warm days to count as measured, joined by a straight line across winter gaps and held at the last measured value for the newest days, each point labelled measured, interpolated or held) and fit slope and threshold by searching a grid of thresholds and blend weights, with the slope from least squares through the origin on the gas above baseload, treats zero-gas rows as missing, excludes away days (gas below about a third of baseload) and refits once, and reports whether the fit is usable and why not.
 
 ### Acceptance criteria
 
-- [ ] Given synthetic days with a planted baseload, slope and threshold plus noise, then the fit recovers them within a stated tolerance.
+- [ ] Given synthetic days with a planted slope and threshold and a baseload that drifts and swings with the seasons, then the fit recovers the slope and threshold, and the moving baseload follows the planted baseload where it can be measured.
+- [ ] Given a window with fewer than 8 warm days, then the baseload there is interpolated (labelled) between the nearest measured estimates, and the newest days hold the last measured value.
+- [ ] The baseload series covers every day with data, not only the rolling window.
 - [ ] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
 - [ ] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.
 - [ ] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason.
@@ -48,7 +50,7 @@ A pure function that, from daily gas and effective temperatures, fits baseload, 
 
 ### What to build
 
-Pure functions that give each day an expected gas, a scaled noise margin (growing with the heating need), a needed / not-needed decision using the threshold's upper uncertainty end (from resampling), and the slices: baseload, expected heating, normal variation, possible (beyond 1 standard deviation, up to 2) and clear (beyond 2), counting only the part beyond the margin, so slices sum exactly to actual gas. Plus the setpoint saving (slope times needed days).
+Pure functions that give each day an expected gas, a scaled noise margin (growing with the heating need), a needed / not-needed decision using the threshold's upper uncertainty end (from resampling), and the slices: baseload (the moving baseload for that day), expected heating, normal variation, possible (beyond 1 standard deviation, up to 2) and clear (beyond 2), counting only the part beyond the margin, so slices sum exactly to actual gas. Plus the setpoint saving (slope times needed days).
 
 ### Acceptance criteria
 
@@ -89,7 +91,7 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ### What to build
 
-A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict` and `heating_forecast_day` (created additively by Schema Sync). It also runs once at startup when there is no model and enough data.
+A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict`, `heating_forecast_day` (created additively by Schema Sync); the weekly efficiency table is written by the next issue. It also runs once at startup when there is no model and enough data.
 
 ### Acceptance criteria
 
@@ -138,3 +140,23 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 - [ ] The worked example matches the implemented model's behaviour.
 - [ ] A reader who is not a data scientist can answer: why is my threshold what it is, what does "possible" mean, and why is the total a floor.
 - [ ] The repository's Markdown link check passes.
+
+---
+
+## MOD-8 · Weekly efficiency rows with guards and reasons — [#650](https://github.com/mholubinka1/home-monitoring/issues/650)
+
+**Blocked by**: #629
+
+**User stories**: 4, 13
+
+### What to build
+
+The model job also writes `heating_week`, one row per Monday-to-Sunday week over the whole history: complete gas days, per-day averages of gas, degree-days (against the current model's threshold, on the effective temperature, for every year) and baseload (the moving baseload), heating gas above baseload, the efficiency (heating gas per degree-day), and a status that is `shown` or the reason the week is left out: too few days (under 5 complete), too mild (under 1.5 degree-days a day) or heating off (under 0.5 kWh a day of heating gas). The three guard values are named settings.
+
+### Acceptance criteria
+
+- [ ] Given a week with 5 complete days, then its per-day averages are used and its status is `shown` if the other guards pass.
+- [ ] Given a week with 4 complete days, then its status is "too few days"; under 1.5 degree-days a day, "too mild"; under 0.5 kWh a day of heating gas, "heating off".
+- [ ] Given two years, then both use the same degree-day threshold and each week's own moving baseload.
+- [ ] Given a week with an away or incomplete day, then that day is excluded from the averages (and counts against the 5).
+- [ ] The table covers the whole history with data, is rebuilt consistently on each refit, and Schema Sync creates it on an existing database.

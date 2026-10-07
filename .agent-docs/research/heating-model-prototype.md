@@ -44,3 +44,20 @@ The Octopus API was asked, read-only, what it reports today for every gas day it
 - **Zero half-hours inside a day are normal** (the boiler is idle for many slots), so they do not indicate dropouts; only fewer readings than expected, or an all-zero day, mark a gap.
 - **Two effects on our side:** the summary stores only the day's total, so a partial day looks real; and the summary refreshes weekly, so the newest days read zero until the next run (2026-10-05 read 0.0 while its raw rows totalled 6.9 kWh).
 - **Cause unconfirmed.** Multi-day runs fit a lost link between the gas meter and the communications hub, but that is a hypothesis; Octopus could confirm it.
+
+## The baseload moves (investigated 2026-10-07)
+
+- **Warm-day gas by month** (days at least 1 C above the threshold, at least 2.5 kWh): about 5.5 in summer 2024, 5.4 to 6.3 in May to June 2025, 6.9 to 7.1 in August to September 2025, then 9.1 in May to June 2026 and 9.4 in September 2026. A seasonal swing (low in June, higher into autumn and winter) sits on top of a year-on-year lift. Winter baseload is barely observable (about 7 to 10 warm days in a stretch of winter months).
+- **Sliding six-month fits** gave baseloads from 4.5 to 10.9 kWh/day with a stable slope of about 3.7 to 4.1; fitted once per year the baseload was about 6.55 (Oct 2024 to Sep 2025) and 8.63 (Oct 2025 to Sep 2026).
+- **Held-out test** (train on the 12 months before each of 15 test months, predict that month; errors in kWh/day):
+
+| Baseload method | Error, all months | Error, cold months | Cold-month bias |
+| --- | --- | --- | --- |
+| Constant | 6.03 | 13.11 | -5.9 |
+| Trend plus seasonal swing (fitted) | 8.03 | 13.05 | -6.4 |
+| Monthly warm-day means joined by lines | 6.00 | 12.58 | -4.4 |
+| Moving average, 45 days | 6.10 | 13.40 | -6.0 |
+| Moving average, 90 days | 6.07 | 13.04 | -5.5 |
+| Moving average, 120 days | 6.01 | 12.74 | -5.3 |
+
+- **Reading it:** the gains from moving the baseload are modest in raw prediction and within noise across window lengths (15 test months, about 13 kWh/day of day-to-day noise on cold days); a longer window did slightly better in cold months. A fitted trend plus seasonal swing is clearly worse on a 12-month window because it cannot separate a trend from the seasons. All methods under-predict cold months when trained on the previous year because this year's household uses more gas (behaviour change, not a modelling error). The case for a moving baseload is that it demonstrably moves, which makes baseload-adjusted comparisons and warm-day verdicts like for like.

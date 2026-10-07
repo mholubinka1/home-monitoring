@@ -47,7 +47,7 @@ Stacked daily bars of five slices that sum to actual gas (baseload, expected hea
 
 ### What to build
 
-A rolling 7-day line of (gas above baseload) per degree-day, hidden for windows with too few degree-days to measure.
+A rolling 7-day line of (gas above the moving baseload) per degree-day, hidden for windows with too few degree-days to measure.
 
 ### Acceptance criteria
 
@@ -59,20 +59,21 @@ A rolling 7-day line of (gas above baseload) per degree-day, hidden for windows 
 
 ## D2-4 · Weather-normalised year-on-year — [#643](https://github.com/mholubinka1/home-monitoring/issues/643)
 
-**Blocked by**: #629, #624, #646, #647, #648
+**Blocked by**: #650, #624, #646, #647, #648
 
 **User stories**: 5
 
 ### What to build
 
-Weekly gas above baseload per degree-day, this year against the same weeks last year, complete weeks only. Settle in the branch's design session how a changed baseload is handled (recommended: subtract each period's own baseload from that period's warm days).
+Two lines, this year and last year (last year's weeks lined up 364 days earlier), of heating efficiency (kWh of heating gas per degree-day), week by week, read from `heating_week` and joined; a week appears only when both years' weeks have status `shown`. The title states how many weeks are shown and how many are left out by reason, and the baseload for each year; a dashboard switch shows every complete week. Labelled estimated, with a standing note that winter baseload is interpolated. The design and its evidence are in the week rules note.
 
 ### Acceptance criteria
 
-- [ ] Only complete weeks are shown.
-- [ ] The baseload handling is decided and documented.
-- [ ] Last year's weeks come from the same data and definitions as this year's.
-- [ ] A week with too few degree-days is a gap.
+- [ ] Only weeks with status `shown` in both years are plotted; others are gaps.
+- [ ] The title shows the shown and left-out counts with reasons and the baseload for each year.
+- [ ] Given the 'show every complete week' switch, then the guards are lifted and left-out weeks appear.
+- [ ] Last year's weeks come from the same definitions as this year's (common degree-day threshold, each week's own moving baseload).
+- [ ] The query joins this year's week to the week 364 days earlier and contains no guard or baseload logic.
 
 ---
 
