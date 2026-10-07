@@ -1,6 +1,6 @@
 # Issues: feature-gas-completeness-tracking
 
-## GCT-1 · Record the readings behind each daily total and define a complete gas day — [#TBD]
+## GCT-1 · Record the readings behind each daily total and define a complete gas day — [#646](https://github.com/mholubinka1/home-monitoring/issues/646)
 
 **Blocked by**: None
 
@@ -21,9 +21,9 @@
 
 ---
 
-## GCT-2 · Backfill the counts from the API for the days it still serves — [#TBD]
+## GCT-2 · Backfill the counts from the API for the days it still serves — [#647](https://github.com/mholubinka1/home-monitoring/issues/647)
 
-**Blocked by**: GCT-1
+**Blocked by**: #646
 
 **User stories**: 5
 
@@ -40,7 +40,7 @@ The existing 730-day summary backfill also records the half-hour counts for ever
 
 ---
 
-## GCT-3 · Refresh the summary daily — [#TBD]
+## GCT-3 · Refresh the summary daily — [#648](https://github.com/mholubinka1/home-monitoring/issues/648)
 
 **Blocked by**: None
 

@@ -83,7 +83,7 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ## MOD-5 · The daily job and the three tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
 
-**Blocked by**: #625, #627, #628
+**Blocked by**: #625, #627, #628, #646, #647
 
 **User stories**: 8, 10
 
