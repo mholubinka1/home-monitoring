@@ -213,6 +213,26 @@ _Avoid_: household location (implies a user-entered setting)
 **Account Postcode**:
 The Octopus account's property postcode, written by octopus-app on startup to the one-row `account_postcode` table defined in `common` (so either app's Schema Sync creates it), and read by hive-app to derive the Weather Location. octopus-app is its only writer.
 
+**Degree-day**:
+A measure of how much heating a day needed: how far that day's temperature was below a base temperature (a house needs no heating above it), summed over a period; gas divided by degree-days gives a weather-independent efficiency measure. The cost forecast's original regression used a fixed 15.5 C base on the daily maximum; the **Heating Model** instead uses a learned **Heating Threshold** on the **Effective Temperature**.
+_Avoid_: HDD (unexplained), heating day (that means a day with scheduled thermostat demand, see **Heating Model**)
+
+**Effective Temperature**:
+The temperature the **Heating Model** uses for a day: a blend of that London day's mean temperature and the previous day's, `(1 - w) * today + w * yesterday`, with `w` fitted from the data (thermal memory: a house is still cold from yesterday). Needs a **complete day** of weather ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
+
+**Heating Model**:
+The learned description of how the household's gas use depends on the weather: over a rolling 12 months, `gas = baseload + slope * max(0, threshold - effective temperature)`, refitted weekly by a daily octopus-app job that also recomputes every day's **Heating Verdict** and projects 7 days ahead into three small tables (model, day verdict, forecast day). The cost forecast and the gas dashboard read these tables; it replaces the cost forecast's fixed-threshold regression. Labelled "estimated" until the thermostat's own behaviour (a **heating day** is at least 30 minutes of scheduled, non-boost demand) independently agrees with the gas-based threshold, then "confirmed". See [ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md).
+_Avoid_: regression (the older fixed-threshold method), prediction (it also explains past days)
+
+**Baseload**:
+The gas used on a day with no heating (hot water and cooking), one of the **Heating Model**'s three fitted numbers (constant across the year in the first version). **Away days** (gas below about a third of baseload, e.g. a holiday) are excluded from the fit and shown neutral.
+
+**Heating Threshold**:
+The effective temperature below which the **Heating Model** says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C the repo first assumed). Days inside the threshold's uncertainty range count as needed.
+
+**Heating Verdict**:
+The **Heating Model**'s judgement of one day: gas split into baseload, expected heating, normal variation, "possible" (1 to 2 standard deviations over) and "clear" (beyond 2) excess; on days clearly warmer than the threshold the same slices are "avoidable" gas. Only the part beyond the margin is counted, so totals are a floor, and a day's slices sum exactly to its actual gas.
+
 **Gas Cost Forecast**:
 The extension of octopus-app's `cost_forecast` (previously implicitly electricity-only — `cost_forecast.py` hard-coded `_current_electricity_agreement`) to also cover gas, distinguished by a new `energy` column on the existing table rather than a parallel table — see [ADR-0016](adr/0016-energy-column-on-cost-forecast.md). Its actual-cost-to-date figure reuses the existing Agreement/product_rate join. Its projected-total figure currently uses the same average-recent-consumption projection method as electricity's non-Agile branch (issue #507) — a planned upgrade (issue #511) will replace this with a live linear regression of daily gas kWh (from `daily_consumption_summary`) against daily max outdoor temperature, computed in Python on every forecast run (nothing persisted, consistent with [ADR-0010](adr/0010-local-day-bucketing-python-vs-sql.md)'s preference for Python over stored derived state) and applied to Weather Forecast's upcoming max-temp figures for the billing period's remaining days.
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
