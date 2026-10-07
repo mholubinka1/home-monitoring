@@ -1,0 +1,58 @@
+# Issues: feature-gas-completeness-tracking
+
+## GCT-1 · Record the readings behind each daily total and define a complete gas day — [#TBD]
+
+**Blocked by**: None
+
+**User stories**: 1, 2, 4
+
+### What to build
+
+`daily_consumption_summary` gets a nullable count of half-hour readings per London day (both energies), set by the summary job from the raw rows, and a single shared definition of a complete gas day: total above zero and count equal to the day's expected half-hours (46, 48 or 50), with an unknown count treated as complete unless the total is zero and reported as unverified.
+
+### Acceptance criteria
+
+- [ ] Given 48 raw half-hours for a London day, then the summary stores the total and a count of 48 and the day is complete.
+- [ ] Given 36 of 48, then the day is not complete.
+- [ ] Given a spring-forward day with 46 and an autumn day with 50, then each is complete.
+- [ ] Given 48 readings that are all zero, then the day is not complete.
+- [ ] Given an unknown count and a positive total, then the day is usable and reported as unverified; with a zero total it is not usable.
+- [ ] Schema Sync adds the column to the existing table (verified against the real MariaDB fixture); the Complete Gas Day glossary entry is added.
+
+---
+
+## GCT-2 · Backfill the counts from the API for the days it still serves — [#TBD]
+
+**Blocked by**: GCT-1
+
+**User stories**: 5
+
+### What to build
+
+The existing 730-day summary backfill also records the half-hour counts for every day the API returns (2024-10-09 onward), leaving earlier days NULL.
+
+### Acceptance criteria
+
+- [ ] Given API readings for a day, then the backfill stores that day's count alongside the total.
+- [ ] Given days before the API's first day, then their count stays NULL.
+- [ ] Given a partial API day, then the count is below the expected number and the day reads as incomplete.
+- [ ] Re-running the backfill leaves the counts unchanged.
+
+---
+
+## GCT-3 · Refresh the summary daily — [#TBD]
+
+**Blocked by**: None
+
+**User stories**: 3
+
+### What to build
+
+Run the summary job daily, after the daily raw consumption refetch, instead of weekly (keeping the trailing 14-day window), so recent days settle as their gas arrives.
+
+### Acceptance criteria
+
+- [ ] The summary job is scheduled daily and recorded in `job_run` like before.
+- [ ] Given a day whose gas arrives late, then the next daily refresh turns it from incomplete to complete with the right total.
+- [ ] The raw refetch runs before the summary in the same morning.
+- [ ] The existing weekly-cadence documentation is updated.

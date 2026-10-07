@@ -33,3 +33,14 @@ A throwaway analysis run on 2026-10-07, before the model was designed in detail.
 ## Caveats
 
 Archive temperatures are reanalysis values for the area, not the house, and the live hourly pipeline will differ slightly. R-squared of about 0.7 means about 30% of day-to-day variation is not explained by temperature alone (wind, sunshine, behaviour, hot water), so verdicts are deliberately coarse.
+
+## Gas gaps: where the missing data comes from (investigated 2026-10-07)
+
+The Octopus API was asked, read-only, what it reports today for every gas day it serves, and compared with `daily_consumption_summary`.
+
+- **The API serves gas only from 2024-10-09** (706 days to 2026-10-06). We hold gas back to 2024-07-24, so the first 11 weeks cannot be re-checked.
+- **Our table agrees with the API.** Of the days from 2024-10-09 to 2026-10-04 (726), 643 stored positive days match the API within 5% (none differ by more than 1%), and no stored zero is stale against the API.
+- **The gaps are upstream:** 61 days are all-zero in the API itself (runs of 11 days from 2025-04-24, 7 from 2025-07-01, 6 from 2025-08-07, about 16 in March 2026), 22 days have no data in the API, and 13 days are partial (fewer half-hours than expected, for example 29 of 48 on 2025-03-12) but stored as a smaller positive total, so they silently understate. 630 days are complete. Electricity has no gaps at all (805 of 805 days, none zero), so it is the gas meter or its link.
+- **Zero half-hours inside a day are normal** (the boiler is idle for many slots), so they do not indicate dropouts; only fewer readings than expected, or an all-zero day, mark a gap.
+- **Two effects on our side:** the summary stores only the day's total, so a partial day looks real; and the summary refreshes weekly, so the newest days read zero until the next run (2026-10-05 read 0.0 while its raw rows totalled 6.9 kWh).
+- **Cause unconfirmed.** Multi-day runs fit a lost link between the gas meter and the communications hub, but that is a hypothesis; Octopus could confirm it.

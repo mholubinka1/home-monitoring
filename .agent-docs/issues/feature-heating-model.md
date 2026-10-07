@@ -33,7 +33,7 @@ A pure function that, from daily gas and effective temperatures, fits baseload, 
 ### Acceptance criteria
 
 - [ ] Given synthetic days with a planted baseload, slope and threshold plus noise, then the fit recovers them within a stated tolerance.
-- [ ] Given zero-gas rows, then they are treated as missing.
+- [ ] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
 - [ ] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.
 - [ ] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason.
 - [ ] The blend weight is bounded (0 to 0.8).
