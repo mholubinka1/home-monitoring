@@ -29,10 +29,11 @@
 
 ### What to build
 
-The existing 730-day summary backfill also records the half-hour counts for every day the API returns (2024-10-09 onward), leaving earlier days NULL.
+The existing summary backfill also records the half-hour counts for every day the API returns (2024-10-09 onward), leaving earlier days NULL. It requests everything the API serves, and it runs at startup whenever the summary holds less than 6 months of counted days (replacing the one-time `job_run` gate), so a fresh, wiped or restored database fills itself and the first start after this deploy backfills the counts.
 
 ### Acceptance criteria
 
+- [ ] Given less than 6 months of counted days (or none), when octopus-app starts, then the backfill runs; given 6 months or more, it is skipped.
 - [ ] Given API readings for a day, then the backfill stores that day's count alongside the total.
 - [ ] Given days before the API's first day, then their count stays NULL.
 - [ ] Given a partial API day, then the count is below the expected number and the day reads as incomplete.

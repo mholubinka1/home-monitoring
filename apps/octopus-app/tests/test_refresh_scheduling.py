@@ -2,6 +2,7 @@ import datetime
 import threading
 from datetime import datetime as dt
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
@@ -15,6 +16,7 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
@@ -464,16 +466,62 @@ def test_backfill_runs_and_records_success_on_first_startup(
     assert runs[0].status == "success"
 
 
-def test_backfill_is_skipped_once_a_prior_run_has_succeeded(
+STARTUP = dt(2026, 10, 10, tzinfo=datetime.UTC)
+
+
+def _summary_day(day: datetime.date, count: int | None) -> ConsumptionSummary:
+    return ConsumptionSummary(
+        energy=Energy.gas, date=day, total_kwh=Decimal(1), half_hour_count=count
+    )
+
+
+def test_backfill_runs_when_the_summary_holds_less_than_six_months_of_counted_days(
     mariadb_client: MariaDBClient,
 ) -> None:
-    mariadb_client.record_job_run("yearly_comparison_backfill", "success")
+    mariadb_client.write_consumption_summary(
+        [_summary_day(datetime.date(2026, 5, 1), 48)]
+    )
     backfill = Mock(spec=ConsumptionSummaryBackfill)
 
-    worker = run_backfill_at_startup(backfill, mariadb_client)
+    worker = run_backfill_at_startup(backfill, mariadb_client, as_of=STARTUP)
+    assert worker is not None
+    worker.join()
+
+    backfill.run.assert_called_once()
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).all()
+    assert [(run.job_name, run.status) for run in runs] == [
+        ("yearly_comparison_backfill", "success")
+    ]
+
+
+def test_backfill_is_skipped_once_the_summary_holds_six_months_of_counted_days(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_consumption_summary(
+        [_summary_day(datetime.date(2026, 4, 1), 48)]
+    )
+    backfill = Mock(spec=ConsumptionSummaryBackfill)
+
+    worker = run_backfill_at_startup(backfill, mariadb_client, as_of=STARTUP)
 
     assert worker is None
     backfill.run.assert_not_called()
+
+
+def test_backfill_runs_when_the_summary_has_totals_but_no_counted_days(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_consumption_summary(
+        [_summary_day(datetime.date(2024, 10, 1), None)]
+    )
+    backfill = Mock(spec=ConsumptionSummaryBackfill)
+
+    worker = run_backfill_at_startup(backfill, mariadb_client, as_of=STARTUP)
+    assert worker is not None
+    worker.join()
+
+    backfill.run.assert_called_once()
 
 
 def test_a_persistently_failing_backfill_retries_with_backoff_and_does_not_crash(

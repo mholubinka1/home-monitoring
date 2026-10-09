@@ -14,6 +14,7 @@ from schedule import Job, Scheduler, default_scheduler
 from octopus_app.common.config import RefreshSettings, get_settings
 from octopus_app.common.decorator import retry_with_exponential_backoff
 from octopus_app.common.logging import APP_LOGGER_NAME, config
+from octopus_app.data import local_day
 from octopus_app.data.agile_forecast import AgileForecastRetriever
 from octopus_app.data.base import MonitoringClient
 from octopus_app.data.consumption import ConsumptionRetriever
@@ -37,6 +38,7 @@ PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
 AGILE_FORECAST_REFRESH_JOB = "agile_forecast_refresh"
+MIN_COUNTED_HISTORY_DAYS = 183  # roughly 6 months
 DAILY_JOB_TIME = "04:00"  # shared by every daily/weekly-cadence job, so
 # none of them land in watchtower's 03:00 update window -- that schedule is
 # configured on the Pi host (pi-desktop's compose stack), not in this repo's
@@ -163,10 +165,23 @@ def _schedule_refresh_job(
 
 
 def run_backfill_at_startup(
-    backfill: ConsumptionSummaryBackfill, mariadb: MariaDBClient
+    backfill: ConsumptionSummaryBackfill,
+    mariadb: MariaDBClient,
+    as_of: dt | None = None,
 ) -> threading.Thread | None:
-    if mariadb.has_successful_job_run(YEARLY_COMPARISON_BACKFILL_JOB):
-        logger.info("Yearly comparison backfill already completed; skipping.")
+    # Gated on the data, not on a prior job_run: the backfill runs whenever the
+    # summary holds less than MIN_COUNTED_HISTORY_DAYS of counted days.
+    if as_of is None:
+        as_of = dt.now(datetime.UTC)
+    threshold = local_day.to_local_date(as_of) - timedelta(
+        days=MIN_COUNTED_HISTORY_DAYS
+    )
+    oldest_counted = mariadb.oldest_counted_summary_date()
+    if oldest_counted is not None and oldest_counted <= threshold:
+        logger.info(
+            "Consumption summary already holds at least 6 months of counted days; "
+            "skipping yearly comparison backfill."
+        )
         return None
     run = _run_with_backoff_in_background(
         YEARLY_COMPARISON_BACKFILL_JOB, backfill.run, mariadb

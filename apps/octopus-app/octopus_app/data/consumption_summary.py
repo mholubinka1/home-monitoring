@@ -13,7 +13,9 @@ from octopus_app.data.mysql.client import MariaDBClient
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-BACKFILL_WINDOW_DAYS = 730
+# Deliberately wider than the ~2 years of history the Octopus API serves, so
+# every day it still holds is requested; it simply returns nothing earlier.
+BACKFILL_WINDOW_DAYS = 1096
 
 
 class ConsumptionSummaryRetriever:
@@ -58,6 +60,7 @@ class ConsumptionSummaryBackfill:
 
         self._client.refresh_meters()
         totals: dict[tuple[Energy, date], Decimal] = {}
+        counts: dict[tuple[Energy, date], int] = {}
         for meter in self._client.meters:
             next_page, consumption = self._client.fetch_consumption(meter, period_from)
             while True:
@@ -66,6 +69,7 @@ class ConsumptionSummaryBackfill:
                     # date), to match the weekly job (ADR-0027).
                     key = (meter.energy, local_day.to_local_date(point.start))
                     totals[key] = totals.get(key, Decimal(0)) + point.est_kwh
+                    counts[key] = counts.get(key, 0) + 1
                 if next_page is None:
                     break
                 next_page, consumption = self._client.fetch_consumption_page(
@@ -73,7 +77,12 @@ class ConsumptionSummaryBackfill:
                 )
 
         summaries = [
-            ConsumptionSummary(energy=energy, date=day, total_kwh=total)
+            ConsumptionSummary(
+                energy=energy,
+                date=day,
+                total_kwh=total,
+                half_hour_count=counts[energy, day],
+            )
             for (energy, day), total in totals.items()
         ]
         self._client.persist_consumption_summary(summaries)

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     and_,
+    func,
     or_,
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -568,6 +569,16 @@ class MariaDBClient(MariaDBClientBase):
             for (energy_char, day), total_kwh in daily_totals.items()
             if day >= cutoff or (energy_char, day) not in existing_summary_days
         ]
+
+    def oldest_counted_summary_date(self) -> date | None:
+        dcs = model.daily_consumption_summary
+        with self.session_read_scope() as session:
+            oldest: date | None = (
+                session.query(func.min(dcs.date))
+                .filter(dcs.half_hour_count.isnot(None))
+                .scalar()
+            )
+        return oldest
 
     def write_consumption_summary(self, summaries: list[ConsumptionSummary]) -> None:
         records = [
