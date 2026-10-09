@@ -93,6 +93,7 @@ class daily_consumption_summary(SQLBase):
     energy = Column(String(1), primary_key=True)
     date = Column(Date, primary_key=True)
     total_kwh = Column(DECIMAL(8, 5, unsigned=True), nullable=False)
+    half_hour_count = Column(Integer, nullable=True)
 
 
 class agile_forecast(SQLBase):

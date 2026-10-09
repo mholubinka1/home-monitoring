@@ -50,6 +50,7 @@ class ConsumptionSummary:
     energy: Energy
     date: date
     total_kwh: Decimal
+    half_hour_count: int | None = None
 
 
 @dataclass

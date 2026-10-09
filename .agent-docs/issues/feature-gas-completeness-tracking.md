@@ -17,7 +17,7 @@
 - [ ] Given a spring-forward day with 46 and an autumn day with 50, then each is complete.
 - [ ] Given 48 readings that are all zero, then the day is not complete.
 - [ ] Given an unknown count and a positive total, then the day is usable and reported as unverified; with a zero total it is not usable.
-- [ ] Schema Sync adds the column to the existing table (verified against the real MariaDB fixture); the Complete Gas Day glossary entry is added.
+- [ ] Schema Sync adds the column to the existing table, existing rows reading NULL (SQLite test in octopus-app; the real MariaDB fixture already covers adding a column to an existing table, and the live database is checked at deploy); the Complete Gas Day glossary entry is added.
 
 ---
 

@@ -417,7 +417,12 @@ class MariaDBClient(MariaDBClientBase):
                 .all()
             )
         return [
-            ConsumptionSummary(energy=energy, date=row.date, total_kwh=row.total_kwh)
+            ConsumptionSummary(
+                energy=energy,
+                date=row.date,
+                total_kwh=row.total_kwh,
+                half_hour_count=row.half_hour_count,
+            )
             for row in rows
         ]
 
@@ -528,10 +533,12 @@ class MariaDBClient(MariaDBClientBase):
             # with ConsumptionSummaryBackfill, which also buckets by local
             # day (via local_day.to_local_date).
             daily_totals: dict[tuple[str, date], Decimal] = {}
+            daily_counts: dict[tuple[str, date], int] = {}
             for row in raw_rows:
                 day = local_day.to_local_date(row.period_from)
                 key = (row.energy, day)
                 daily_totals[key] = daily_totals.get(key, Decimal(0)) + row.est_kwh
+                daily_counts[key] = daily_counts.get(key, 0) + 1
 
             # `daily_consumption_summary` is exempt from raw-data pruning
             # (kept for long-running yearly comparisons), so it grows
@@ -556,6 +563,7 @@ class MariaDBClient(MariaDBClientBase):
                 energy=energy_from_char(energy_char),
                 date=day,
                 total_kwh=total_kwh,
+                half_hour_count=daily_counts[energy_char, day],
             )
             for (energy_char, day), total_kwh in daily_totals.items()
             if day >= cutoff or (energy_char, day) not in existing_summary_days
@@ -567,6 +575,7 @@ class MariaDBClient(MariaDBClientBase):
                 energy=as_energy_char(summary.energy),
                 date=summary.date,
                 total_kwh=summary.total_kwh,
+                half_hour_count=summary.half_hour_count,
             )
             for summary in summaries
         ]
