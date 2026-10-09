@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -6,10 +7,11 @@ from hive_app.data.model import WeatherForecastDay, WeatherObservation
 from hive_app.data.weather import WeatherRetriever
 
 
-def _observation(source: str) -> WeatherObservation:
+def _observation(source: str, hour: int = 12) -> WeatherObservation:
     return WeatherObservation(
         source=source,
-        observed_at=datetime(2026, 9, 25, 12, 0, tzinfo=UTC),
+        location="51.50,-0.10",
+        observed_at=datetime(2026, 9, 25, hour, 0, tzinfo=UTC),
         temp=14.5,
         humidity=72,
         pressure=1012.3,
@@ -23,13 +25,14 @@ class _FakeWeatherSourceObservationSucceeds:
     WeatherRetriever.refresh() persists exactly what was fetched."""
 
     def __init__(self) -> None:
-        self.persisted: WeatherObservation | None = None
+        self.fetched = [_observation("open-meteo", hour) for hour in (10, 11, 12)]
+        self.persisted: list[WeatherObservation] | None = None
 
-    def fetch_current_observation(self) -> WeatherObservation:
-        return _observation("open-meteo")
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
+        return self.fetched
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
-        self.persisted = observation
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
+        self.persisted = observations
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:
         raise NotImplementedError
@@ -38,13 +41,26 @@ class _FakeWeatherSourceObservationSucceeds:
         raise NotImplementedError
 
 
-def test_refresh_persists_the_fetched_observation() -> None:
+def test_refresh_persists_every_fetched_hour() -> None:
     source = _FakeWeatherSourceObservationSucceeds()
 
     WeatherRetriever(source).refresh()
 
-    assert source.persisted is not None
-    assert source.persisted.source == "open-meteo"
+    assert source.persisted == source.fetched
+
+
+def test_a_refresh_that_finds_no_hours_to_store_says_so_in_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    source = _FakeWeatherSourceObservationSucceeds()
+    source.fetched = []
+
+    with caplog.at_level(logging.WARNING):
+        WeatherRetriever(source).refresh()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "no hours" in warnings[0].getMessage()
 
 
 class _FakeWeatherSourceObservationFails:
@@ -52,11 +68,11 @@ class _FakeWeatherSourceObservationFails:
     WeatherRetriever.refresh() does no retry/backoff/swallowing of its own
     (that's the generic job-wrapper's job); it just propagates."""
 
-    def fetch_current_observation(self) -> WeatherObservation:
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
         raise ConnectionError("api.open-meteo.com unreachable")
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
-        raise AssertionError("persist_current_observation should never be reached")
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
+        raise AssertionError("persist_observations should never be reached")
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:
         raise NotImplementedError
@@ -90,10 +106,10 @@ class _FakeWeatherSourceForecastSucceeds:
         self._forecast = forecast
         self.persisted: list[WeatherForecastDay] | None = None
 
-    def fetch_current_observation(self) -> WeatherObservation:
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
         raise NotImplementedError
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
         raise NotImplementedError
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:
@@ -118,10 +134,10 @@ class _FakeWeatherSourceForecastFails:
     just propagates
     straight to the generic job wrapper."""
 
-    def fetch_current_observation(self) -> WeatherObservation:
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
         raise NotImplementedError
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
         raise NotImplementedError
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:

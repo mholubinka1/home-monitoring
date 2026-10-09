@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -6,30 +7,62 @@ from pydantic import BaseModel
 
 from hive_app.common.config import LocationSettings
 from hive_app.data.model import WeatherForecastDay, WeatherObservation
-from hive_app.data.weather_types import REQUEST_TIMEOUT_SECONDS, FiniteFloat
-
-CURRENT_FIELDS = (
-    "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,precipitation"
+from hive_app.data.weather_types import (
+    REQUEST_TIMEOUT_SECONDS,
+    FiniteFloat,
+    location_key,
 )
-DAILY_FIELDS = "temperature_2m_max"
+
+HOURLY_VARIABLES = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "surface_pressure",
+    "wind_speed_10m",
+    "precipitation",
+    "shortwave_radiation",
+    "cloud_cover",
+    "sunshine_duration",
+)
+HOURLY_FIELDS = ",".join(HOURLY_VARIABLES)
+# Each live run re-reads this many past hours (plus the current hour's stamp),
+# so an hour missed by an earlier run -- the daily restart, an outage -- is
+# filled by the next one.
+LOOKBACK_HOURS = 24
+DAILY_FIELDS = "temperature_2m_max,temperature_2m_mean"
 
 
-class OpenMeteoCurrent(BaseModel):
-    time: datetime
-    temperature_2m: FiniteFloat
-    relative_humidity_2m: FiniteFloat
-    surface_pressure: FiniteFloat
-    wind_speed_10m: FiniteFloat
-    precipitation: FiniteFloat
+def _values_or_nulls(
+    values: list[FiniteFloat | None] | None, length: int
+) -> list[float | None]:
+    """An array Open-Meteo omitted means no value for any entry."""
+    return [None] * length if values is None else list(values)
 
 
-class OpenMeteoResponse(BaseModel):
-    current: OpenMeteoCurrent
+class OpenMeteoHourly(BaseModel):
+    time: list[datetime]
+    temperature_2m: list[FiniteFloat | None] | None = None
+    relative_humidity_2m: list[FiniteFloat | None] | None = None
+    surface_pressure: list[FiniteFloat | None] | None = None
+    wind_speed_10m: list[FiniteFloat | None] | None = None
+    precipitation: list[FiniteFloat | None] | None = None
+    shortwave_radiation: list[FiniteFloat | None] | None = None
+    cloud_cover: list[FiniteFloat | None] | None = None
+    sunshine_duration: list[FiniteFloat | None] | None = None
+
+    def series(self) -> dict[str, list[float | None]]:
+        """Every requested variable's values, one per hour. Open-Meteo may omit
+        a variable's array entirely; that means no value for any hour, not a
+        length mismatch."""
+        return {
+            name: _values_or_nulls(getattr(self, name), len(self.time))
+            for name in HOURLY_VARIABLES
+        }
 
 
 class OpenMeteoDaily(BaseModel):
     time: list[date]
     temperature_2m_max: list[FiniteFloat]
+    temperature_2m_mean: list[FiniteFloat | None] | None = None
 
 
 class OpenMeteoForecastResponse(BaseModel):
@@ -39,8 +72,13 @@ class OpenMeteoForecastResponse(BaseModel):
 class OpenMeteoClient:
     base_url: str = "https://api.open-meteo.com/v1/forecast"
 
-    def __init__(self, settings: LocationSettings) -> None:
+    def __init__(
+        self,
+        settings: LocationSettings,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
         self._settings = settings
+        self._clock = clock
 
     def _request(self, endpoint_params: dict[str, str]) -> dict[str, Any]:
         # Shared by every Open-Meteo endpoint this client calls: latitude
@@ -58,29 +96,62 @@ class OpenMeteoClient:
         response.raise_for_status()
         return response.json()
 
-    def get_current_observation(self) -> WeatherObservation:
+    def get_recent_observations(self) -> list[WeatherObservation]:
         payload = self._request(
             {
-                "current": CURRENT_FIELDS,
-                # Open-Meteo defaults "current.time" to the location's local
-                # timezone (or GMT) when none is requested -- forcing UTC
-                # here means the naive timestamp it returns can be treated
-                # as UTC below without guessing an offset.
+                "hourly": HOURLY_FIELDS,
+                "past_hours": str(LOOKBACK_HOURS),
+                # Only the current hour's stamp, whose sums cover the hour
+                # that has just ended (Open-Meteo stamps an hourly sum at the
+                # end of its hour; to be confirmed against the archive in the
+                # history backfill, #623).
+                "forecast_hours": "1",
+                # Forcing UTC means the naive hour stamps Open-Meteo returns
+                # can be treated as UTC below without guessing an offset.
                 "timezone": "UTC",
             }
         )
-        parsed = OpenMeteoResponse.model_validate(payload)
-        current = parsed.current
+        hourly = OpenMeteoHourly.model_validate(payload["hourly"])
+        series = hourly.series()
+        mismatched = {
+            name: len(values)
+            for name, values in series.items()
+            if len(values) != len(hourly.time)
+        }
+        if mismatched:
+            raise ValueError(
+                "Open-Meteo hourly response has mismatched array lengths: "
+                f"{len(hourly.time)} time entries vs {mismatched}."
+            )
+        location = location_key(self._settings.latitude, self._settings.longitude)
+        current_hour = self._clock().replace(minute=0, second=0, microsecond=0)
 
-        return WeatherObservation(
-            source="open-meteo",
-            observed_at=current.time.replace(tzinfo=UTC),
-            temp=current.temperature_2m,
-            humidity=current.relative_humidity_2m,
-            pressure=current.surface_pressure,
-            wind_speed=current.wind_speed_10m,
-            precipitation=current.precipitation,
-        )
+        observations = []
+        for i, naive_hour in enumerate(hourly.time):
+            # Open-Meteo's naive stamps are UTC because the request asked for it.
+            observed_at = naive_hour.replace(tzinfo=UTC)
+            if observed_at > current_hour:
+                continue
+            hour = {name: values[i] for name, values in series.items()}
+            # An hour with no values at all carries no information to store.
+            if all(value is None for value in hour.values()):
+                continue
+            observations.append(
+                WeatherObservation(
+                    source="open-meteo",
+                    location=location,
+                    observed_at=observed_at,
+                    temp=hour["temperature_2m"],
+                    humidity=hour["relative_humidity_2m"],
+                    pressure=hour["surface_pressure"],
+                    wind_speed=hour["wind_speed_10m"],
+                    precipitation=hour["precipitation"],
+                    shortwave_radiation=hour["shortwave_radiation"],
+                    cloud_cover=hour["cloud_cover"],
+                    sunshine_duration=hour["sunshine_duration"],
+                )
+            )
+        return observations
 
     def get_forecast(self) -> list[WeatherForecastDay]:
         payload = self._request(
@@ -100,20 +171,28 @@ class OpenMeteoClient:
         parsed = OpenMeteoForecastResponse.model_validate(payload)
         daily = parsed.daily
 
-        if len(daily.time) != len(daily.temperature_2m_max):
+        mean_temps = _values_or_nulls(daily.temperature_2m_mean, len(daily.time))
+
+        if len(daily.time) != len(daily.temperature_2m_max) or len(daily.time) != len(
+            mean_temps
+        ):
             raise ValueError(
                 "Open-Meteo forecast response has mismatched array lengths: "
                 f"{len(daily.time)} time entries vs "
-                f"{len(daily.temperature_2m_max)} temperature_2m_max entries."
+                f"{len(daily.temperature_2m_max)} temperature_2m_max entries vs "
+                f"{len(mean_temps)} temperature_2m_mean entries."
             )
 
-        fetched_at = datetime.now(UTC)
+        fetched_at = self._clock()
         return [
             WeatherForecastDay(
                 source="open-meteo",
                 target_date=target_date,
                 max_temp=max_temp,
                 fetched_at=fetched_at,
+                mean_temp=mean_temp,
             )
-            for target_date, max_temp in zip(daily.time, daily.temperature_2m_max)
+            for target_date, max_temp, mean_temp in zip(
+                daily.time, daily.temperature_2m_max, mean_temps
+            )
         ]

@@ -10,9 +10,9 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 
 class WeatherSource(Protocol):
-    def fetch_current_observation(self) -> WeatherObservation: ...
+    def fetch_recent_observations(self) -> list[WeatherObservation]: ...
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None: ...
+    def persist_observations(self, observations: list[WeatherObservation]) -> None: ...
 
     def fetch_forecast(self) -> list[WeatherForecastDay]: ...
 
@@ -29,10 +29,15 @@ class WeatherRetriever:
         # No try/except: Open-Meteo is the only observation source, so any
         # failure must propagate untouched to the generic job wrapper, which
         # handles retry-with-backoff and job_run failure recording.
-        observation = self._client.fetch_current_observation()
-        self._client.persist_current_observation(observation)
+        observations = self._client.fetch_recent_observations()
+        self._client.persist_observations(observations)
+        if not observations:
+            # The job still succeeds; this line is the only trace that
+            # Open-Meteo gave back nothing storable.
+            logger.warning("Weather observation refresh: no hours to store.")
+            return
         logger.info(
-            f"Weather observation refresh: persisted from {observation.source}."
+            f"Weather observation refresh: persisted {len(observations)} hour(s)."
         )
 
     def refresh_forecast(self) -> None:

@@ -15,7 +15,7 @@ from hive_app.data.model import (
     WeatherObservation,
 )
 from hive_app.data.mysql import model as sql_model
-from hive_app.data.mysql.model import SQLBase
+from hive_app.data.mysql.model import WEATHER_OBSERVATION_KEY, SQLBase
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -58,24 +58,36 @@ class MariaDBClient(MariaDBClientBase):
             boost_active=status.boost_active,
             boost_ends_at=status.boost_ends_at,
             schedule=_json_safe(status.schedule),
+            working=status.working,
         )
         self._write_all([record], "Heating status data")
 
-    def write_weather_observation(self, observation: WeatherObservation) -> None:
+    def write_weather_observations(
+        self, observations: list[WeatherObservation]
+    ) -> None:
         # sqlalchemy-stubs models every Numeric subclass (Float included) as
         # TypeEngine[Decimal], so it reports a float/Decimal mismatch here even
         # though SQLAlchemy's real runtime Float column stores/returns a plain
         # Python float -- a known stub-accuracy gap, not a real type error.
-        record = sql_model.weather_observation(
-            source=observation.source,
-            observed_at=observation.observed_at,
-            temp=observation.temp,  # type: ignore[misc]
-            humidity=observation.humidity,  # type: ignore[misc]
-            pressure=observation.pressure,  # type: ignore[misc]
-            wind_speed=observation.wind_speed,  # type: ignore[misc]
-            precipitation=observation.precipitation,  # type: ignore[misc]
+        records = [
+            sql_model.weather_observation(
+                source=observation.source,
+                location=observation.location,
+                observed_at=observation.observed_at,
+                temp=observation.temp,  # type: ignore[misc]
+                humidity=observation.humidity,  # type: ignore[misc]
+                pressure=observation.pressure,  # type: ignore[misc]
+                wind_speed=observation.wind_speed,  # type: ignore[misc]
+                precipitation=observation.precipitation,  # type: ignore[misc]
+                shortwave_radiation=observation.shortwave_radiation,  # type: ignore[misc]
+                cloud_cover=observation.cloud_cover,  # type: ignore[misc]
+                sunshine_duration=observation.sunshine_duration,  # type: ignore[misc]
+            )
+            for observation in observations
+        ]
+        self._write_all(
+            records, "Weather observation data", key_columns=WEATHER_OBSERVATION_KEY
         )
-        self._write_all([record], "Weather observation data")
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:
         # sqlalchemy-stubs models every Numeric subclass (Float included) as
@@ -88,6 +100,7 @@ class MariaDBClient(MariaDBClientBase):
                 source=day.source,
                 target_date=day.target_date,
                 max_temp=day.max_temp,  # type: ignore[misc]
+                mean_temp=day.mean_temp,  # type: ignore[misc]
                 fetched_at=day.fetched_at,
             )
             for day in forecast
@@ -103,16 +116,19 @@ class MariaDBClient(MariaDBClientBase):
         )
 
     def write_weather_location(self, location: ResolvedLocation) -> None:
-        # See write_weather_observation for why the float assignments need an
+        # See write_weather_observations for why the float assignments need an
         # ignore.
         record = sql_model.weather_location(
             id=_WEATHER_LOCATION_ROW_ID,
             latitude=location.latitude,  # type: ignore[misc]
             longitude=location.longitude,  # type: ignore[misc]
             source=location.source,
+            derived_from_postcode=location.derived_from_postcode,
             resolved_at=datetime.now(UTC),
         )
-        self._write_all([record], "Weather location")
+        # The row records the Account Postcode it was derived from, which a
+        # SQLAlchemy error message would embed -- so errors are redacted.
+        self._write_all([record], "Weather location", redact_errors=True)
 
     def read_weather_location(self) -> ResolvedLocation | None:
         with self.session_read_scope() as session:
@@ -123,4 +139,6 @@ class MariaDBClient(MariaDBClientBase):
                 latitude=float(row.latitude),
                 longitude=float(row.longitude),
                 source=row.source,  # type: ignore[arg-type]
+                # Same stub gap as above: a nullable String column reads as Column.
+                derived_from_postcode=row.derived_from_postcode,  # type: ignore[arg-type]
             )

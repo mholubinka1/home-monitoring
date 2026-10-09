@@ -17,11 +17,11 @@ class WeatherApiSource:
     def _open_meteo(self) -> OpenMeteoClient:
         return OpenMeteoClient(self._locations.resolve())
 
-    def fetch_current_observation(self) -> WeatherObservation:
-        return self._open_meteo().get_current_observation()
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
+        return self._open_meteo().get_recent_observations()
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
-        self._mariadb.write_weather_observation(observation)
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
+        self._mariadb.write_weather_observations(observations)
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:
         return self._open_meteo().get_forecast()

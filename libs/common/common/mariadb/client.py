@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from logging import Logger
@@ -27,7 +27,16 @@ def _is_table_already_exists_error(exc: OperationalError | ProgrammingError) -> 
     return bool(orig_args) and orig_args[0] == _TABLE_ALREADY_EXISTS_ERROR_CODE
 
 
-def upsert(s: Session, record: Any) -> None:
+def upsert(s: Session, record: Any, key_columns: Sequence[str] | None = None) -> None:
+    """Insert the record, or update the existing row on a unique-key conflict.
+
+    The conflict is resolved on the primary key unless key_columns names a
+    different unique key (then `id` and the rest of the primary key are left
+    untouched on update). An empty key_columns is a caller error, not a request
+    for the primary key: pass None for that.
+    """
+    if key_columns is not None and len(key_columns) == 0:
+        raise ValueError("upsert key_columns must name at least one column or be None.")
     try:
         with s.begin_nested():
             s.add(record)
@@ -35,20 +44,23 @@ def upsert(s: Session, record: Any) -> None:
             return
     except IntegrityError as exc:
         pk_columns = [col.name for col in inspect(type(record)).primary_key]
-        pk_filter = {col: getattr(record, col) for col in pk_columns}
+        match_columns = list(key_columns) if key_columns is not None else pk_columns
+        match_filter = {col: getattr(record, col) for col in match_columns}
         update_dict = {
-            col.name: getattr(record, col.name) for col in record.__table__.columns
+            col.name: getattr(record, col.name)
+            for col in record.__table__.columns
+            if key_columns is None or col.name not in pk_columns
         }
         if (
             s.query(type(record))
-            .filter_by(**pk_filter)
+            .filter_by(**match_filter)
             .update(update_dict, synchronize_session=False)
         ):
             return
         raise RuntimeError(
             f"Upsert conflict resolution failed: no {type(record).__name__} row "
-            f"matched primary key {pk_filter}. The IntegrityError was likely caused "
-            "by a non-primary-key constraint violation."
+            f"matched {match_filter}. The IntegrityError was likely caused by a "
+            "constraint other than the one those columns identify."
         ) from exc
 
 
@@ -219,14 +231,28 @@ class MariaDBClientBase:
         finally:
             session.close()
 
-    def _write_all(self, records: list[Any], description: str) -> None:
+    def _write_all(
+        self,
+        records: list[Any],
+        description: str,
+        key_columns: Sequence[str] | None = None,
+        redact_errors: bool = False,
+    ) -> None:
+        """Upserts every record in one transaction. A SQLAlchemy error message
+        embeds the bound parameters, so with redact_errors (for records that
+        carry personal data) only the exception type is logged and raised,
+        with no chained cause."""
         try:
             with self.session_write_scope() as s:
                 for record in records:
-                    upsert(s, record)
+                    upsert(s, record, key_columns)
                 self._logger.debug(f"{description}: {len(records)} written to MariaDB.")
                 return
         except Exception as e:
+            if redact_errors:
+                error_type = type(e).__name__
+                self._logger.error(f"Failed to write {description}: {error_type}")
+                raise MariaDBError(error_type) from None
             self._logger.error(f"Failed to write {description}: {e}")
             raise MariaDBError(e) from e
 

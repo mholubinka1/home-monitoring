@@ -1,5 +1,7 @@
 # Issues: feature-weather-data-foundations
 
+> Work complete — PR ready to merge. One criterion is deliberately left unticked (FND-1: existing-table Schema Sync verified against the real MariaDB fixture); it is covered on SQLite only until CI runs the container tests on the Pi.
+
 ## FND-1 · Weather observations cannot be duplicated — [#620](https://github.com/mholubinka1/home-monitoring/issues/620)
 
 **Blocked by**: None
@@ -12,13 +14,13 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 
 ### Acceptance criteria
 
-- [ ] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
-- [ ] Given the same hour from two different sources, then both rows exist.
-- [ ] Given the same hour at two different locations (different location keys), then both rows exist.
-- [ ] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note's one-off update gives the existing rows the current key.
+- [x] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
+- [x] Given the same hour from two different sources, then both rows exist.
+- [x] Given the same hour at two different locations (different location keys), then both rows exist.
+- [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note deletes the pre-change rows (empty location), which hold 15-minute-sample amounts (see FND-5).
 - [ ] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture).
-- [ ] The live observation job persists through the keyed upsert.
-- [ ] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
+- [x] The live observation job persists through the keyed upsert.
+- [x] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
 
 ---
 
@@ -34,11 +36,13 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ### Acceptance criteria
 
-- [ ] Given a response with the new variables, then they are stored on the observation with the correct units.
-- [ ] Given a response missing one of them, then the observation is still stored with null for it.
-- [ ] Given a non-finite new value, then it is rejected like the existing variables.
-- [ ] Given a forecast response, then each day's mean temperature is stored alongside the maximum.
-- [ ] Schema Sync adds the new columns to existing tables; the Weather Observation glossary entry is updated.
+- [x] Given a response with the new variables, then they are stored on the observation with the correct units.
+- [x] Given a response missing one of them, then the observation is still stored with null for it.
+- [x] Given a non-finite new value, then it is rejected like the existing variables.
+- [x] Given a forecast response, then each day's mean temperature is stored alongside the maximum.
+- [x] Schema Sync adds the new columns to existing tables; the Weather Observation glossary entry is updated.
+
+_Since refined by FND-5: this was delivered against Open-Meteo's 15-minute `current` sample; FND-5 moves the live job to hourly data so these values are hourly amounts._
 
 ---
 
@@ -50,15 +54,15 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ### What to build
 
-`heating_status` gains a nullable boolean column for the thermostat's own "heating is working" report (the library's current-operation value). hive-app records it on every poll. A missing or unexpected value is stored as null and logged once. Its meaning is unverified; a short on/off test after deploy decides whether it reflects the boiler.
+`heating_status` gains a nullable boolean column for the thermostat's own "heating is working" report (the library's current-operation value). hive-app records it on every poll. A missing or unexpected value is stored as null and warned about once per process (later occurrences log at debug). Its meaning is unverified; a short on/off test after deploy decides whether it reflects the boiler.
 
 ### Acceptance criteria
 
-- [ ] Given a poll where the thermostat reports working, then the row stores true; not working, false.
-- [ ] Given a poll with no value or an unexpected type, then the row stores null and one log line says so.
-- [ ] Schema Sync adds the column to the existing table and existing rows are unaffected.
-- [ ] The existing heating persistence and retrieval tests still pass.
-- [ ] A note records that the semantics are to be confirmed by an on/off test after deploy.
+- [x] Given a poll where the thermostat reports working, then the row stores true; not working, false.
+- [x] Given a poll with no value or an unexpected type, then the row stores null and a warning says so (the first time; later polls log at debug).
+- [x] Schema Sync adds the column to the existing table and existing rows are unaffected.
+- [x] The existing heating persistence and retrieval tests still pass.
+- [x] A note records that the semantics are to be confirmed by an on/off test after deploy.
 
 ---
 
@@ -70,12 +74,36 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ### What to build
 
-hive-app's Weather Location resolution records the postcode (or explicit `location`) its cached location was derived from, and re-derives it when the Account Postcode or the override differs, which gives a new location key and so a new weather series. Readers use only the current location's key. The postcode itself is never logged.
+hive-app's Weather Location resolution records the Account Postcode its cached location was derived from and re-derives it when that postcode differs, which gives a new location key and so a new weather series. An explicit `location` override is never cached; its coordinates give the key, so adding or changing it also starts a new series. Readers use only the current location's key. The postcode itself is never logged.
 
 ### Acceptance criteria
 
-- [ ] Given the Account Postcode changes, then the next weather run re-derives the location and stores the new location key; observations written before keep their old key.
-- [ ] Given an explicit `location` is added or changed, then a new location key is used from the next run.
-- [ ] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
-- [ ] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
-- [ ] The postcode never appears in logs or error messages.
+- [x] Given the Account Postcode changes, then the next weather run re-derives the location and stores the new location key; observations written before keep their old key.
+- [x] Given an explicit `location` is added or changed, then a new location key is used from the next run.
+- [x] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
+- [x] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
+- [x] The postcode never appears in logs or error messages.
+
+---
+
+## FND-5 · The live weather job stores whole, completed hours and fills missed ones — [#655](https://github.com/mholubinka1/home-monitoring/issues/655)
+
+**Blocked by**: #620, #621
+
+**User stories**: 9
+
+### What to build
+
+Replace the live job's use of Open-Meteo's 15-minute `current` sample with its hourly data. Each run requests the last 24 hours plus the current hour's stamp (`past_hours=24`, `forecast_hours=1`, UTC), ignores any hour later than the current one, skips an hour with no values at all, stores a single missing variable as null, and writes every hour through the keyed upsert. Every stored row is stamped on the hour with hourly totals for rain, sunshine and radiation, so live rows mean the same as the backfill's and the daily restart gap is filled by the next run. The `current`-based fetch is removed. The deploy note deletes the pre-change rows (empty `location`).
+
+### Acceptance criteria
+
+- [x] Given an hourly response, then each hour is stored stamped on the hour, with its temperature, humidity, pressure, wind, precipitation, shortwave radiation, cloud cover and sunshine duration.
+- [x] Given a response whose latest hour is later than the current hour, then that hour is not stored.
+- [x] Given an hour with no values at all, then it is skipped and the other hours are stored.
+- [x] Given an hour missing one variable, then it is stored with null for that variable.
+- [x] Given a non-finite value in any hour, then the response is rejected like the existing variables.
+- [x] Given the same run repeated, then the row count is unchanged and the rows hold the latest values.
+- [x] Given an earlier run that missed an hour (the daily restart), then the next run stores that hour.
+- [x] The live observation job persists the list through the keyed upsert, with the same source label (`open-meteo`) and location key as before.
+- [x] The `current`-based observation fetch and the 15-minute-sample wording (spec, glossary, tests) are removed; the deploy note deletes the pre-change rows.

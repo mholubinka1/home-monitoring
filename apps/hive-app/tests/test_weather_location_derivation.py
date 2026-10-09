@@ -3,6 +3,7 @@ import logging
 import pytest
 import responses
 from schedule import Scheduler
+from weather_hourly_payloads import recent_hourly_payload
 
 from hive_app.common.config import LocationSettings
 from hive_app.data.model import ResolvedLocation
@@ -15,16 +16,7 @@ POSTCODES_IO_ENDPOINT = "https://api.postcodes.io/postcodes/AB12CD"
 IPWHO_ENDPOINT = "https://ipwho.is/"
 OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
-OPEN_METEO_CURRENT_RESPONSE = {
-    "current": {
-        "time": "2026-09-25T12:00",
-        "temperature_2m": 14.5,
-        "relative_humidity_2m": 72,
-        "surface_pressure": 1012.3,
-        "wind_speed_10m": 8.1,
-        "precipitation": 0.0,
-    }
-}
+OPEN_METEO_HOURLY_RESPONSE = recent_hourly_payload(1)
 
 
 @responses.activate
@@ -39,7 +31,7 @@ def test_with_no_weather_config_an_account_postcode_locates_the_observation_and_
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     retriever = _build_weather_retriever(None, mariadb_client)
@@ -65,7 +57,7 @@ def test_a_cached_ip_location_is_kept_when_postcodes_io_cannot_locate_the_postco
     mariadb_client.write_account_postcode("AB12CD")
     responses.add(responses.GET, POSTCODES_IO_ENDPOINT, status=500)
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     _build_weather_retriever(None, mariadb_client).refresh()
@@ -88,7 +80,7 @@ def test_a_cached_location_is_used_without_geocoding_again(
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
     retriever = _build_weather_retriever(None, mariadb_client)
     retriever.refresh()
@@ -113,7 +105,7 @@ def test_with_no_account_postcode_ip_geolocation_locates_the_observation_and_is_
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     _build_weather_retriever(None, mariadb_client).refresh()
@@ -134,7 +126,7 @@ def test_an_explicit_location_config_is_used_and_never_cached(
 ) -> None:
     mariadb_client.write_account_postcode("AB12CD")
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     _build_weather_retriever(
@@ -170,7 +162,7 @@ def test_when_no_location_resolves_the_run_fails_clearly_and_a_later_run_recover
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     retriever.refresh()
@@ -191,7 +183,7 @@ def test_with_no_weather_config_both_weather_jobs_register_and_the_forecast_uses
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
     responses.add(
         responses.GET,
@@ -232,7 +224,7 @@ def test_deriving_the_location_logs_its_source_and_coordinates(
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     with caplog.at_level(logging.INFO):
@@ -263,7 +255,7 @@ def test_when_postcodes_io_cannot_locate_the_postcode_ip_geolocation_is_used(
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     _build_weather_retriever(None, mariadb_client).refresh()
@@ -287,7 +279,7 @@ def test_a_postcodes_io_failure_never_puts_the_postcode_in_the_logs(
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     with caplog.at_level(logging.INFO):
@@ -310,7 +302,7 @@ def test_an_ip_derived_location_is_upgraded_once_the_account_postcode_exists(
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
     retriever = _build_weather_retriever(None, mariadb_client)
     retriever.refresh()
@@ -340,7 +332,7 @@ def test_a_postcodes_io_failure_with_a_cached_ip_location_does_not_claim_a_fallb
     mariadb_client.write_account_postcode("AB12CD")
     responses.add(responses.GET, POSTCODES_IO_ENDPOINT, status=500)
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     with caplog.at_level(logging.WARNING):

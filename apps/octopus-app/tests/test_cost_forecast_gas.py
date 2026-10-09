@@ -778,11 +778,13 @@ def test_a_non_finite_training_observation_is_excluded_from_the_daily_max(
         _seed_weather_observation(s, day, 9.0)
         s.execute(
             text(
-                "INSERT INTO weather_observation (source, observed_at, temp) "
-                "VALUES (:source, :observed_at, :temp)"
+                "INSERT INTO weather_observation "
+                "(source, location, observed_at, temp) "
+                "VALUES (:source, :location, :observed_at, :temp)"
             ),
             {
                 "source": "test",
+                "location": "51.50,-0.10",
                 "observed_at": start_of_local_day(day) + timedelta(hours=18),
                 "temp": float("nan"),
             },

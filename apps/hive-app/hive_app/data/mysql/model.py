@@ -1,6 +1,16 @@
 from typing import ClassVar
 
-from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+)
 
 from common.mariadb.model import SQLBase, job_run
 
@@ -20,20 +30,37 @@ class heating_status(SQLBase):
     boost_active = Column(Boolean)
     boost_ends_at = Column(DateTime)
     schedule = Column(JSON)
+    working = Column(Boolean)
+
+
+# One observation per hour per source and location: the unique key, which the
+# keyed upsert also resolves conflicts on.
+WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")
 
 
 class weather_observation(SQLBase):
     __tablename__ = "weather_observation"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+    # A unique Index (not a UniqueConstraint): Schema Sync only creates
+    # missing indexes on existing tables.
+    __table_args__ = (
+        Index("uq_weather_observation_hour", *WEATHER_OBSERVATION_KEY, unique=True),
+        {"schema": "octopus"},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(20))
+    # The server default is what lets Schema Sync add this NOT NULL column to
+    # a table that already has rows (they get '').
+    location = Column(String(20), nullable=False, server_default="")
     observed_at = Column(DateTime, nullable=False)
     temp = Column(Float)
     humidity = Column(Float)
     pressure = Column(Float)
     wind_speed = Column(Float)
     precipitation = Column(Float)
+    shortwave_radiation = Column(Float)
+    cloud_cover = Column(Float)
+    sunshine_duration = Column(Float)
 
 
 class weather_forecast(SQLBase):
@@ -44,6 +71,7 @@ class weather_forecast(SQLBase):
     source = Column(String(20))
     target_date = Column(Date, nullable=False)
     max_temp = Column(Float)
+    mean_temp = Column(Float)
     fetched_at = Column(DateTime, nullable=False)
 
 
@@ -58,4 +86,5 @@ class weather_location(SQLBase):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     source = Column(String(20), nullable=False)
+    derived_from_postcode = Column(String(20), nullable=True)
     resolved_at = Column(DateTime, nullable=False)

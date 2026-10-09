@@ -73,19 +73,23 @@ class _OpenMeteoSource:
     def __init__(self, mariadb: MariaDBClient) -> None:
         self._mariadb = mariadb
 
-    def fetch_current_observation(self) -> WeatherObservation:
-        return WeatherObservation(
-            source="open-meteo",
-            observed_at=datetime(2026, 9, 25, 12, 0, tzinfo=UTC),
-            temp=14.5,
-            humidity=72,
-            pressure=1012.3,
-            wind_speed=8.1,
-            precipitation=0.0,
-        )
+    def fetch_recent_observations(self) -> list[WeatherObservation]:
+        return [
+            WeatherObservation(
+                source="open-meteo",
+                location="51.50,-0.10",
+                observed_at=datetime(2026, 9, 25, hour, 0, tzinfo=UTC),
+                temp=14.5,
+                humidity=72,
+                pressure=1012.3,
+                wind_speed=8.1,
+                precipitation=0.0,
+            )
+            for hour in (11, 12)
+        ]
 
-    def persist_current_observation(self, observation: WeatherObservation) -> None:
-        self._mariadb.write_weather_observation(observation)
+    def persist_observations(self, observations: list[WeatherObservation]) -> None:
+        self._mariadb.write_weather_observations(observations)
 
     def fetch_forecast(self) -> list[WeatherForecastDay]:
         raise NotImplementedError
@@ -110,5 +114,5 @@ def test_an_observation_refresh_persists_and_the_job_records_success(
     assert len(runs) == 1
     assert runs[0].job_name == "weather_observation_refresh"
     assert runs[0].status == "success"
-    assert len(observations) == 1
+    assert len(observations) == 2
     assert observations[0].source == "open-meteo"
