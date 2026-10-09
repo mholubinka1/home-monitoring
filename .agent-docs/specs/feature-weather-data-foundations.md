@@ -78,7 +78,7 @@ Run against the configured database (`octopus` unless `mariadb.database` says ot
 
 3. **Deploy hive-app.** Schema Sync adds the non-null `location` column (existing rows get an empty string) and the unique key `uq_weather_observation_hour` on `(source, location, observed_at)`.
 
-4. **Delete the pre-change live rows.** Rows written before this change hold 15-minute-sample amounts (rain, sunshine, radiation) and have no location key (`location = ''`). Delete them straight after the deploy, before the backfill, so they are never preferred over the archive's hourly values; the backfill refills those hours. New rows carry a real location key, so they never clash with these. There is no backup step: the rows are about three days of rows already superseded by the hourly job, and until the history backfill (#623) runs those hours simply have no weather data, which nothing reads yet. Check what will go first (expect roughly the rows collected before this deploy):
+4. **Delete the pre-change live rows.** Rows written before this change hold 15-minute-sample amounts (rain, sunshine, radiation) and have no location key (`location = ''`). Delete them straight after the deploy, before the backfill, so they are never preferred over the archive's hourly values; the backfill refills those hours. New rows carry a real location key, so they never clash with these. There is no backup step: the rows are about three days of rows already superseded by the hourly job, and until the history backfill (#623) runs, the hours before the job's 24-hour window simply have no weather data. One reader notices: octopus-app's gas cost forecast fits its weather regression on daily max temperatures from this table (it does not filter by location), and a day without a temperature drops out of its training window, so the forecast may use its flat-average method until the backfill runs. Check what will go first (expect roughly the rows collected before this deploy):
 
    ```sql
    SELECT COUNT(*), MIN(observed_at), MAX(observed_at) FROM weather_observation WHERE location = '';
@@ -95,3 +95,13 @@ Run against the configured database (`octopus` unless `mariadb.database` says ot
    ```
 
    Record the outcome in this note; until then do not build anything on `working`.
+
+### Deploy record (2026-10-09)
+
+Run against the live database, which is `home_monitoring` (the `octopus` default named at the top of this note predates the database rename).
+
+1. Duplicate-hours check: no rows. The table held 66 rows, all on the hour, from 2026-10-06 20:00 to 2026-10-09 15:00.
+2. Cleanup: skipped, since step 1 returned nothing.
+3. hive-app deployed at 15:06 UTC. Schema Sync added `working` to `heating_status`; `location`, `shortwave_radiation`, `cloud_cover` and `sunshine_duration` to `weather_observation`; `mean_temp` to `weather_forecast`; `derived_from_postcode` to `weather_location`; and created `uq_weather_observation_hour` on the existing 66-row table. This is the real-MariaDB evidence for #620's existing-table criterion.
+4. Deleted all 66 rows with `location = ''` (the full range above). By 17:36 UTC the hourly job had written 26 rows (2026-10-08 16:00 to 2026-10-09 17:00) under a single location key, with solar fields filled. The gas forecast's regression needs five days of paired data and live weather only began on 2026-10-06, so it was already on its flat-average method; the delete changed nothing there.
+5. Working flag test: deferred to #658. It was not cold enough to run the heating; `working` is recorded on every poll from 15:08 UTC, so the test can use stored history once the heating runs naturally.
