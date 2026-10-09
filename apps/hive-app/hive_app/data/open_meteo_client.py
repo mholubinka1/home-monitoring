@@ -31,6 +31,13 @@ LOOKBACK_HOURS = 24
 DAILY_FIELDS = "temperature_2m_max,temperature_2m_mean"
 
 
+def _values_or_nulls(
+    values: list[FiniteFloat | None] | None, length: int
+) -> list[float | None]:
+    """An array Open-Meteo omitted means no value for any entry."""
+    return [None] * length if values is None else list(values)
+
+
 class OpenMeteoHourly(BaseModel):
     time: list[datetime]
     temperature_2m: list[FiniteFloat | None] | None = None
@@ -47,11 +54,7 @@ class OpenMeteoHourly(BaseModel):
         a variable's array entirely; that means no value for any hour, not a
         length mismatch."""
         return {
-            name: (
-                [None] * len(self.time)
-                if getattr(self, name) is None
-                else getattr(self, name)
-            )
+            name: _values_or_nulls(getattr(self, name), len(self.time))
             for name in HOURLY_VARIABLES
         }
 
@@ -123,26 +126,32 @@ class OpenMeteoClient:
         location = location_key(self._settings.latitude, self._settings.longitude)
         current_hour = self._clock().replace(minute=0, second=0, microsecond=0)
 
-        return [
-            WeatherObservation(
-                source="open-meteo",
-                location=location,
-                observed_at=hour,
-                temp=series["temperature_2m"][i],
-                humidity=series["relative_humidity_2m"][i],
-                pressure=series["surface_pressure"][i],
-                wind_speed=series["wind_speed_10m"][i],
-                precipitation=series["precipitation"][i],
-                shortwave_radiation=series["shortwave_radiation"][i],
-                cloud_cover=series["cloud_cover"][i],
-                sunshine_duration=series["sunshine_duration"][i],
-            )
-            for i, naive_hour in enumerate(hourly.time)
+        observations = []
+        for i, naive_hour in enumerate(hourly.time):
             # Open-Meteo's naive stamps are UTC because the request asked for it.
-            if (hour := naive_hour.replace(tzinfo=UTC)) <= current_hour
+            observed_at = naive_hour.replace(tzinfo=UTC)
+            if observed_at > current_hour:
+                continue
+            hour = {name: values[i] for name, values in series.items()}
             # An hour with no values at all carries no information to store.
-            and any(values[i] is not None for values in series.values())
-        ]
+            if all(value is None for value in hour.values()):
+                continue
+            observations.append(
+                WeatherObservation(
+                    source="open-meteo",
+                    location=location,
+                    observed_at=observed_at,
+                    temp=hour["temperature_2m"],
+                    humidity=hour["relative_humidity_2m"],
+                    pressure=hour["surface_pressure"],
+                    wind_speed=hour["wind_speed_10m"],
+                    precipitation=hour["precipitation"],
+                    shortwave_radiation=hour["shortwave_radiation"],
+                    cloud_cover=hour["cloud_cover"],
+                    sunshine_duration=hour["sunshine_duration"],
+                )
+            )
+        return observations
 
     def get_forecast(self) -> list[WeatherForecastDay]:
         payload = self._request(
@@ -162,9 +171,7 @@ class OpenMeteoClient:
         parsed = OpenMeteoForecastResponse.model_validate(payload)
         daily = parsed.daily
 
-        mean_temps = daily.temperature_2m_mean
-        if mean_temps is None:
-            mean_temps = [None] * len(daily.time)
+        mean_temps = _values_or_nulls(daily.temperature_2m_mean, len(daily.time))
 
         if len(daily.time) != len(daily.temperature_2m_max) or len(daily.time) != len(
             mean_temps

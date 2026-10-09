@@ -92,7 +92,7 @@ hive-app's Weather Location resolution records the Account Postcode its cached l
 
 ### What to build
 
-Replace the live job's use of Open-Meteo's 15-minute `current` sample with its hourly data. Each run requests the last 24 completed hours (`past_hours=24`, `forecast_hours=1`, UTC), ignores any hour later than the current one, skips an hour with no values at all, stores a single missing variable as null, and writes every hour through the keyed upsert. Every stored row is stamped on the hour with hourly totals for rain, sunshine and radiation, so live rows mean the same as the backfill's and the daily restart gap is filled by the next run. The `current`-based fetch is removed. The deploy note deletes the pre-change rows (empty `location`).
+Replace the live job's use of Open-Meteo's 15-minute `current` sample with its hourly data. Each run requests the last 24 hours plus the current hour's stamp (`past_hours=24`, `forecast_hours=1`, UTC), ignores any hour later than the current one, skips an hour with no values at all, stores a single missing variable as null, and writes every hour through the keyed upsert. Every stored row is stamped on the hour with hourly totals for rain, sunshine and radiation, so live rows mean the same as the backfill's and the daily restart gap is filled by the next run. The `current`-based fetch is removed. The deploy note deletes the pre-change rows (empty `location`).
 
 ### Acceptance criteria
 
