@@ -74,8 +74,8 @@ hive-app's Weather Location resolution records the postcode (or explicit `locati
 
 ### Acceptance criteria
 
-- [ ] Given the Account Postcode changes, then the next weather run re-derives the location and stores the new location key; observations written before keep their old key.
-- [ ] Given an explicit `location` is added or changed, then a new location key is used from the next run.
-- [ ] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
-- [ ] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
-- [ ] The postcode never appears in logs or error messages.
+- [x] Given the Account Postcode changes, then the next weather run re-derives the location and stores the new location key; observations written before keep their old key.
+- [x] Given an explicit `location` is added or changed, then a new location key is used from the next run.
+- [x] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
+- [x] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
+- [x] The postcode never appears in logs or error messages.

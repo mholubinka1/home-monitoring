@@ -121,6 +121,7 @@ class MariaDBClient(MariaDBClientBase):
             latitude=location.latitude,  # type: ignore[misc]
             longitude=location.longitude,  # type: ignore[misc]
             source=location.source,
+            derived_from_postcode=location.derived_from_postcode,
             resolved_at=datetime.now(UTC),
         )
         self._write_all([record], "Weather location")
@@ -134,4 +135,5 @@ class MariaDBClient(MariaDBClientBase):
                 latitude=float(row.latitude),
                 longitude=float(row.longitude),
                 source=row.source,  # type: ignore[arg-type]
+                derived_from_postcode=row.derived_from_postcode,  # type: ignore[arg-type]
             )

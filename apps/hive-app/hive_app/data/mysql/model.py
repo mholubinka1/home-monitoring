@@ -85,4 +85,5 @@ class weather_location(SQLBase):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     source = Column(String(20), nullable=False)
+    derived_from_postcode = Column(String(20), nullable=True)
     resolved_at = Column(DateTime, nullable=False)

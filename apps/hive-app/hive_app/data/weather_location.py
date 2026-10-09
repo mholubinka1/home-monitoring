@@ -34,6 +34,8 @@ class WeatherLocationResolver:
         location = self._mariadb.read_weather_location()
         if location is None or location.source == "ip":
             location = self._derive_or_keep(location)
+        else:
+            location = self._rederive_if_postcode_changed(location)
         return LocationSettings(
             latitude=location.latitude, longitude=location.longitude
         )
@@ -56,6 +58,26 @@ class WeatherLocationResolver:
         )
         return location
 
+    def _rederive_if_postcode_changed(
+        self, cached: ResolvedLocation
+    ) -> ResolvedLocation:
+        """Re-derives a postcode-sourced location when the Account Postcode
+        differs from the one it was derived from. A row cached before the
+        postcode was recorded counts as changed. Keeps the cached location if
+        there is no Account Postcode or postcodes.io cannot locate it."""
+        postcode = self._mariadb.read_account_postcode()
+        if postcode is None or postcode == cached.derived_from_postcode:
+            return cached
+        location = self._locate_postcode()
+        if location is None:
+            return cached
+        self._mariadb.write_weather_location(location)
+        logger.info(
+            f"Weather Location re-derived from {location.source}: "
+            f"{location.latitude}, {location.longitude}."
+        )
+        return location
+
     def _locate_postcode(self) -> ResolvedLocation | None:
         postcode = self._mariadb.read_account_postcode()
         if postcode is None:
@@ -65,7 +87,7 @@ class WeatherLocationResolver:
         except Exception:
             logger.warning("postcodes.io could not locate the Account Postcode.")
             return None
-        return ResolvedLocation(latitude, longitude, "postcode")
+        return ResolvedLocation(latitude, longitude, "postcode", postcode)
 
     def _derive(self) -> ResolvedLocation:
         postcode_location = self._locate_postcode()

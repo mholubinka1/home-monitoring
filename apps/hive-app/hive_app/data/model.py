@@ -45,6 +45,9 @@ class ResolvedLocation:
     latitude: float
     longitude: float
     source: Literal["postcode", "ip"]
+    # The Account Postcode a postcode-sourced location was derived from; None
+    # for IP-derived rows and for rows cached before this was recorded.
+    derived_from_postcode: str | None = None
 
 
 @dataclass
