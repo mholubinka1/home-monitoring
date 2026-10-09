@@ -20,3 +20,7 @@ Surprising without context: the archive is a reanalysis (observations blended wi
 - Daily values for a day that is part live and part archive mix two sources for that day.
 - The existing cost-forecast regression (daily maximum, [ADR-0030](0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md) retires it) is unaffected until the model ships.
 - Related: [ADR-0005](0005-additive-only-schema-sync.md), [ADR-0010](0010-local-day-bucketing-python-vs-sql.md), [ADR-0028](0028-weather-location-derived-lazily-from-account-postcode.md).
+
+## Update 2026-10-07: observations record their location
+
+The unique key is `(source, location, observed_at)`, not `(source, observed_at)`. `weather_observation` had no record of which coordinates a reading described, so a change of postcode, or a manual `location` override, would have mixed two places into one series without any sign. Each observation now carries a location key (the Weather Location's coordinates rounded to two decimals, never the postcode); readers and the model use only the current location's key, so a changed location starts a new series; a changed postcode or override is detected by the Weather Location resolution (see the update in [ADR-0028](0028-weather-location-derived-lazily-from-account-postcode.md)). "Local day" in this ADR and the model means the Europe/London time-zone calendar day ([ADR-0010](0010-local-day-bucketing-python-vs-sql.md)), not a place: the temperatures are always those of the postcode's location.

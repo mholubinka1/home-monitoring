@@ -1,6 +1,6 @@
 # Issues: feature-heating-model
 
-## MOD-1 · Complete London-day temperatures and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
+## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
 **Blocked by**: #620, #623
 
@@ -8,11 +8,12 @@
 
 ### What to build
 
-octopus-app can read, for each London day, the mean outdoor temperature taken only when every hour of that local day is present (23, 24 or 25 on daylight-saving days), preferring live over archive per hour, and can combine today's and yesterday's mean into the effective temperature for a given weight. Incomplete days are absent, never partial.
+octopus-app can read, for each local day (the Europe/London time-zone calendar day, at the current Weather Location, which is the postcode's location), the mean outdoor temperature taken only when every hour of that day is present (23, 24 or 25 on daylight-saving days), preferring live over archive per hour, and can combine today's and yesterday's mean into the effective temperature for a given weight. Incomplete days are absent, never partial.
 
 ### Acceptance criteria
 
-- [ ] Given 24 hourly readings for a London day, then its mean is returned; given one missing hour, then the day is absent.
+- [ ] Given 24 hourly readings for a local day at the current location, then its mean is returned; given one missing hour, then the day is absent.
+- [ ] Given readings stored under a different location key, then they are ignored (a changed postcode or override never mixes places).
 - [ ] Given a spring-forward day (23 hours) and an autumn day (25), then each counts as complete with the right number of hours.
 - [ ] Given live and archive rows for the same hour, then the live value is used.
 - [ ] Given a weight, then the effective temperature equals the stated blend of today's and yesterday's means, and is absent if either is.
