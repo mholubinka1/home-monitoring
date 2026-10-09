@@ -22,7 +22,7 @@ Make weather writes safe to repeat, widen what is collected, and start recording
 
 ## Implementation Decisions
 
-- **Unique key.** `weather_observation` gains a unique constraint on `(source, location, observed_at)`, created additively by Schema Sync ([ADR-0005](../adr/0005-additive-only-schema-sync.md)); it also serves as the `observed_at` index the dashboard queries need.
+- **Unique key.** `weather_observation` gains a unique index on `(source, location, observed_at)` (an index rather than a constraint, because Schema Sync only creates missing indexes on existing tables), created additively by Schema Sync ([ADR-0005](../adr/0005-additive-only-schema-sync.md)); it also serves as the `observed_at` index the dashboard queries need.
 - **Location key.** Each observation carries a short location key: the Weather Location's coordinates rounded to two decimal places (about 1 km), never the postcode. `weather_observation` gains a non-null location key column, included in the unique key; rows written before it existed get an empty string from Schema Sync (the placeholder must not be null, because a unique key ignores nulls) and are deleted by the deploy note, because they hold 15-minute-sample amounts (see the live-job bullet below).
 - **Changed postcode or override.** hive-app's Weather Location resolution records the Account Postcode the cached location was derived from and re-derives it when that postcode differs, producing a new location key and so a new series. An explicit `location` override is never cached; because the location key comes from the coordinates, adding or changing it also starts a new series from the next run. Readers (the model, the dashboard) use only the current location's key. This supersedes the 'a later change to the postcode is not detected' consequence in [ADR-0028](../adr/0028-weather-location-derived-lazily-from-account-postcode.md).
 - **Keyed upsert.** The shared upsert only resolves primary-key conflicts, so add a small keyed variant that updates the existing row when `(source, location, observed_at)` already exists. The live observation job uses it.
@@ -55,7 +55,7 @@ Make weather writes safe to repeat, widen what is collected, and start recording
 
 Run against the configured database (`octopus` unless `mariadb.database` says otherwise), before deploying hive-app. Schema Sync never deletes data, so it cannot clean up for you.
 
-1. **Duplicate-hours check (read-only).** Must return no rows, otherwise the unique key cannot be created (steps 1 and 2 exist only so the key can be created; step 4 later deletes every pre-change row anyway). (Existing rows have no location yet, so the check is per source.)
+1. **Duplicate-hours check (read-only).** Must return no rows, otherwise the unique key cannot be created. Steps 1 and 2 exist only so the key can be created; step 4 later deletes every pre-change row anyway. The check is per source because existing rows have no location yet.
 
    ```sql
    SELECT source, observed_at, COUNT(*) AS copies
@@ -78,7 +78,11 @@ Run against the configured database (`octopus` unless `mariadb.database` says ot
 
 3. **Deploy hive-app.** Schema Sync adds the non-null `location` column (existing rows get an empty string) and the unique key `uq_weather_observation_hour` on `(source, location, observed_at)`.
 
-4. **Delete the pre-change live rows.** Rows written before this change hold 15-minute-sample amounts (rain, sunshine, radiation) and have no location key (`location = ''`). Delete them straight after the deploy, before the backfill, so they are never preferred over the archive's hourly values; the backfill refills those hours. New rows carry a real location key, so they never clash with these.
+4. **Delete the pre-change live rows.** Rows written before this change hold 15-minute-sample amounts (rain, sunshine, radiation) and have no location key (`location = ''`). Delete them straight after the deploy, before the backfill, so they are never preferred over the archive's hourly values; the backfill refills those hours. New rows carry a real location key, so they never clash with these. Check what will go first (expect roughly the rows collected before this deploy):
+
+   ```sql
+   SELECT COUNT(*), MIN(observed_at), MAX(observed_at) FROM weather_observation WHERE location = '';
+   ```
 
    ```sql
    DELETE FROM weather_observation WHERE location = '';

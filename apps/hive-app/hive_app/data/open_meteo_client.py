@@ -103,8 +103,8 @@ class OpenMeteoClient:
                 "past_hours": str(LOOKBACK_HOURS),
                 # Only the current hour's stamp, whose sums cover the hour
                 # that has just ended (Open-Meteo stamps an hourly sum at the
-                # end of its hour; to be confirmed against the archive when
-                # the backfill is built).
+                # end of its hour; to be confirmed against the archive in the
+                # history backfill, #623).
                 "forecast_hours": "1",
                 # Forcing UTC means the naive hour stamps Open-Meteo returns
                 # can be treated as UTC below without guessing an offset.

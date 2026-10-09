@@ -33,18 +33,17 @@ class heating_status(SQLBase):
     working = Column(Boolean)
 
 
+# One observation per hour per source and location: the unique key, which the
+# keyed upsert also resolves conflicts on.
+WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")
+
+
 class weather_observation(SQLBase):
     __tablename__ = "weather_observation"
     # A unique Index (not a UniqueConstraint): Schema Sync only creates
     # missing indexes on existing tables.
     __table_args__ = (
-        Index(
-            "uq_weather_observation_hour",
-            "source",
-            "location",
-            "observed_at",
-            unique=True,
-        ),
+        Index("uq_weather_observation_hour", *WEATHER_OBSERVATION_KEY, unique=True),
         {"schema": "octopus"},
     )
 

@@ -15,16 +15,13 @@ from hive_app.data.model import (
     WeatherObservation,
 )
 from hive_app.data.mysql import model as sql_model
-from hive_app.data.mysql.model import SQLBase
+from hive_app.data.mysql.model import WEATHER_OBSERVATION_KEY, SQLBase
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # weather_location holds a single row at this fixed primary key.
 _WEATHER_LOCATION_ROW_ID = 1
-
-# One observation per hour per source: the unique key the keyed upsert resolves on.
-_OBSERVATION_KEY = ("source", "location", "observed_at")
 
 
 def _forecast_scoped_id(source: str, target_date: date) -> str:
@@ -89,7 +86,7 @@ class MariaDBClient(MariaDBClientBase):
             for observation in observations
         ]
         self._write_all(
-            records, "Weather observation data", key_columns=_OBSERVATION_KEY
+            records, "Weather observation data", key_columns=WEATHER_OBSERVATION_KEY
         )
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:
