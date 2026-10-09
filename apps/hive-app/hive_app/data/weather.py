@@ -32,8 +32,7 @@ class WeatherRetriever:
         observations = self._client.fetch_recent_observations()
         self._client.persist_observations(observations)
         logger.info(
-            f"Weather observation refresh: persisted {len(observations)} hour(s) "
-            "from open-meteo."
+            f"Weather observation refresh: persisted {len(observations)} hour(s)."
         )
 
     def refresh_forecast(self) -> None:

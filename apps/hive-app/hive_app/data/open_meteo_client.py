@@ -13,10 +13,21 @@ from hive_app.data.weather_types import (
     location_key,
 )
 
-HOURLY_FIELDS = (
-    "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,"
-    "precipitation,shortwave_radiation,cloud_cover,sunshine_duration"
+HOURLY_VARIABLES = (
+    "temperature_2m",
+    "relative_humidity_2m",
+    "surface_pressure",
+    "wind_speed_10m",
+    "precipitation",
+    "shortwave_radiation",
+    "cloud_cover",
+    "sunshine_duration",
 )
+HOURLY_FIELDS = ",".join(HOURLY_VARIABLES)
+# Each live run re-reads this many past hours (plus the current hour's stamp),
+# so an hour missed by an earlier run -- the daily restart, an outage -- is
+# filled by the next one.
+LOOKBACK_HOURS = 24
 DAILY_FIELDS = "temperature_2m_max,temperature_2m_mean"
 
 
@@ -41,7 +52,7 @@ class OpenMeteoHourly(BaseModel):
                 if getattr(self, name) is None
                 else getattr(self, name)
             )
-            for name in HOURLY_FIELDS.split(",")
+            for name in HOURLY_VARIABLES
         }
 
 
@@ -86,7 +97,11 @@ class OpenMeteoClient:
         payload = self._request(
             {
                 "hourly": HOURLY_FIELDS,
-                "past_hours": "24",
+                "past_hours": str(LOOKBACK_HOURS),
+                # Only the current hour's stamp, whose sums cover the hour
+                # that has just ended (Open-Meteo stamps an hourly sum at the
+                # end of its hour; to be confirmed against the archive when
+                # the backfill is built).
                 "forecast_hours": "1",
                 # Forcing UTC means the naive hour stamps Open-Meteo returns
                 # can be treated as UTC below without guessing an offset.
@@ -161,7 +176,7 @@ class OpenMeteoClient:
                 f"{len(mean_temps)} temperature_2m_mean entries."
             )
 
-        fetched_at = datetime.now(UTC)
+        fetched_at = self._clock()
         return [
             WeatherForecastDay(
                 source="open-meteo",

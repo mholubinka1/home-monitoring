@@ -68,7 +68,7 @@ class WeatherLocationResolver:
         postcode = self._mariadb.read_account_postcode()
         if postcode is None or postcode == cached.derived_from_postcode:
             return cached
-        location = self._locate_postcode()
+        location = self._geocode(postcode)
         if location is None:
             return cached
         self._mariadb.write_weather_location(location)
@@ -82,6 +82,9 @@ class WeatherLocationResolver:
         postcode = self._mariadb.read_account_postcode()
         if postcode is None:
             return None
+        return self._geocode(postcode)
+
+    def _geocode(self, postcode: str) -> ResolvedLocation | None:
         try:
             latitude, longitude = self._geocoding.geocode_postcode(postcode)
         except Exception:

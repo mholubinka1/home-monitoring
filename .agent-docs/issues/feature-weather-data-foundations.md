@@ -72,7 +72,7 @@ _Since refined by FND-5: this was delivered against Open-Meteo's 15-minute `curr
 
 ### What to build
 
-hive-app's Weather Location resolution records the postcode (or explicit `location`) its cached location was derived from, and re-derives it when the Account Postcode or the override differs, which gives a new location key and so a new weather series. Readers use only the current location's key. The postcode itself is never logged.
+hive-app's Weather Location resolution records the Account Postcode its cached location was derived from and re-derives it when that postcode differs, which gives a new location key and so a new weather series. An explicit `location` override is never cached; its coordinates give the key, so adding or changing it also starts a new series. Readers use only the current location's key. The postcode itself is never logged.
 
 ### Acceptance criteria
 
