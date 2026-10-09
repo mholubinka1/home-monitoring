@@ -19,7 +19,8 @@ migration has already run in production and will not run again.
 - [x] Step 4 of the deploy note says the gas cost forecast reads this table,
       and that deleting the old rows leaves the hours before the hourly job's
       24-hour window without temperatures until the history backfill (#623),
-      so the forecast may fall back to its flat-average method.
+      so the forecast may fall back to its flat-average method, and a partly
+      covered day enters the fit with an understated max.
 - [x] The deploy note ends with a dated deploy record: database
       `home_monitoring`; step 1 no duplicates, step 2 skipped; step 3 Schema
       Sync output; step 4 rows deleted and their range; the hourly job's first

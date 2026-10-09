@@ -18,7 +18,7 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 - [x] Given the same hour from two different sources, then both rows exist.
 - [x] Given the same hour at two different locations (different location keys), then both rows exist.
 - [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note deletes the pre-change rows (empty location), which hold 15-minute-sample amounts (see FND-5).
-- [x] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture). Verified on the live MariaDB instead: the 2026-10-09 deploy created the key on the existing 66-row table (see the spec's deploy record). The general existing-table case is covered on the real MariaDB fixture by `libs/common/tests/test_schema_translate_map.py`.
+- [x] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture). Verified on the live MariaDB instead: the 2026-10-09 deploy created the key on the existing 66-row table (see the spec's deploy record). The real MariaDB fixture covers adding a column and a non-unique index to an existing table (`libs/common/tests/test_schema_translate_map.py`); a unique key on a table that already holds rows is evidenced by the live deploy only.
 - [x] The live observation job persists through the keyed upsert.
 - [x] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
 
