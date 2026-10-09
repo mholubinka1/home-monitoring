@@ -54,11 +54,11 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ### Acceptance criteria
 
-- [ ] Given a poll where the thermostat reports working, then the row stores true; not working, false.
-- [ ] Given a poll with no value or an unexpected type, then the row stores null and one log line says so.
-- [ ] Schema Sync adds the column to the existing table and existing rows are unaffected.
-- [ ] The existing heating persistence and retrieval tests still pass.
-- [ ] A note records that the semantics are to be confirmed by an on/off test after deploy.
+- [x] Given a poll where the thermostat reports working, then the row stores true; not working, false.
+- [x] Given a poll with no value or an unexpected type, then the row stores null and one log line says so.
+- [x] Schema Sync adds the column to the existing table and existing rows are unaffected.
+- [x] The existing heating persistence and retrieval tests still pass.
+- [x] A note records that the semantics are to be confirmed by an on/off test after deploy.
 
 ---
 

@@ -85,6 +85,7 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         login_result: dict[str, Any] | None = None,
         sms_error: Exception | None = None,
         registration_sets_password: bool = True,
+        heating_working: Any = None,
         **_: Any,
     ) -> None:
         self._sms_result = sms_result
@@ -103,6 +104,7 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
             device_registration=self._device_registration,
         )
         self.api = SimpleNamespace(getAll=self._get_all)
+        self.heating = self._heating_namespace(heating_working)
         self.deviceList: dict[str, Any] = {}
         self.call_order: list[str] = []
         self.submitted_codes: list[str] = []
@@ -111,6 +113,27 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
 
     async def _get_all(self) -> dict[str, Any]:
         return {}
+
+    @staticmethod
+    def _heating_namespace(working: Any) -> SimpleNamespace:
+        """The heating getters a poll calls; `working` is whatever
+        getCurrentOperation reports (None when the API omits the key)."""
+
+        def constant(value: Any) -> Any:
+            async def getter(_device: dict[str, Any]) -> Any:
+                return value
+
+            return getter
+
+        return SimpleNamespace(
+            getCurrentTemperature=constant(19.5),
+            getTargetTemperature=constant(21.0),
+            getMode=constant("SCHEDULE"),
+            getState=constant("ON"),
+            getBoostStatus=constant("OFF"),
+            getScheduleNowNextLater=constant({}),
+            getCurrentOperation=constant(working),
+        )
 
     async def login(self) -> dict[str, Any]:
         self.call_order.append("login")

@@ -436,6 +436,9 @@ class HiveApiSource:
             heating_state = await hive.heating.getState(device)
             boost_status = await hive.heating.getBoostStatus(device)
             schedule = await hive.heating.getScheduleNowNextLater(device) or {}
+            working = self._as_working_flag(
+                await hive.heating.getCurrentOperation(device)
+            )
 
         return HeatingStatus(
             polled_at=datetime.now(UTC),
@@ -453,7 +456,21 @@ class HiveApiSource:
             # into an absolute end-timestamp here.
             boost_ends_at=None,
             schedule=schedule,
+            working=working,
         )
+
+    @staticmethod
+    def _as_working_flag(reported: object) -> bool | None:
+        """The thermostat's own "heating is working" report, or None (logged)
+        when it is missing or not a boolean. Only the type name is logged."""
+        if isinstance(reported, bool):
+            return reported
+        logger.warning(
+            "Hive thermostat 'working' report is missing or unexpected "
+            "(type %s); storing null.",
+            type(reported).__name__,
+        )
+        return None
 
     @staticmethod
     def _climate_device(hive: Hive) -> dict[str, Any]:

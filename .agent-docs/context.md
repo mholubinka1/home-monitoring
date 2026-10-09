@@ -195,7 +195,7 @@ A data-gathering container for British Gas Hive heating data (current/target tem
 _Avoid_: hive (ambiguous with Apache Hive)
 
 **Heating Status**:
-hive-app's poll of the Hive thermostat via the community `apyhiveapi` library (no official Hive API exists — see `.agent-docs/research/hive-api-access-approach.md`): current/target temperature, mode, state, and boost, polled every 120 seconds (the community-standard cadence both the library and Home Assistant's Hive integration default to). The now/next/later schedule is stored as a JSON column rather than flat columns, a deliberate deviation from this schema's usual style — see [ADR-0017](adr/0017-json-column-for-heating-schedule.md).
+hive-app's poll of the Hive thermostat via the community `apyhiveapi` library (no official Hive API exists — see `.agent-docs/research/hive-api-access-approach.md`): current/target temperature, mode, state, and boost, polled every 120 seconds (the community-standard cadence both the library and Home Assistant's Hive integration default to). The now/next/later schedule is stored as a JSON column rather than flat columns, a deliberate deviation from this schema's usual style — see [ADR-0017](adr/0017-json-column-for-heating-schedule.md). Each row also carries a nullable `working` flag, the thermostat's own "heating is working" report (null when missing or unexpected); what it means (boiler firing vs. thermostat demand) is unverified until an on/off test after deploy.
 _Avoid_: thermostat status, Hive state
 
 **Hive Auth Notification**:

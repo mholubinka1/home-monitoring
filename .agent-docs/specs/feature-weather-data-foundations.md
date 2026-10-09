@@ -82,3 +82,11 @@ Run against the configured database (`octopus` unless `mariadb.database` says ot
    SET location = '51.50,-0.10'  -- replace with the current key
    WHERE location = '';
    ```
+
+5. **Working flag on/off test (read-only).** The `working` column on `heating_status` holds the thermostat's own "heating is working" report; what it means is unverified. After deploy, switch the heating on and off (or start and cancel a boost) and watch whether `working` follows the boiler firing rather than the thermostat's demand (`state`). Polls land every 120 seconds, so allow a few minutes per change.
+
+   ```sql
+   SELECT polled_at, state, working FROM heating_status ORDER BY id DESC LIMIT 20;
+   ```
+
+   Record the outcome in this note; until then do not build anything on `working`.

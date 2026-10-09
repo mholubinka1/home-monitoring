@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 
 @dataclass
-class HeatingStatus:
+class HeatingStatus:  # pylint: disable=too-many-instance-attributes
     polled_at: datetime
     current_temp: float
     target_temp: float
@@ -13,6 +13,7 @@ class HeatingStatus:
     boost_active: bool
     boost_ends_at: datetime | None
     schedule: dict[str, Any]
+    working: bool | None = None
 
 
 @dataclass

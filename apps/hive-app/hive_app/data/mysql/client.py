@@ -61,6 +61,7 @@ class MariaDBClient(MariaDBClientBase):
             boost_active=status.boost_active,
             boost_ends_at=status.boost_ends_at,
             schedule=_json_safe(status.schedule),
+            working=status.working,
         )
         self._write_all([record], "Heating status data")
 
