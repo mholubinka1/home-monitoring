@@ -1,6 +1,6 @@
 # Issues: feature-weather-data-foundations
 
-> Work complete — PR ready to merge. One criterion is deliberately left unticked (FND-1: existing-table Schema Sync verified against the real MariaDB fixture); it is covered on SQLite only until CI runs the container tests on the Pi.
+> Work complete — merged in PR #656. FND-1's existing-table criterion was ticked after the 2026-10-09 deploy (see the spec's deploy record, #657).
 
 ## FND-1 · Weather observations cannot be duplicated — [#620](https://github.com/mholubinka1/home-monitoring/issues/620)
 
@@ -18,7 +18,7 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 - [x] Given the same hour from two different sources, then both rows exist.
 - [x] Given the same hour at two different locations (different location keys), then both rows exist.
 - [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note deletes the pre-change rows (empty location), which hold 15-minute-sample amounts (see FND-5).
-- [ ] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture).
+- [x] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture). Verified on the live MariaDB instead: the 2026-10-09 deploy created the key on the existing 66-row table (see the spec's deploy record). The real MariaDB fixture covers adding a column and a non-unique index to an existing table (`libs/common/tests/test_schema_translate_map.py`); a unique key on a table that already holds rows is evidenced by the live deploy only.
 - [x] The live observation job persists through the keyed upsert.
 - [x] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
 
