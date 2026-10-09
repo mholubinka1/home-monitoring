@@ -1,6 +1,16 @@
 from typing import ClassVar
 
-from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+)
 
 from common.mariadb.model import SQLBase, job_run
 
@@ -24,10 +34,22 @@ class heating_status(SQLBase):
 
 class weather_observation(SQLBase):
     __tablename__ = "weather_observation"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+    # A unique Index (not a UniqueConstraint): Schema Sync only creates
+    # missing indexes on existing tables.
+    __table_args__ = (
+        Index(
+            "uq_weather_observation_hour",
+            "source",
+            "location",
+            "observed_at",
+            unique=True,
+        ),
+        {"schema": "octopus"},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(20))
+    location = Column(String(20), nullable=False)
     observed_at = Column(DateTime, nullable=False)
     temp = Column(Float)
     humidity = Column(Float)

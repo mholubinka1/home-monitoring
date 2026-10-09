@@ -12,13 +12,13 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 
 ### Acceptance criteria
 
-- [ ] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
-- [ ] Given the same hour from two different sources, then both rows exist.
-- [ ] Given the same hour at two different locations (different location keys), then both rows exist.
-- [ ] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note's one-off update gives the existing rows the current key.
+- [x] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
+- [x] Given the same hour from two different sources, then both rows exist.
+- [x] Given the same hour at two different locations (different location keys), then both rows exist.
+- [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note's one-off update gives the existing rows the current key.
 - [ ] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture).
-- [ ] The live observation job persists through the keyed upsert.
-- [ ] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
+- [x] The live observation job persists through the keyed upsert.
+- [x] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
 
 ---
 

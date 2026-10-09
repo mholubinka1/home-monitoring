@@ -6,7 +6,11 @@ from pydantic import BaseModel
 
 from hive_app.common.config import LocationSettings
 from hive_app.data.model import WeatherForecastDay, WeatherObservation
-from hive_app.data.weather_types import REQUEST_TIMEOUT_SECONDS, FiniteFloat
+from hive_app.data.weather_types import (
+    REQUEST_TIMEOUT_SECONDS,
+    FiniteFloat,
+    location_key,
+)
 
 CURRENT_FIELDS = (
     "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,precipitation"
@@ -74,6 +78,7 @@ class OpenMeteoClient:
 
         return WeatherObservation(
             source="open-meteo",
+            location=location_key(self._settings.latitude, self._settings.longitude),
             observed_at=current.time.replace(tzinfo=UTC),
             temp=current.temperature_2m,
             humidity=current.relative_humidity_2m,

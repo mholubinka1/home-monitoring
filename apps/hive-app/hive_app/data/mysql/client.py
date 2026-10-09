@@ -23,6 +23,9 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 # weather_location holds a single row at this fixed primary key.
 _WEATHER_LOCATION_ROW_ID = 1
 
+# One observation per hour per source: the unique key the keyed upsert resolves on.
+_OBSERVATION_KEY = ("source", "location", "observed_at")
+
 
 def _forecast_scoped_id(source: str, target_date: date) -> str:
     return f"{source}_{target_date.strftime('%Y%m%d')}"
@@ -68,6 +71,7 @@ class MariaDBClient(MariaDBClientBase):
         # Python float -- a known stub-accuracy gap, not a real type error.
         record = sql_model.weather_observation(
             source=observation.source,
+            location=observation.location,
             observed_at=observation.observed_at,
             temp=observation.temp,  # type: ignore[misc]
             humidity=observation.humidity,  # type: ignore[misc]
@@ -75,7 +79,9 @@ class MariaDBClient(MariaDBClientBase):
             wind_speed=observation.wind_speed,  # type: ignore[misc]
             precipitation=observation.precipitation,  # type: ignore[misc]
         )
-        self._write_all([record], "Weather observation data")
+        self._write_all(
+            [record], "Weather observation data", key_columns=_OBSERVATION_KEY
+        )
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:
         # sqlalchemy-stubs models every Numeric subclass (Float included) as

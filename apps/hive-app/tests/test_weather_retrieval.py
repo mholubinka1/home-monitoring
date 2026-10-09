@@ -9,6 +9,7 @@ from hive_app.data.weather import WeatherRetriever
 def _observation(source: str) -> WeatherObservation:
     return WeatherObservation(
         source=source,
+        location="51.50,-0.10",
         observed_at=datetime(2026, 9, 25, 12, 0, tzinfo=UTC),
         temp=14.5,
         humidity=72,

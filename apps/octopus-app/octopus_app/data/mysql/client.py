@@ -65,6 +65,7 @@ weather_observation_table = Table(
     weather_metadata,
     Column("id", Integer, primary_key=True),
     Column("source", String(20)),
+    Column("location", String(20), nullable=False),
     Column("observed_at", DateTime, nullable=False),
     Column("temp", Float),
     Column("humidity", Float),

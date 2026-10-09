@@ -70,10 +70,15 @@ def seed_weather_observation(s: Session, local_day: date, max_temp: float) -> No
     observed_at = start_of_local_day(local_day) + timedelta(hours=12)
     s.execute(
         text(
-            "INSERT INTO weather_observation (source, observed_at, temp) "
-            "VALUES (:source, :observed_at, :temp)"
+            "INSERT INTO weather_observation (source, location, observed_at, temp) "
+            "VALUES (:source, :location, :observed_at, :temp)"
         ),
-        {"source": "test", "observed_at": observed_at, "temp": max_temp},
+        {
+            "source": "test",
+            "location": "51.50,-0.10",
+            "observed_at": observed_at,
+            "temp": max_temp,
+        },
     )
 
 

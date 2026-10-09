@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from logging import Logger
@@ -27,7 +27,13 @@ def _is_table_already_exists_error(exc: OperationalError | ProgrammingError) -> 
     return bool(orig_args) and orig_args[0] == _TABLE_ALREADY_EXISTS_ERROR_CODE
 
 
-def upsert(s: Session, record: Any) -> None:
+def upsert(s: Session, record: Any, key_columns: Sequence[str] | None = None) -> None:
+    """Insert the record, or update the existing row on a unique-key conflict.
+
+    The conflict is resolved on the primary key unless key_columns names a
+    different unique key (then `id` and the rest of the primary key are left
+    untouched on update).
+    """
     try:
         with s.begin_nested():
             s.add(record)
@@ -35,9 +41,12 @@ def upsert(s: Session, record: Any) -> None:
             return
     except IntegrityError as exc:
         pk_columns = [col.name for col in inspect(type(record)).primary_key]
-        pk_filter = {col: getattr(record, col) for col in pk_columns}
+        match_columns = list(key_columns) if key_columns else pk_columns
+        pk_filter = {col: getattr(record, col) for col in match_columns}
         update_dict = {
-            col.name: getattr(record, col.name) for col in record.__table__.columns
+            col.name: getattr(record, col.name)
+            for col in record.__table__.columns
+            if key_columns is None or col.name not in pk_columns
         }
         if (
             s.query(type(record))
@@ -219,11 +228,16 @@ class MariaDBClientBase:
         finally:
             session.close()
 
-    def _write_all(self, records: list[Any], description: str) -> None:
+    def _write_all(
+        self,
+        records: list[Any],
+        description: str,
+        key_columns: Sequence[str] | None = None,
+    ) -> None:
         try:
             with self.session_write_scope() as s:
                 for record in records:
-                    upsert(s, record)
+                    upsert(s, record, key_columns)
                 self._logger.debug(f"{description}: {len(records)} written to MariaDB.")
                 return
         except Exception as e:

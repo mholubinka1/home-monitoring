@@ -18,6 +18,7 @@ class HeatingStatus:
 @dataclass
 class WeatherObservation:
     source: str
+    location: str
     observed_at: datetime
     temp: float
     humidity: float

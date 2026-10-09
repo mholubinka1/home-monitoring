@@ -47,3 +47,38 @@ Make weather writes safe to repeat, widen what is collected, and start recording
 
 - Deploy order: hive-app first (Schema Sync adds the columns and the key on startup), after the duplicate check.
 - At the time of writing `weather_observation` holds only a handful of live rows, so adding the key now is cheap; it only gets harder as history accumulates.
+
+## Deploy note
+
+Run against the configured database (`octopus` unless `mariadb.database` says otherwise), before deploying hive-app. Schema Sync never deletes data, so it cannot clean up for you.
+
+1. **Duplicate-hours check (read-only).** Must return no rows, otherwise the unique key cannot be created. (Existing rows have no location yet, so the check is per source.)
+
+   ```sql
+   SELECT source, observed_at, COUNT(*) AS copies
+   FROM weather_observation
+   GROUP BY source, observed_at
+   HAVING COUNT(*) > 1;
+   ```
+
+2. **Cleanup, only if step 1 returned rows.** Keep the newest row (highest `id`) for each duplicated hour.
+
+   ```sql
+   DELETE o FROM weather_observation o
+   JOIN weather_observation newer
+     ON newer.source = o.source
+    AND newer.observed_at = o.observed_at
+    AND newer.id > o.id;
+   ```
+
+   Re-run step 1 to confirm it now returns no rows.
+
+3. **Deploy hive-app.** Schema Sync adds the non-null `location` column (existing rows get an empty string) and the unique key `uq_weather_observation_hour` on `(source, location, observed_at)`.
+
+4. **Give the existing rows the current location key.** Use the Weather Location's coordinates rounded to two decimals (`SELECT latitude, longitude FROM weather_location;`), formatted `"lat,lon"` with two decimals each, e.g. `51.50,-0.10`. Never use the postcode.
+
+   ```sql
+   UPDATE weather_observation
+   SET location = '51.50,-0.10'  -- replace with the current key
+   WHERE location = '';
+   ```

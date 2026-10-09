@@ -111,3 +111,33 @@ def test_a_forecast_refresh_persists_rows_and_the_job_records_success(
     assert len(forecast_rows) == 2
     assert forecast_rows[0].target_date.isoformat() == "2026-09-26"
     assert forecast_rows[1].target_date.isoformat() == "2026-09-27"
+
+
+@responses.activate
+def test_refreshing_the_observation_twice_for_the_same_hour_leaves_one_row(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET,
+        OPEN_METEO_ENDPOINT,
+        json={
+            "current": {
+                "time": "2026-09-25T12:00",
+                "temperature_2m": 14.5,
+                "relative_humidity_2m": 72,
+                "surface_pressure": 1012.3,
+                "wind_speed_10m": 8.1,
+                "precipitation": 0.0,
+            }
+        },
+        status=200,
+    )
+    retriever = _build_weather_retriever(
+        LocationSettings(latitude=51.5, longitude=-0.1), mariadb_client
+    )
+
+    retriever.refresh()
+    retriever.refresh()
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.weather_observation).count() == 1
