@@ -1,5 +1,7 @@
 # Issues: feature-weather-data-foundations
 
+> Work complete — PR ready to merge. One criterion is deliberately left unticked (FND-1: existing-table Schema Sync verified against the real MariaDB fixture); it is covered on SQLite only until CI runs the container tests on the Pi.
+
 ## FND-1 · Weather observations cannot be duplicated — [#620](https://github.com/mholubinka1/home-monitoring/issues/620)
 
 **Blocked by**: None
