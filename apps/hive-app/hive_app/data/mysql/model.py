@@ -50,7 +50,9 @@ class weather_observation(SQLBase):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(20))
-    location = Column(String(20), nullable=False)
+    # The server default is what lets Schema Sync add this NOT NULL column to
+    # a table that already has rows (they get '').
+    location = Column(String(20), nullable=False, server_default="")
     observed_at = Column(DateTime, nullable=False)
     temp = Column(Float)
     humidity = Column(Float)

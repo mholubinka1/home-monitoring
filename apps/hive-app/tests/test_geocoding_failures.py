@@ -3,6 +3,7 @@ import logging
 import pytest
 import requests
 import responses
+from weather_hourly_payloads import recent_hourly_payload
 
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
@@ -13,16 +14,7 @@ POSTCODES_IO_ENDPOINT = "https://api.postcodes.io/postcodes/AB12CD"
 IPWHO_ENDPOINT = "https://ipwho.is/"
 OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
-OPEN_METEO_CURRENT_RESPONSE = {
-    "current": {
-        "time": "2026-09-25T12:00",
-        "temperature_2m": 14.5,
-        "relative_humidity_2m": 72,
-        "surface_pressure": 1012.3,
-        "wind_speed_10m": 8.1,
-        "precipitation": 0.0,
-    }
-}
+OPEN_METEO_HOURLY_RESPONSE = recent_hourly_payload(1)
 
 
 @responses.activate
@@ -62,7 +54,7 @@ def test_a_postcodes_io_network_failure_falls_back_to_ip_geolocation_without_log
         status=200,
     )
     responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_CURRENT_RESPONSE, status=200
+        responses.GET, OPEN_METEO_ENDPOINT, json=OPEN_METEO_HOURLY_RESPONSE, status=200
     )
 
     with caplog.at_level(logging.DEBUG):

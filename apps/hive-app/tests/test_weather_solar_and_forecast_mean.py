@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 import pytest
 import responses
 from pydantic import ValidationError
+from weather_hourly_payloads import hourly_payload
 
 from hive_app.common.config import LocationSettings
 from hive_app.data.mysql import model
@@ -9,38 +12,31 @@ from hive_app.data.open_meteo_client import OpenMeteoClient
 
 OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 LONDON = LocationSettings(latitude=51.5, longitude=-0.1)
+NOON = datetime(2026, 9, 25, 12, 30, tzinfo=UTC)
 
 
-def _current_payload(**extra: float) -> dict:
-    return {
-        "current": {
-            "time": "2026-09-25T12:00",
-            "temperature_2m": 14.5,
-            "relative_humidity_2m": 72,
-            "surface_pressure": 1012.3,
-            "wind_speed_10m": 8.1,
-            "precipitation": 0.0,
-            **extra,
-        }
+def _solar_payload(**overrides: list) -> dict:
+    values = {
+        "temperature_2m": [14.5],
+        "shortwave_radiation": [312.0],
+        "cloud_cover": [40],
+        "sunshine_duration": [900.0],
+        **overrides,
     }
+    return hourly_payload(["2026-09-25T12:00"], **values)
+
+
+def _client() -> OpenMeteoClient:
+    return OpenMeteoClient(LONDON, clock=lambda: NOON)
 
 
 @responses.activate
 def test_solar_radiation_cloud_cover_and_sunshine_are_stored_with_the_observation(
     mariadb_client: MariaDBClient,
 ) -> None:
-    responses.add(
-        responses.GET,
-        OPEN_METEO_ENDPOINT,
-        json=_current_payload(
-            shortwave_radiation=312.0, cloud_cover=40, sunshine_duration=900.0
-        ),
-        status=200,
-    )
+    responses.add(responses.GET, OPEN_METEO_ENDPOINT, json=_solar_payload(), status=200)
 
-    mariadb_client.write_weather_observation(
-        OpenMeteoClient(LONDON).get_current_observation()
-    )
+    mariadb_client.write_weather_observations(_client().get_recent_observations())
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.weather_observation).one()
@@ -51,24 +47,18 @@ def test_solar_radiation_cloud_cover_and_sunshine_are_stored_with_the_observatio
 
 
 @responses.activate
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"shortwave_radiation": 312.0, "cloud_cover": 40},
-        {"shortwave_radiation": 312.0, "cloud_cover": 40, "sunshine_duration": None},
-    ],
-    ids=["key absent", "key null"],
-)
+@pytest.mark.parametrize("key_present", [True, False], ids=["key null", "key absent"])
 def test_an_observation_missing_sunshine_is_stored_with_null_for_it(
-    mariadb_client: MariaDBClient, extra: dict
+    mariadb_client: MariaDBClient, key_present: bool
 ) -> None:
-    responses.add(
-        responses.GET, OPEN_METEO_ENDPOINT, json=_current_payload(**extra), status=200
-    )
+    payload = _solar_payload()
+    if key_present:
+        payload["hourly"]["sunshine_duration"] = [None]
+    else:
+        del payload["hourly"]["sunshine_duration"]
+    responses.add(responses.GET, OPEN_METEO_ENDPOINT, json=payload, status=200)
 
-    mariadb_client.write_weather_observation(
-        OpenMeteoClient(LONDON).get_current_observation()
-    )
+    mariadb_client.write_weather_observations(_client().get_recent_observations())
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.weather_observation).one()
@@ -84,12 +74,12 @@ def test_an_open_meteo_response_with_a_non_finite_cloud_cover_is_rejected() -> N
     responses.add(
         responses.GET,
         OPEN_METEO_ENDPOINT,
-        json=_current_payload(cloud_cover=float("inf")),
+        json=_solar_payload(cloud_cover=[float("inf")]),
         status=200,
     )
 
     with pytest.raises(ValidationError, match="finite"):
-        OpenMeteoClient(LONDON).get_current_observation()
+        _client().get_recent_observations()
 
 
 @responses.activate

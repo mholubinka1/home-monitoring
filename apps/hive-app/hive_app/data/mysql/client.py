@@ -65,26 +65,31 @@ class MariaDBClient(MariaDBClientBase):
         )
         self._write_all([record], "Heating status data")
 
-    def write_weather_observation(self, observation: WeatherObservation) -> None:
+    def write_weather_observations(
+        self, observations: list[WeatherObservation]
+    ) -> None:
         # sqlalchemy-stubs models every Numeric subclass (Float included) as
         # TypeEngine[Decimal], so it reports a float/Decimal mismatch here even
         # though SQLAlchemy's real runtime Float column stores/returns a plain
         # Python float -- a known stub-accuracy gap, not a real type error.
-        record = sql_model.weather_observation(
-            source=observation.source,
-            location=observation.location,
-            observed_at=observation.observed_at,
-            temp=observation.temp,  # type: ignore[misc]
-            humidity=observation.humidity,  # type: ignore[misc]
-            pressure=observation.pressure,  # type: ignore[misc]
-            wind_speed=observation.wind_speed,  # type: ignore[misc]
-            precipitation=observation.precipitation,  # type: ignore[misc]
-            shortwave_radiation=observation.shortwave_radiation,  # type: ignore[misc]
-            cloud_cover=observation.cloud_cover,  # type: ignore[misc]
-            sunshine_duration=observation.sunshine_duration,  # type: ignore[misc]
-        )
+        records = [
+            sql_model.weather_observation(
+                source=observation.source,
+                location=observation.location,
+                observed_at=observation.observed_at,
+                temp=observation.temp,  # type: ignore[misc]
+                humidity=observation.humidity,  # type: ignore[misc]
+                pressure=observation.pressure,  # type: ignore[misc]
+                wind_speed=observation.wind_speed,  # type: ignore[misc]
+                precipitation=observation.precipitation,  # type: ignore[misc]
+                shortwave_radiation=observation.shortwave_radiation,  # type: ignore[misc]
+                cloud_cover=observation.cloud_cover,  # type: ignore[misc]
+                sunshine_duration=observation.sunshine_duration,  # type: ignore[misc]
+            )
+            for observation in observations
+        ]
         self._write_all(
-            [record], "Weather observation data", key_columns=_OBSERVATION_KEY
+            records, "Weather observation data", key_columns=_OBSERVATION_KEY
         )
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:
@@ -114,7 +119,7 @@ class MariaDBClient(MariaDBClientBase):
         )
 
     def write_weather_location(self, location: ResolvedLocation) -> None:
-        # See write_weather_observation for why the float assignments need an
+        # See write_weather_observations for why the float assignments need an
         # ignore.
         record = sql_model.weather_location(
             id=_WEATHER_LOCATION_ROW_ID,

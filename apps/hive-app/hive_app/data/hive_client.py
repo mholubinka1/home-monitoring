@@ -90,6 +90,7 @@ class HiveApiSource:
         self._settings = settings
         self._mariadb = mariadb
         self._auth_state_path = Path(settings.auth_state_path)
+        self._working_flag_warned = False
 
     # -- HiveSource: auth --
 
@@ -459,13 +460,17 @@ class HiveApiSource:
             working=working,
         )
 
-    @staticmethod
-    def _as_working_flag(reported: object) -> bool | None:
+    def _as_working_flag(self, reported: object) -> bool | None:
         """The thermostat's own "heating is working" report, or None (logged)
-        when it is missing or not a boolean. Only the type name is logged."""
+        when it is missing or not a boolean. Only the type name is logged, at
+        WARNING the first time this source sees it and at DEBUG afterwards, so
+        a persistently odd report does not flood the log every poll."""
         if isinstance(reported, bool):
             return reported
-        logger.warning(
+        level = logging.DEBUG if self._working_flag_warned else logging.WARNING
+        self._working_flag_warned = True
+        logger.log(
+            level,
             "Hive thermostat 'working' report is missing or unexpected "
             "(type %s); storing null.",
             type(reported).__name__,

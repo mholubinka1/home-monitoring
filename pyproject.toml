@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["apps/octopus-app", "apps/hive-app", "libs/common"]
+pythonpath = ["apps/octopus-app", "apps/hive-app", "apps/hive-app/tests", "libs/common"]
 testpaths = ["apps/octopus-app/tests", "apps/hive-app/tests", "libs/common/tests", "scripts/tests"]
 # Independent test packages (apps/octopus-app/tests, apps/hive-app/tests,
 # libs/common/tests) all share the basename "tests" -- the default "prepend"
@@ -82,6 +82,9 @@ ignore = ["BLE001", "I001"]
 [tool.pylint.main]
 ignore-paths = ["apps/octopus-app/octopus_app/_deprecated"]
 source-roots = ["apps/octopus-app", "apps/hive-app", "."]
+# Lets pylint resolve the shared weather_hourly_payloads test helper, which pytest
+# finds through its own pythonpath entry for apps/hive-app/tests.
+init-hook = 'import sys; sys.path.append("apps/hive-app/tests")'
 # apps/hive-app/tests has no __init__.py (see the pytest addopts comment above for
 # why), but pylint's default directory handling expects a target directory to be a
 # regular package and refuses to lint it, treating the missing __init__.py as a

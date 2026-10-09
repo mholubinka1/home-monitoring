@@ -1,7 +1,16 @@
 from typing import ClassVar
 
 import pytest
-from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine, inspect
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    create_engine,
+    inspect,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import StaticPool
@@ -65,3 +74,32 @@ def test_an_existing_weather_observation_table_gains_the_location_and_unique_key
     ]
     assert "location" in columns
     assert ["source", "location", "observed_at"] in unique_keys
+
+
+def test_an_existing_observation_row_survives_the_sync_with_an_empty_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _legacy_engine(monkeypatch)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO weather_observation (source, observed_at, temp) "
+                "VALUES ('open-meteo', '2026-09-25 12:00:00', 14.5)"
+            )
+        )
+
+    MariaDBClient(
+        MariaDBSettings(
+            host="localhost",
+            port=3306,
+            database="main",
+            username="test",
+            password="test",
+        )
+    )
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT source, location, temp FROM weather_observation")
+        ).all()
+    assert [tuple(row) for row in rows] == [("open-meteo", "", 14.5)]

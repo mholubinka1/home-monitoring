@@ -92,3 +92,20 @@ def test_a_missing_or_unexpected_working_report_is_stored_as_null_and_logged_onc
     assert len(warnings) == 1
     assert "working" in warnings[0].getMessage()
     assert type(reported).__name__ in warnings[0].getMessage()
+
+
+def test_two_consecutive_unexpected_working_reports_log_one_warning_in_total(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    source = _source(install_fake_hive, mariadb_client, tmp_path, None)
+
+    with caplog.at_level(logging.DEBUG):
+        first = source.fetch_heating_status()
+        second = source.fetch_heating_status()
+
+    assert first.working is None and second.working is None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1

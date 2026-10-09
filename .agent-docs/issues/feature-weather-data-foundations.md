@@ -15,7 +15,7 @@ Make weather writes safe to repeat. `weather_observation` gets a unique key on `
 - [x] Given an observation for an hour already stored for the same source, when it is written again, then exactly one row remains and holds the latest values.
 - [x] Given the same hour from two different sources, then both rows exist.
 - [x] Given the same hour at two different locations (different location keys), then both rows exist.
-- [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note's one-off update gives the existing rows the current key.
+- [x] Each observation is stored with the current Weather Location's key (coordinates rounded to two decimals, never the postcode); the column is non-null, and the deploy note deletes the pre-change rows (empty location), which hold 15-minute-sample amounts (see FND-5).
 - [ ] Given an existing table without the key, when Schema Sync runs, then the key is created (verified against the real MariaDB fixture).
 - [x] The live observation job persists through the keyed upsert.
 - [x] The deploy note has the read-only query that proves there are no duplicate hours, and the cleanup to run first if there are.
@@ -39,6 +39,8 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 - [x] Given a non-finite new value, then it is rejected like the existing variables.
 - [x] Given a forecast response, then each day's mean temperature is stored alongside the maximum.
 - [x] Schema Sync adds the new columns to existing tables; the Weather Observation glossary entry is updated.
+
+_Since refined by FND-5: this was delivered against Open-Meteo's 15-minute `current` sample; FND-5 moves the live job to hourly data so these values are hourly amounts._
 
 ---
 
@@ -79,3 +81,27 @@ hive-app's Weather Location resolution records the postcode (or explicit `locati
 - [x] Given the postcode is unchanged, then the cached location is reused and no geocoding call is made.
 - [x] Given a cached IP-derived location, then the existing upgrade to the postcode location still works.
 - [x] The postcode never appears in logs or error messages.
+
+---
+
+## FND-5 · The live weather job stores whole, completed hours and fills missed ones — [#655](https://github.com/mholubinka1/home-monitoring/issues/655)
+
+**Blocked by**: #620, #621
+
+**User stories**: 9
+
+### What to build
+
+Replace the live job's use of Open-Meteo's 15-minute `current` sample with its hourly data. Each run requests the last 24 completed hours (`past_hours=24`, `forecast_hours=1`, UTC), ignores any hour later than the current one, skips an hour with no values at all, stores a single missing variable as null, and writes every hour through the keyed upsert. Every stored row is stamped on the hour with hourly totals for rain, sunshine and radiation, so live rows mean the same as the backfill's and the daily restart gap is filled by the next run. The `current`-based fetch is removed. The deploy note deletes the pre-change rows (empty `location`).
+
+### Acceptance criteria
+
+- [x] Given an hourly response, then each hour is stored stamped on the hour, with its temperature, humidity, pressure, wind, precipitation, shortwave radiation, cloud cover and sunshine duration.
+- [x] Given a response whose latest hour is later than the current hour, then that hour is not stored.
+- [x] Given an hour with no values at all, then it is skipped and the other hours are stored.
+- [x] Given an hour missing one variable, then it is stored with null for that variable.
+- [x] Given a non-finite value in any hour, then the response is rejected like the existing variables.
+- [x] Given the same run repeated, then the row count is unchanged and the rows hold the latest values.
+- [x] Given an earlier run that missed an hour (the daily restart), then the next run stores that hour.
+- [x] The live observation job persists the list through the keyed upsert, with the same source label (`open-meteo`) and location key as before.
+- [x] The `current`-based observation fetch and the 15-minute-sample wording (spec, glossary, tests) are removed; the deploy note deletes the pre-change rows.

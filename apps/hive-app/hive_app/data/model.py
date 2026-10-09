@@ -21,11 +21,11 @@ class WeatherObservation:  # pylint: disable=too-many-instance-attributes
     source: str
     location: str
     observed_at: datetime
-    temp: float
-    humidity: float
-    pressure: float
-    wind_speed: float
-    precipitation: float
+    temp: float | None
+    humidity: float | None
+    pressure: float | None
+    wind_speed: float | None
+    precipitation: float | None
     shortwave_radiation: float | None = None
     cloud_cover: float | None = None
     sunshine_duration: float | None = None

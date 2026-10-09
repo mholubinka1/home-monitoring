@@ -32,8 +32,11 @@ def upsert(s: Session, record: Any, key_columns: Sequence[str] | None = None) ->
 
     The conflict is resolved on the primary key unless key_columns names a
     different unique key (then `id` and the rest of the primary key are left
-    untouched on update).
+    untouched on update). An empty key_columns is a caller error, not a request
+    for the primary key: pass None for that.
     """
+    if key_columns is not None and len(key_columns) == 0:
+        raise ValueError("upsert key_columns must name at least one column or be None.")
     try:
         with s.begin_nested():
             s.add(record)
@@ -41,8 +44,8 @@ def upsert(s: Session, record: Any, key_columns: Sequence[str] | None = None) ->
             return
     except IntegrityError as exc:
         pk_columns = [col.name for col in inspect(type(record)).primary_key]
-        match_columns = list(key_columns) if key_columns else pk_columns
-        pk_filter = {col: getattr(record, col) for col in match_columns}
+        match_columns = list(key_columns) if key_columns is not None else pk_columns
+        match_filter = {col: getattr(record, col) for col in match_columns}
         update_dict = {
             col.name: getattr(record, col.name)
             for col in record.__table__.columns
@@ -50,14 +53,14 @@ def upsert(s: Session, record: Any, key_columns: Sequence[str] | None = None) ->
         }
         if (
             s.query(type(record))
-            .filter_by(**pk_filter)
+            .filter_by(**match_filter)
             .update(update_dict, synchronize_session=False)
         ):
             return
         raise RuntimeError(
             f"Upsert conflict resolution failed: no {type(record).__name__} row "
-            f"matched primary key {pk_filter}. The IntegrityError was likely caused "
-            "by a non-primary-key constraint violation."
+            f"matched {match_filter}. The IntegrityError was likely caused by a "
+            "constraint other than the one those columns identify."
         ) from exc
 
 

@@ -1,7 +1,10 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 import requests
 import responses
 from schedule import Scheduler
+from weather_hourly_payloads import HOURLY_VARIABLES, recent_hourly_payload
 
 from hive_app.common.config import LocationSettings
 from hive_app.data.mysql import model
@@ -15,22 +18,13 @@ OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
 
 @responses.activate
-def test_the_retriever_fetches_and_persists_the_observation_from_open_meteo(
+def test_the_retriever_fetches_and_persists_the_recent_hours_from_open_meteo(
     mariadb_client: MariaDBClient,
 ) -> None:
     responses.add(
         responses.GET,
         OPEN_METEO_ENDPOINT,
-        json={
-            "current": {
-                "time": "2026-09-25T12:00",
-                "temperature_2m": 14.5,
-                "relative_humidity_2m": 72,
-                "surface_pressure": 1012.3,
-                "wind_speed_10m": 8.1,
-                "precipitation": 0.0,
-            }
-        },
+        json=recent_hourly_payload(3),
         status=200,
     )
 
@@ -45,8 +39,13 @@ def test_the_retriever_fetches_and_persists_the_observation_from_open_meteo(
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.weather_observation).all()
 
-    assert len(stored) == 1
-    assert stored[0].source == "open-meteo"
+    assert len(stored) == 3
+    assert {row.source for row in stored} == {"open-meteo"}
+
+    query = parse_qs(urlparse(responses.calls[0].request.url).query)
+    assert query["hourly"] == [",".join(HOURLY_VARIABLES)]
+    assert query["past_hours"] == ["24"]
+    assert query["timezone"] == ["UTC"]
 
 
 @responses.activate
@@ -114,22 +113,13 @@ def test_a_forecast_refresh_persists_rows_and_the_job_records_success(
 
 
 @responses.activate
-def test_refreshing_the_observation_twice_for_the_same_hour_leaves_one_row(
+def test_refreshing_the_observation_twice_for_the_same_hours_leaves_the_same_rows(
     mariadb_client: MariaDBClient,
 ) -> None:
     responses.add(
         responses.GET,
         OPEN_METEO_ENDPOINT,
-        json={
-            "current": {
-                "time": "2026-09-25T12:00",
-                "temperature_2m": 14.5,
-                "relative_humidity_2m": 72,
-                "surface_pressure": 1012.3,
-                "wind_speed_10m": 8.1,
-                "precipitation": 0.0,
-            }
-        },
+        json=recent_hourly_payload(3),
         status=200,
     )
     retriever = _build_weather_retriever(
@@ -140,4 +130,4 @@ def test_refreshing_the_observation_twice_for_the_same_hour_leaves_one_row(
     retriever.refresh()
 
     with mariadb_client.session_read_scope() as session:
-        assert session.query(model.weather_observation).count() == 1
+        assert session.query(model.weather_observation).count() == 3
