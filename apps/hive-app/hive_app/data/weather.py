@@ -31,6 +31,11 @@ class WeatherRetriever:
         # handles retry-with-backoff and job_run failure recording.
         observations = self._client.fetch_recent_observations()
         self._client.persist_observations(observations)
+        if not observations:
+            # The job still succeeds; this line is the only trace that
+            # Open-Meteo gave back nothing storable.
+            logger.warning("Weather observation refresh: no hours to store.")
+            return
         logger.info(
             f"Weather observation refresh: persisted {len(observations)} hour(s)."
         )

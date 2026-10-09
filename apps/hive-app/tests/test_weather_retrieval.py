@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -46,6 +47,20 @@ def test_refresh_persists_every_fetched_hour() -> None:
     WeatherRetriever(source).refresh()
 
     assert source.persisted == source.fetched
+
+
+def test_a_refresh_that_finds_no_hours_to_store_says_so_in_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    source = _FakeWeatherSourceObservationSucceeds()
+    source.fetched = []
+
+    with caplog.at_level(logging.WARNING):
+        WeatherRetriever(source).refresh()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "no hours" in warnings[0].getMessage()
 
 
 class _FakeWeatherSourceObservationFails:

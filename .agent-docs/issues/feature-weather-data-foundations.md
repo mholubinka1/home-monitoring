@@ -52,12 +52,12 @@ _Since refined by FND-5: this was delivered against Open-Meteo's 15-minute `curr
 
 ### What to build
 
-`heating_status` gains a nullable boolean column for the thermostat's own "heating is working" report (the library's current-operation value). hive-app records it on every poll. A missing or unexpected value is stored as null and logged once. Its meaning is unverified; a short on/off test after deploy decides whether it reflects the boiler.
+`heating_status` gains a nullable boolean column for the thermostat's own "heating is working" report (the library's current-operation value). hive-app records it on every poll. A missing or unexpected value is stored as null and warned about once per process (later occurrences log at debug). Its meaning is unverified; a short on/off test after deploy decides whether it reflects the boiler.
 
 ### Acceptance criteria
 
 - [x] Given a poll where the thermostat reports working, then the row stores true; not working, false.
-- [x] Given a poll with no value or an unexpected type, then the row stores null and one log line says so.
+- [x] Given a poll with no value or an unexpected type, then the row stores null and a warning says so (the first time; later polls log at debug).
 - [x] Schema Sync adds the column to the existing table and existing rows are unaffected.
 - [x] The existing heating persistence and retrieval tests still pass.
 - [x] A note records that the semantics are to be confirmed by an on/off test after deploy.

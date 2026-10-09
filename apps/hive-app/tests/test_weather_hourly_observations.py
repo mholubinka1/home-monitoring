@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 import responses
@@ -162,7 +163,7 @@ def _stored(mariadb_client: MariaDBClient) -> list[model.weather_observation]:
 
 def _run(
     mariadb_client: MariaDBClient,
-    payload: dict,
+    payload: dict[str, Any],
     location: LocationSettings = LONDON,
 ) -> None:
     responses.add(responses.GET, OPEN_METEO_ENDPOINT, json=payload, status=200)

@@ -236,7 +236,12 @@ class MariaDBClientBase:
         records: list[Any],
         description: str,
         key_columns: Sequence[str] | None = None,
+        redact_errors: bool = False,
     ) -> None:
+        """Upserts every record in one transaction. A SQLAlchemy error message
+        embeds the bound parameters, so with redact_errors (for records that
+        carry personal data) only the exception type is logged and raised,
+        with no chained cause."""
         try:
             with self.session_write_scope() as s:
                 for record in records:
@@ -244,6 +249,10 @@ class MariaDBClientBase:
                 self._logger.debug(f"{description}: {len(records)} written to MariaDB.")
                 return
         except Exception as e:
+            if redact_errors:
+                error_type = type(e).__name__
+                self._logger.error(f"Failed to write {description}: {error_type}")
+                raise MariaDBError(error_type) from None
             self._logger.error(f"Failed to write {description}: {e}")
             raise MariaDBError(e) from e
 

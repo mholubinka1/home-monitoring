@@ -126,7 +126,9 @@ class MariaDBClient(MariaDBClientBase):
             derived_from_postcode=location.derived_from_postcode,
             resolved_at=datetime.now(UTC),
         )
-        self._write_all([record], "Weather location")
+        # The row records the Account Postcode it was derived from, which a
+        # SQLAlchemy error message would embed -- so errors are redacted.
+        self._write_all([record], "Weather location", redact_errors=True)
 
     def read_weather_location(self) -> ResolvedLocation | None:
         with self.session_read_scope() as session:
