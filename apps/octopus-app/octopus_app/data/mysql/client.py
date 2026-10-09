@@ -72,6 +72,9 @@ weather_observation_table = Table(
     Column("pressure", Float),
     Column("wind_speed", Float),
     Column("precipitation", Float),
+    Column("shortwave_radiation", Float),
+    Column("cloud_cover", Float),
+    Column("sunshine_duration", Float),
     schema="octopus",
 )
 
@@ -82,6 +85,7 @@ weather_forecast_table = Table(
     Column("source", String(20)),
     Column("target_date", Date, nullable=False),
     Column("max_temp", Float),
+    Column("mean_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
     schema="octopus",
 )

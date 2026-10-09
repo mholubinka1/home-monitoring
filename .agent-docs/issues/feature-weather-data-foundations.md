@@ -34,11 +34,11 @@ The live jobs also collect and store shortwave radiation, cloud cover and sunshi
 
 ### Acceptance criteria
 
-- [ ] Given a response with the new variables, then they are stored on the observation with the correct units.
-- [ ] Given a response missing one of them, then the observation is still stored with null for it.
-- [ ] Given a non-finite new value, then it is rejected like the existing variables.
-- [ ] Given a forecast response, then each day's mean temperature is stored alongside the maximum.
-- [ ] Schema Sync adds the new columns to existing tables; the Weather Observation glossary entry is updated.
+- [x] Given a response with the new variables, then they are stored on the observation with the correct units.
+- [x] Given a response missing one of them, then the observation is still stored with null for it.
+- [x] Given a non-finite new value, then it is rejected like the existing variables.
+- [x] Given a forecast response, then each day's mean temperature is stored alongside the maximum.
+- [x] Schema Sync adds the new columns to existing tables; the Weather Observation glossary entry is updated.
 
 ---
 

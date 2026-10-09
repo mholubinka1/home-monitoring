@@ -56,6 +56,9 @@ class weather_observation(SQLBase):
     pressure = Column(Float)
     wind_speed = Column(Float)
     precipitation = Column(Float)
+    shortwave_radiation = Column(Float)
+    cloud_cover = Column(Float)
+    sunshine_duration = Column(Float)
 
 
 class weather_forecast(SQLBase):
@@ -66,6 +69,7 @@ class weather_forecast(SQLBase):
     source = Column(String(20))
     target_date = Column(Date, nullable=False)
     max_temp = Column(Float)
+    mean_temp = Column(Float)
     fetched_at = Column(DateTime, nullable=False)
 
 

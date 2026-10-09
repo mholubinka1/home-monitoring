@@ -78,6 +78,9 @@ class MariaDBClient(MariaDBClientBase):
             pressure=observation.pressure,  # type: ignore[misc]
             wind_speed=observation.wind_speed,  # type: ignore[misc]
             precipitation=observation.precipitation,  # type: ignore[misc]
+            shortwave_radiation=observation.shortwave_radiation,  # type: ignore[misc]
+            cloud_cover=observation.cloud_cover,  # type: ignore[misc]
+            sunshine_duration=observation.sunshine_duration,  # type: ignore[misc]
         )
         self._write_all(
             [record], "Weather observation data", key_columns=_OBSERVATION_KEY
@@ -94,6 +97,7 @@ class MariaDBClient(MariaDBClientBase):
                 source=day.source,
                 target_date=day.target_date,
                 max_temp=day.max_temp,  # type: ignore[misc]
+                mean_temp=day.mean_temp,  # type: ignore[misc]
                 fetched_at=day.fetched_at,
             )
             for day in forecast

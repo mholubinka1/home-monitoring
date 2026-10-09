@@ -13,9 +13,10 @@ from hive_app.data.weather_types import (
 )
 
 CURRENT_FIELDS = (
-    "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,precipitation"
+    "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,"
+    "precipitation,shortwave_radiation,cloud_cover,sunshine_duration"
 )
-DAILY_FIELDS = "temperature_2m_max"
+DAILY_FIELDS = "temperature_2m_max,temperature_2m_mean"
 
 
 class OpenMeteoCurrent(BaseModel):
@@ -25,6 +26,9 @@ class OpenMeteoCurrent(BaseModel):
     surface_pressure: FiniteFloat
     wind_speed_10m: FiniteFloat
     precipitation: FiniteFloat
+    shortwave_radiation: FiniteFloat | None = None
+    cloud_cover: FiniteFloat | None = None
+    sunshine_duration: FiniteFloat | None = None
 
 
 class OpenMeteoResponse(BaseModel):
@@ -34,6 +38,7 @@ class OpenMeteoResponse(BaseModel):
 class OpenMeteoDaily(BaseModel):
     time: list[date]
     temperature_2m_max: list[FiniteFloat]
+    temperature_2m_mean: list[FiniteFloat | None] | None = None
 
 
 class OpenMeteoForecastResponse(BaseModel):
@@ -85,6 +90,9 @@ class OpenMeteoClient:
             pressure=current.surface_pressure,
             wind_speed=current.wind_speed_10m,
             precipitation=current.precipitation,
+            shortwave_radiation=current.shortwave_radiation,
+            cloud_cover=current.cloud_cover,
+            sunshine_duration=current.sunshine_duration,
         )
 
     def get_forecast(self) -> list[WeatherForecastDay]:
@@ -105,11 +113,16 @@ class OpenMeteoClient:
         parsed = OpenMeteoForecastResponse.model_validate(payload)
         daily = parsed.daily
 
-        if len(daily.time) != len(daily.temperature_2m_max):
+        mean_temps = daily.temperature_2m_mean
+        if mean_temps is None:
+            mean_temps = [None] * len(daily.time)
+
+        if not len(daily.time) == len(daily.temperature_2m_max) == len(mean_temps):
             raise ValueError(
                 "Open-Meteo forecast response has mismatched array lengths: "
                 f"{len(daily.time)} time entries vs "
-                f"{len(daily.temperature_2m_max)} temperature_2m_max entries."
+                f"{len(daily.temperature_2m_max)} temperature_2m_max entries vs "
+                f"{len(mean_temps)} temperature_2m_mean entries."
             )
 
         fetched_at = datetime.now(UTC)
@@ -119,6 +132,9 @@ class OpenMeteoClient:
                 target_date=target_date,
                 max_temp=max_temp,
                 fetched_at=fetched_at,
+                mean_temp=mean_temp,
             )
-            for target_date, max_temp in zip(daily.time, daily.temperature_2m_max)
+            for target_date, max_temp, mean_temp in zip(
+                daily.time, daily.temperature_2m_max, mean_temps
+            )
         ]

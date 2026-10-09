@@ -16,7 +16,7 @@ class HeatingStatus:
 
 
 @dataclass
-class WeatherObservation:
+class WeatherObservation:  # pylint: disable=too-many-instance-attributes
     source: str
     location: str
     observed_at: datetime
@@ -25,6 +25,9 @@ class WeatherObservation:
     pressure: float
     wind_speed: float
     precipitation: float
+    shortwave_radiation: float | None = None
+    cloud_cover: float | None = None
+    sunshine_duration: float | None = None
 
 
 @dataclass
@@ -33,6 +36,7 @@ class WeatherForecastDay:
     target_date: date
     max_temp: float
     fetched_at: datetime
+    mean_temp: float | None = None
 
 
 @dataclass
