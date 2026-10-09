@@ -94,7 +94,7 @@ Run against the configured database (`octopus` unless `mariadb.database` says ot
    SELECT polled_at, state, working FROM heating_status ORDER BY id DESC LIMIT 20;
    ```
 
-   Record the outcome in this note; until then do not build anything on `working`.
+   Record the outcome in this note; until then do not build anything on `working`. Not yet run: deferred to #658 (see the deploy record below).
 
 ### Deploy record (2026-10-09)
 
