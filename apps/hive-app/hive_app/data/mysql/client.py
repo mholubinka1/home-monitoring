@@ -139,5 +139,6 @@ class MariaDBClient(MariaDBClientBase):
                 latitude=float(row.latitude),
                 longitude=float(row.longitude),
                 source=row.source,  # type: ignore[arg-type]
+                # Same stub gap as above: a nullable String column reads as Column.
                 derived_from_postcode=row.derived_from_postcode,  # type: ignore[arg-type]
             )
