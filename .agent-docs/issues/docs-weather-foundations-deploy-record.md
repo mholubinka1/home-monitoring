@@ -1,5 +1,7 @@
 # Issues: docs-weather-foundations-deploy-record
 
+> Work complete — [PR #659](https://github.com/mholubinka1/home-monitoring/pull/659) ready to merge.
+
 ## docs: record the weather-data-foundations deploy and correct the spec's reader claim — [#657](https://github.com/mholubinka1/home-monitoring/issues/657)
 
 **Blocked by**: None
