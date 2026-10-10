@@ -3,9 +3,11 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import requests
 import responses
 from weather_hourly_payloads import hourly_payload
 
+from hive_app import weather_backfill
 from hive_app.data.model import ResolvedLocation, WeatherObservation
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
@@ -136,7 +138,7 @@ def test_a_multi_year_range_is_requested_in_consecutive_year_long_chunks(
         ("2024-01-01", "2024-12-30"),
         ("2024-12-31", "2025-06-30"),
     ]
-    assert [(r.start, r.end) for r in results] == [
+    assert [(r.start, r.end) for r in results.chunks] == [
         (date(2023, 1, 1), date(2023, 12, 31)),
         (date(2024, 1, 1), date(2024, 12, 30)),
         (date(2024, 12, 31), date(2025, 6, 30)),
@@ -168,6 +170,50 @@ def test_a_failed_chunk_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
     assert len(responses.calls) == 1 + 3
     assert len(sleeps) == 2
 
+    responses.replace(
+        responses.GET,
+        ARCHIVE_ENDPOINT,
+        json=hourly_payload(["2024-01-01T00:00"]),
+    )
+    WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
+        date(2024, 1, 1), date(2025, 6, 30)
+    )
+
+    assert [row[2] for row in _stored(mariadb_client)] == [
+        datetime(2023, 1, 1, 0),
+        datetime(2024, 1, 1, 0),
+    ]
+
+
+@responses.activate
+def test_a_failed_write_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    responses.add(
+        responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2023-01-01T00:00"])
+    )
+    real_write = mariadb_client.write_weather_observations
+    writes = []
+
+    def failing_second_write(observations: list[WeatherObservation]) -> None:
+        writes.append(observations)
+        if len(writes) == 2:
+            raise RuntimeError("insert failed for 51.40,-0.05")
+        real_write(observations)
+
+    monkeypatch.setattr(
+        mariadb_client, "write_weather_observations", failing_second_write
+    )
+
+    with pytest.raises(RuntimeError, match="Repeat from 2024-01-01") as failure:
+        WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
+            date(2023, 1, 1), date(2025, 6, 30)
+        )
+
+    assert "51.4" not in str(failure.value)
+    assert [row[2] for row in _stored(mariadb_client)] == [datetime(2023, 1, 1, 0)]
+
 
 @responses.activate
 def test_a_chunk_that_succeeds_on_a_retry_is_stored(
@@ -183,7 +229,30 @@ def test_a_chunk_that_succeeds_on_a_retry_is_stored(
         mariadb_client, clock=lambda: NOW, sleep=_no_sleep
     ).run(date(2024, 7, 24), date(2024, 7, 24))
 
-    assert [r.rows_written for r in results] == [1]
+    assert [r.rows_written for r in results.chunks] == [1]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [requests.ConnectionError(), requests.Timeout()],
+    ids=lambda e: type(e).__name__,
+)
+@responses.activate
+def test_a_network_failure_is_retried(
+    mariadb_client: MariaDBClient, failure: Exception
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    responses.add(responses.GET, ARCHIVE_ENDPOINT, body=failure)
+    responses.add(
+        responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
+    )
+
+    results = WeatherHistoryBackfill(
+        mariadb_client, clock=lambda: NOW, sleep=_no_sleep
+    ).run(date(2024, 7, 24), date(2024, 7, 24))
+
+    assert [r.rows_written for r in results.chunks] == [1]
+    assert len(responses.calls) == 2
 
 
 @responses.activate
@@ -211,7 +280,7 @@ def test_a_rate_limited_request_is_retried(mariadb_client: MariaDBClient) -> Non
         mariadb_client, clock=lambda: NOW, sleep=_no_sleep
     ).run(date(2024, 7, 24), date(2024, 7, 24))
 
-    assert [r.rows_written for r in results] == [1]
+    assert [r.rows_written for r in results.chunks] == [1]
     assert len(responses.calls) == 2
 
 
@@ -528,3 +597,34 @@ def test_a_start_after_yesterday_is_rejected_before_any_request(
     assert exit_code == 1
     assert "2026-10-09" in capsys.readouterr().err
     assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_a_failing_report_exits_1_naming_the_error_without_the_location(
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    yesterday = date(2026, 10, 9)
+    responses.add(
+        responses.GET,
+        ARCHIVE_ENDPOINT,
+        json=hourly_payload([f"{yesterday}T01:00"]),
+    )
+
+    def failing_report(*_args: object) -> None:
+        raise ConnectionError("lost connection for 51.40,-0.05")
+
+    monkeypatch.setattr(weather_backfill, "completeness_report", failing_report)
+
+    exit_code = main(
+        ["--config-file", str(_write_config(tmp_path)), "--start", str(yesterday)],
+        clock=lambda: NOW,
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Weather backfill report failed: ConnectionError" in captured.err
+    assert "51.4" not in captured.err + captured.out

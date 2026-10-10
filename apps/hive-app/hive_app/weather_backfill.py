@@ -54,6 +54,12 @@ class ChunkResult:
 
 
 @dataclass(frozen=True)
+class BackfillResult:
+    location_key: str
+    chunks: list[ChunkResult]
+
+
+@dataclass(frozen=True)
 class CompletenessReport:
     archive_rows_per_month: dict[str, int]
     complete_days: int
@@ -125,7 +131,7 @@ class WeatherHistoryBackfill:
         self._clock = clock
         self._sleep = sleep
 
-    def run(self, start: date, end: date) -> list[ChunkResult]:
+    def run(self, start: date, end: date) -> BackfillResult:
         location = self._mariadb.read_weather_location()
         if location is None:
             raise RuntimeError(
@@ -143,16 +149,18 @@ class WeatherHistoryBackfill:
             chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), end)
             try:
                 observations = self._fetch_with_retries(client, chunk_start, chunk_end)
+                self._mariadb.write_weather_observations(observations)
             except Exception as e:
                 raise RuntimeError(
                     f"Weather backfill failed for {chunk_start} to {chunk_end} "
                     f"({_describe(e)}); chunks before it are stored. "
                     f"Repeat from {chunk_start}."
                 ) from e
-            self._mariadb.write_weather_observations(observations)
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
             chunk_start = chunk_end + timedelta(days=1)
-        return results
+        return BackfillResult(
+            location_key(location.latitude, location.longitude), results
+        )
 
     def _fetch_with_retries(
         self, client: OpenMeteoClient, start: date, end: date
@@ -221,28 +229,24 @@ def main(
     mariadb = MariaDBClient(settings.mariadb)
     backfill = WeatherHistoryBackfill(mariadb, clock=clock)
     try:
-        results = backfill.run(args.start, now.date())
+        result = backfill.run(args.start, now.date())
     except Exception as e:
         print(f"Weather backfill failed: {e}", file=sys.stderr)
         return 1
 
-    for result in results:
-        print(f"{result.start} to {result.end}: {result.rows_written} hours stored")
-    print(f"Total: {sum(r.rows_written for r in results)} hours stored")
+    for chunk in result.chunks:
+        print(f"{chunk.start} to {chunk.end}: {chunk.rows_written} hours stored")
+    print(f"Total: {sum(c.rows_written for c in result.chunks)} hours stored")
 
-    # run() succeeded, so the location is cached. Today is still in progress.
-    location = mariadb.read_weather_location()
-    if location is None:
-        raise AssertionError("unreachable")  # pragma: no cover
-    _print_report(
-        completeness_report(
-            mariadb,
-            location_key(location.latitude, location.longitude),
-            args.start,
-            yesterday,
-        ),
-        yesterday,
-    )
+    # Today is still in progress, so the report stops at yesterday.
+    try:
+        report = completeness_report(
+            mariadb, result.location_key, args.start, yesterday
+        )
+    except Exception as e:
+        print(f"Weather backfill report failed: {_describe(e)}", file=sys.stderr)
+        return 1
+    _print_report(report, yesterday)
     return 0
 
 

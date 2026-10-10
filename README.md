@@ -182,3 +182,19 @@ a live SMS 2FA code; see the runbook.
   matters again if the data volume is wiped and MariaDB re-initializes from empty.
 - **A brand new table/column** added by a future feature: no manual DDL step needed —
   the schema sync creates it automatically on the next `octopus-app` startup.
+
+### Backfilling weather history
+
+A hand-run command fills hourly weather from Open-Meteo's archive, from 2024-07-24,
+for the cached Weather Location. Rows are labelled `open-meteo-archive`, live rows are
+left untouched, and repeating a range is safe (rows are replaced, not duplicated).
+
+```bash
+docker exec hive-app python -m hive_app.weather_backfill --config-file /config/config.yml
+```
+
+- `--start YYYY-MM-DD` backfills from a different first day.
+- hive-app must have resolved a location first; the command never geocodes.
+- If a chunk fails, the message ends "Repeat from `<date>`": earlier chunks are kept, so
+  re-run with `--start <date>`.
+- It finishes with a completeness report of hours per local day, up to yesterday.
