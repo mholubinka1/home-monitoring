@@ -53,6 +53,15 @@ class _StrippedCostForecast(_StrippedBase):
     computed_at = Column(DateTime, nullable=False)
 
 
+class _StrippedDailyConsumptionSummary(_StrippedBase):
+    __tablename__ = "daily_consumption_summary"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    energy = Column(String(1), primary_key=True)
+    date = Column(Date, primary_key=True)
+    total_kwh = Column(Numeric(8, 5), nullable=False)
+
+
 def _sqlite_engine() -> Engine:
     # database="main" here and in _settings() below must agree -- see
     # ADR-0025.
@@ -181,6 +190,33 @@ def test_a_cost_forecast_table_predating_the_energy_column_gets_it_added(
     assert row.energy is None
     assert row.actual_cost_to_date == Decimal("42.50")
     assert row.projected_total_cost == Decimal("110.00")
+
+
+def test_a_daily_consumption_summary_predating_the_half_hour_count_gets_it_added(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _sqlite_engine()
+    _StrippedBase.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(
+        _StrippedDailyConsumptionSummary(
+            energy="G", date=date(2026, 1, 10), total_kwh=Decimal("24.00000")
+        )
+    )
+    session.commit()
+
+    _sync_against(engine, monkeypatch)
+
+    columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("daily_consumption_summary")
+    }
+    assert columns["half_hour_count"]["nullable"] is True
+
+    read_session = sessionmaker(bind=engine)()
+    row = read_session.query(model.daily_consumption_summary).one()
+    assert row.half_hour_count is None
+    assert row.total_kwh == Decimal("24.00000")
 
 
 def test_a_cost_forecast_table_predating_the_estimation_flag_gets_both_columns_added(

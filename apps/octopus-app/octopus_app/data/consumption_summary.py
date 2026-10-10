@@ -13,7 +13,9 @@ from octopus_app.data.mysql.client import MariaDBClient
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-BACKFILL_WINDOW_DAYS = 730
+# Deliberately wider than the ~2 years of history the Octopus API serves, so
+# every day it still holds is requested; it simply returns nothing earlier.
+BACKFILL_WINDOW_DAYS = 1096
 
 
 class ConsumptionSummaryRetriever:
@@ -48,24 +50,25 @@ class ConsumptionSummaryBackfill:
     def run(self, as_of: datetime | None = None) -> None:
         if as_of is None:
             as_of = datetime.now(UTC)
-        # Anchored to midnight UTC of the cutoff date, not as_of's exact
-        # time-of-day -- otherwise Octopus omits intervals before that time
-        # on the oldest backfilled day, producing a partial daily total.
+        # Anchored to the start of the cutoff date's London day, not as_of's
+        # exact time-of-day nor UTC midnight (an hour late during BST) --
+        # otherwise Octopus omits intervals at the start of the oldest
+        # backfilled day, storing it as a partial total and short count.
         cutoff_date = (as_of - timedelta(days=BACKFILL_WINDOW_DAYS)).date()
-        period_from = datetime(
-            cutoff_date.year, cutoff_date.month, cutoff_date.day, tzinfo=UTC
-        )
+        period_from = local_day.start_of_local_day(cutoff_date)
 
         self._client.refresh_meters()
         totals: dict[tuple[Energy, date], Decimal] = {}
+        counts: dict[tuple[Energy, date], int] = {}
         for meter in self._client.meters:
             next_page, consumption = self._client.fetch_consumption(meter, period_from)
             while True:
                 for point in consumption:
                     # Local day, not point.start.date() (which is the UTC
-                    # date), to match the weekly job (ADR-0027).
+                    # date), to match the daily job (ADR-0027).
                     key = (meter.energy, local_day.to_local_date(point.start))
                     totals[key] = totals.get(key, Decimal(0)) + point.est_kwh
+                    counts[key] = counts.get(key, 0) + 1
                 if next_page is None:
                     break
                 next_page, consumption = self._client.fetch_consumption_page(
@@ -73,7 +76,12 @@ class ConsumptionSummaryBackfill:
                 )
 
         summaries = [
-            ConsumptionSummary(energy=energy, date=day, total_kwh=total)
+            ConsumptionSummary(
+                energy=energy,
+                date=day,
+                total_kwh=total,
+                half_hour_count=counts[energy, day],
+            )
             for (energy, day), total in totals.items()
         ]
         self._client.persist_consumption_summary(summaries)

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     and_,
+    func,
     or_,
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -417,7 +418,12 @@ class MariaDBClient(MariaDBClientBase):
                 .all()
             )
         return [
-            ConsumptionSummary(energy=energy, date=row.date, total_kwh=row.total_kwh)
+            ConsumptionSummary(
+                energy=energy,
+                date=row.date,
+                total_kwh=row.total_kwh,
+                half_hour_count=row.half_hour_count,
+            )
             for row in rows
         ]
 
@@ -510,7 +516,7 @@ class MariaDBClient(MariaDBClientBase):
         # gap detection (a day outside the trailing window with no existing
         # summary row) requires seeing all of history, not just the recent
         # cutoff. Table growth is bounded by the raw retention window via
-        # the weekly prune_old_data job (see DataPruner), which always runs
+        # the daily prune_old_data job (see DataPruner), which always runs
         # after this summarization job in the same scheduling tick -- so by
         # the time pruning deletes anything, it has already been summarized.
         # `- 1` because the window is inclusive of as_of itself: 14 trailing
@@ -528,10 +534,12 @@ class MariaDBClient(MariaDBClientBase):
             # with ConsumptionSummaryBackfill, which also buckets by local
             # day (via local_day.to_local_date).
             daily_totals: dict[tuple[str, date], Decimal] = {}
+            daily_counts: dict[tuple[str, date], int] = {}
             for row in raw_rows:
                 day = local_day.to_local_date(row.period_from)
                 key = (row.energy, day)
                 daily_totals[key] = daily_totals.get(key, Decimal(0)) + row.est_kwh
+                daily_counts[key] = daily_counts.get(key, 0) + 1
 
             # `daily_consumption_summary` is exempt from raw-data pruning
             # (kept for long-running yearly comparisons), so it grows
@@ -556,10 +564,28 @@ class MariaDBClient(MariaDBClientBase):
                 energy=energy_from_char(energy_char),
                 date=day,
                 total_kwh=total_kwh,
+                half_hour_count=daily_counts[energy_char, day],
             )
             for (energy_char, day), total_kwh in daily_totals.items()
             if day >= cutoff or (energy_char, day) not in existing_summary_days
         ]
+
+    def counted_history_start(self) -> date | None:
+        # The date from which every energy has counted days: the latest of
+        # each energy's oldest counted day, or None when any energy has no
+        # counted day at all -- judged against every Energy, not just those
+        # present in the table, so an energy whose rows were all lost counts.
+        dcs = model.daily_consumption_summary
+        with self.session_read_scope() as session:
+            oldest_counted: dict[str, date] = dict(
+                session.query(dcs.energy, func.min(dcs.date))
+                .filter(dcs.half_hour_count.isnot(None))
+                .group_by(dcs.energy)
+                .all()
+            )
+        if any(as_energy_char(energy) not in oldest_counted for energy in Energy):
+            return None
+        return max(oldest_counted.values())
 
     def write_consumption_summary(self, summaries: list[ConsumptionSummary]) -> None:
         records = [
@@ -567,6 +593,7 @@ class MariaDBClient(MariaDBClientBase):
                 energy=as_energy_char(summary.energy),
                 date=summary.date,
                 total_kwh=summary.total_kwh,
+                half_hour_count=summary.half_hour_count,
             )
             for summary in summaries
         ]

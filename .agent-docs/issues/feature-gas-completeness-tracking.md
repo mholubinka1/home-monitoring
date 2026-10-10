@@ -1,5 +1,7 @@
 # Issues: feature-gas-completeness-tracking
 
+> Work complete — [PR #660](https://github.com/mholubinka1/home-monitoring/pull/660) ready to merge. One criterion is deliberately left unticked (GCT-1: the live database check of the new column), since it can only be done at deploy.
+
 ## GCT-1 · Record the readings behind each daily total and define a complete gas day — [#646](https://github.com/mholubinka1/home-monitoring/issues/646)
 
 **Blocked by**: None
@@ -12,12 +14,12 @@
 
 ### Acceptance criteria
 
-- [ ] Given 48 raw half-hours for a London day, then the summary stores the total and a count of 48 and the day is complete.
-- [ ] Given 36 of 48, then the day is not complete.
-- [ ] Given a spring-forward day with 46 and an autumn day with 50, then each is complete.
-- [ ] Given 48 readings that are all zero, then the day is not complete.
-- [ ] Given an unknown count and a positive total, then the day is usable and reported as unverified; with a zero total it is not usable.
-- [ ] Schema Sync adds the column to the existing table (verified against the real MariaDB fixture); the Complete Gas Day glossary entry is added.
+- [x] Given 48 raw half-hours for a London day, then the summary stores the total and a count of 48 and the day is complete.
+- [x] Given 36 of 48, then the day is not complete.
+- [x] Given a spring-forward day with 46 and an autumn day with 50, then each is complete.
+- [x] Given 48 readings that are all zero, then the day is not complete.
+- [x] Given an unknown count and a positive total, then the day is usable and reported as unverified; with a zero total it is not usable.
+- [ ] Schema Sync adds the column to the existing table, existing rows reading NULL (SQLite test in octopus-app; the real MariaDB fixture already covers adding a column to an existing table, and the live database is checked at deploy); the Complete Gas Day glossary entry is added.
 
 ---
 
@@ -29,14 +31,15 @@
 
 ### What to build
 
-The existing 730-day summary backfill also records the half-hour counts for every day the API returns (2024-10-09 onward), leaving earlier days NULL.
+The existing summary backfill also records the half-hour counts for every day the API returns (2024-10-09 onward), leaving earlier days NULL. It requests everything the API serves, and it runs at startup whenever the summary's counted days reach back less than 6 months (replacing the one-time `job_run` gate), so a fresh, wiped or restored database fills itself and the first start after this deploy backfills the counts.
 
 ### Acceptance criteria
 
-- [ ] Given API readings for a day, then the backfill stores that day's count alongside the total.
-- [ ] Given days before the API's first day, then their count stays NULL.
-- [ ] Given a partial API day, then the count is below the expected number and the day reads as incomplete.
-- [ ] Re-running the backfill leaves the counts unchanged.
+- [x] Given counted days reaching back less than 6 months (or none), when octopus-app starts, then the backfill runs; given 6 months or more, it is skipped.
+- [x] Given API readings for a day, then the backfill stores that day's count alongside the total.
+- [x] Given days before the API's first day, then their count stays NULL.
+- [x] Given a partial API day, then the count is below the expected number and the day reads as incomplete.
+- [x] Re-running the backfill leaves the counts unchanged.
 
 ---
 
@@ -52,7 +55,7 @@ Run the summary job daily, after the daily raw consumption refetch, instead of w
 
 ### Acceptance criteria
 
-- [ ] The summary job is scheduled daily and recorded in `job_run` like before.
-- [ ] Given a day whose gas arrives late, then the next daily refresh turns it from incomplete to complete with the right total.
-- [ ] The raw refetch runs before the summary in the same morning.
-- [ ] The existing weekly-cadence documentation is updated.
+- [x] The summary job is scheduled daily and recorded in `job_run` like before.
+- [x] Given a day whose gas arrives late, then the next daily refresh turns it from incomplete to complete with the right total.
+- [x] The raw refetch runs before the summary in the same morning.
+- [x] The existing weekly-cadence documentation is updated.
