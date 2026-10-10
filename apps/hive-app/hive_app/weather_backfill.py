@@ -63,7 +63,8 @@ class BackfillResult:
 class CompletenessReport:
     archive_rows_per_month: dict[str, int]
     complete_days: int
-    incomplete_days: dict[date, int]
+    # Each incomplete day's missing hours, as local "HH:MM" hour starts.
+    incomplete_days: dict[date, list[str]]
 
     @property
     def total_days(self) -> int:
@@ -74,11 +75,21 @@ def _local_day_start(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=LOCAL_TIMEZONE).astimezone(UTC)
 
 
-def _expected_hours(day: date) -> int:
-    # 23, 24 or 25 on a clock-change day.
-    return (
-        _local_day_start(day + timedelta(days=1)) - _local_day_start(day)
-    ) // ONE_HOUR
+def _hour_stamps(day: date) -> list[datetime]:
+    # A stamp H holds the hour ending at H (ADR-0029), so a local day's stamps
+    # run from its 01:00 to the next 00:00: 23, 24 or 25 on a clock-change day.
+    stamp = _local_day_start(day) + ONE_HOUR
+    last = _local_day_start(day + timedelta(days=1))
+    stamps = []
+    while stamp <= last:
+        stamps.append(stamp)
+        stamp += ONE_HOUR
+    return stamps
+
+
+def _local_hour_start(stamp: datetime) -> datetime:
+    """The local start of the hour a stamp holds; its date is the stamp's day."""
+    return (stamp - ONE_HOUR).astimezone(LOCAL_TIMEZONE)
 
 
 def completeness_report(
@@ -86,20 +97,14 @@ def completeness_report(
 ) -> CompletenessReport:
     """Hourly readings per local day from `start` to `end` inclusive. An hour
     counts once whichever source holds it (ADR-0010: bucketed by local date)."""
-    # A stamp H holds the hour ending at H (ADR-0029), so a local day's hours
-    # are the stamps from its 01:00 to the next 00:00, and each stamp is
-    # bucketed by the local date of (stamp - 1 hour).
     hours = mariadb.read_weather_observation_hours(
         location,
         _local_day_start(start) + ONE_HOUR,
         _local_day_start(end + timedelta(days=1)) + ONE_HOUR,
     )
-    present_per_day = Counter(
-        (observed_at - ONE_HOUR).astimezone(LOCAL_TIMEZONE).date()
-        for observed_at in {observed_at for _, observed_at in hours}
-    )
+    present = {observed_at for _, observed_at in hours}
     archive_rows_per_month: Counter[str] = Counter(
-        (observed_at - ONE_HOUR).astimezone(LOCAL_TIMEZONE).strftime("%Y-%m")
+        _local_hour_start(observed_at).strftime("%Y-%m")
         for source, observed_at in hours
         if source == ARCHIVE_SOURCE
     )
@@ -107,7 +112,11 @@ def completeness_report(
     incomplete_days = {}
     for offset in range((end - start).days + 1):
         day = start + timedelta(days=offset)
-        missing = _expected_hours(day) - present_per_day[day]
+        missing = [
+            _local_hour_start(stamp).strftime("%H:%M")
+            for stamp in _hour_stamps(day)
+            if stamp not in present
+        ]
         if missing:
             incomplete_days[day] = missing
     return CompletenessReport(
@@ -185,7 +194,7 @@ def _print_report(report: CompletenessReport, up_to: date) -> None:
     if not report.incomplete_days:
         print("no incomplete days")
     for day, missing in report.incomplete_days.items():
-        print(f"incomplete: {day}, {missing} hours missing")
+        print(f"incomplete: {day}, {len(missing)} hours missing ({', '.join(missing)})")
 
 
 def main(
@@ -226,12 +235,17 @@ def main(
             print(f"Could not load config from {args.config_file}.", file=sys.stderr)
         return 1
 
-    mariadb = MariaDBClient(settings.mariadb)
-    backfill = WeatherHistoryBackfill(mariadb, clock=clock)
     try:
-        result = backfill.run(args.start, now.date())
+        # Building the client connects to the database (Schema Sync).
+        mariadb = MariaDBClient(settings.mariadb)
+        result = WeatherHistoryBackfill(mariadb, clock=clock).run(
+            args.start, now.date()
+        )
     except Exception as e:
-        print(f"Weather backfill failed: {e}", file=sys.stderr)
+        # run()'s own RuntimeErrors are built from _describe and safe to print;
+        # anything else (a raw database error) may carry SQL and parameters.
+        reason = str(e) if isinstance(e, RuntimeError) else _describe(e)
+        print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 
     for chunk in result.chunks:

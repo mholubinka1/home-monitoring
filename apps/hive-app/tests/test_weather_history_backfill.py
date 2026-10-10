@@ -467,11 +467,13 @@ def test_a_day_missing_an_hour_is_incomplete_and_a_day_with_no_rows_misses_them_
     )
 
     assert report.complete_days == 0
-    assert report.incomplete_days == {
+    assert {day: len(hours) for day, hours in report.incomplete_days.items()} == {
         date(2025, 6, 10): 1,
         date(2025, 6, 11): 24,
         date(2025, 6, 12): 24,
     }
+    # The 12:00Z stamp is the hour ending 13:00 BST, i.e. the 12:00 local hour.
+    assert report.incomplete_days[date(2025, 6, 10)] == ["12:00"]
 
 
 def test_a_summer_day_holding_the_hour_ending_at_its_midnight_is_complete(
@@ -528,7 +530,8 @@ def test_an_hour_held_by_either_source_counts_but_another_location_does_not(
         mariadb_client, "51.40,-0.05", date(2025, 1, 15), date(2025, 1, 15)
     )
 
-    assert report.incomplete_days == {date(2025, 1, 15): 1}
+    # The other location's row is the 00:00Z stamp: the 23:00 local hour.
+    assert report.incomplete_days == {date(2025, 1, 15): ["23:00"]}
 
 
 def test_the_report_counts_archive_rows_per_local_month(
@@ -581,8 +584,54 @@ def test_a_successful_run_prints_the_report_up_to_yesterday(
     assert f"Completeness up to {yesterday} (today is still in progress):" in out
     assert "2026-10: 2 archive hours stored" in out
     assert "complete days: 0 of 1" in out
-    assert f"incomplete: {yesterday}, 22 hours missing" in out
+    # The two stored stamps are the 01:00 and 02:00 local hours.
+    assert f"incomplete: {yesterday}, 22 hours missing (00:00, 03:00, 04:00," in out
     assert "51.4" not in out
+
+
+def test_an_unreachable_database_is_described_not_printed_raw(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # No SQLite fixture: the client really connects, to port 1 (always refused),
+    # never to a real MariaDB that might be listening on the CI host's 3306.
+    config_file = _write_config(tmp_path)
+    config_file.write_text(
+        config_file.read_text(encoding="utf-8").replace("3306", "1"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        ["--config-file", str(config_file), "--start", "2026-10-09"],
+        clock=lambda: NOW,
+    )
+
+    err = capsys.readouterr().err
+    assert exit_code == 1
+    assert "Weather backfill failed: OperationalError" in err
+    assert "localhost" not in err
+
+
+@pytest.mark.usefixtures("mariadb_client")
+def test_a_database_error_before_the_backfill_is_described_not_printed_raw(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def database_down(*_args: object) -> None:
+        raise ConnectionError("SELECT ... FROM weather_location WHERE user=hive")
+
+    monkeypatch.setattr(MariaDBClient, "read_weather_location", database_down)
+
+    exit_code = main(
+        ["--config-file", str(_write_config(tmp_path)), "--start", "2026-10-09"],
+        clock=lambda: NOW,
+    )
+
+    err = capsys.readouterr().err
+    assert exit_code == 1
+    assert "Weather backfill failed: ConnectionError" in err
+    assert "SELECT" not in err
 
 
 @responses.activate
