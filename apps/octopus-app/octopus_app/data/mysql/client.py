@@ -570,15 +570,22 @@ class MariaDBClient(MariaDBClientBase):
             if day >= cutoff or (energy_char, day) not in existing_summary_days
         ]
 
-    def oldest_counted_summary_date(self) -> date | None:
+    def counted_history_start(self) -> date | None:
+        # The date from which every energy in the summary has counted days:
+        # the latest of each energy's oldest counted day, or None when the
+        # summary is empty or any energy has no counted day at all.
         dcs = model.daily_consumption_summary
         with self.session_read_scope() as session:
-            oldest: date | None = (
-                session.query(func.min(dcs.date))
+            energies = {energy for (energy,) in session.query(dcs.energy).distinct()}
+            oldest_counted: dict[str, date] = dict(
+                session.query(dcs.energy, func.min(dcs.date))
                 .filter(dcs.half_hour_count.isnot(None))
-                .scalar()
+                .group_by(dcs.energy)
+                .all()
             )
-        return oldest
+        if not energies or energies - oldest_counted.keys():
+            return None
+        return max(oldest_counted.values())
 
     def write_consumption_summary(self, summaries: list[ConsumptionSummary]) -> None:
         records = [

@@ -532,6 +532,29 @@ def test_backfill_runs_when_the_summary_has_totals_but_no_counted_days(
     backfill.run.assert_called_once()
 
 
+def test_backfill_runs_when_one_energys_counted_days_fall_short_of_six_months(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_consumption_summary(
+        [
+            ConsumptionSummary(
+                energy=Energy.electricity,
+                date=datetime.date(2025, 10, 1),
+                total_kwh=Decimal(1),
+                half_hour_count=48,
+            ),
+            _summary_day(datetime.date(2026, 9, 1), 48),
+        ]
+    )
+    backfill = Mock(spec=ConsumptionSummaryBackfill)
+
+    worker = run_backfill_at_startup(backfill, mariadb_client, as_of=STARTUP)
+    assert worker is not None
+    worker.join()
+
+    backfill.run.assert_called_once()
+
+
 def test_a_persistently_failing_backfill_retries_with_backoff_and_does_not_crash(
     mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
