@@ -85,8 +85,8 @@ class OpenMeteoClient:
         self, endpoint_params: dict[str, str], url: str | None = None
     ) -> dict[str, Any]:
         # Shared by every Open-Meteo endpoint this client calls: latitude
-        # and longitude. Each caller passes its own "timezone" -- the two
-        # endpoints need different ones (see each call site).
+        # and longitude. Each caller passes its own "timezone" (see each
+        # call site): the hourly calls use UTC, the daily forecast local days.
         response = requests.get(
             url=url or self.base_url,
             params={

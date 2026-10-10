@@ -346,25 +346,22 @@ def test_the_command_without_a_cached_location_fails_telling_the_operator_why(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config_file = tmp_path / "config.yml"
-    config_file.write_text(
-        "hive:\n"
-        "  username: user@example.com\n"
-        "  password: hunter2\n"
-        f"  auth_state_path: {tmp_path / 'state.json'}\n"
-        "mariadb:\n"
-        "  host: localhost\n"
-        "  port: 3306\n"
-        "  database: main\n"
-        "  username: test\n"
-        "  password: test\n",
-        encoding="utf-8",
-    )
-
-    exit_code = main(["--config-file", str(config_file)])
+    exit_code = main(["--config-file", str(_write_config(tmp_path))])
 
     assert exit_code == 1
     assert "let hive-app resolve a location" in capsys.readouterr().err
+
+
+def test_the_command_with_an_unreadable_config_fails_naming_the_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing = tmp_path / "missing.yml"
+
+    exit_code = main(["--config-file", str(missing)])
+
+    assert exit_code == 1
+    assert f"Could not load config from {missing}" in capsys.readouterr().err
 
 
 def _write_config(tmp_path: Path) -> Path:
