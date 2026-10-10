@@ -482,11 +482,11 @@ def _summary_day(day: datetime.date, count: int | None) -> ConsumptionSummary:
     )
 
 
-def test_backfill_runs_when_the_summary_holds_less_than_six_months_of_counted_days(
+def test_backfill_runs_when_counted_days_reach_back_one_day_short_of_six_months(
     mariadb_client: MariaDBClient,
 ) -> None:
     mariadb_client.write_consumption_summary(
-        [_summary_day(datetime.date(2026, 5, 1), 48)]
+        [_summary_day(datetime.date(2026, 4, 11), 48)]
     )
     backfill = Mock(spec=ConsumptionSummaryBackfill)
 
@@ -502,11 +502,12 @@ def test_backfill_runs_when_the_summary_holds_less_than_six_months_of_counted_da
     ]
 
 
-def test_backfill_is_skipped_once_the_summary_holds_six_months_of_counted_days(
+def test_backfill_is_skipped_once_counted_days_reach_back_exactly_six_months(
     mariadb_client: MariaDBClient,
 ) -> None:
+    # 183 days before STARTUP's London date (2026-10-10).
     mariadb_client.write_consumption_summary(
-        [_summary_day(datetime.date(2026, 4, 1), 48)]
+        [_summary_day(datetime.date(2026, 4, 10), 48)]
     )
     backfill = Mock(spec=ConsumptionSummaryBackfill)
 

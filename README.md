@@ -66,7 +66,7 @@ providing:
   means the startup backfill re-runs in full on every restart, not just the first
   one). This is separate from the `daily_consumption_summary` backfill, which
   fetches everything the Octopus API still serves (about 2 years) at any startup where
-  the summary holds less than 6 months of counted days, and needs no configuration.
+  the summary's counted days reach back less than 6 months, and needs no configuration.
 
 For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template`. Only
 the `hive` (account username and password) and `mariadb` sections are required for

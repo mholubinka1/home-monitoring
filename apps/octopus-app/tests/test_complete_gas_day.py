@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from octopus_app.data import local_day
 from octopus_app.data.consumption_summary import ConsumptionSummaryRetriever
-from octopus_app.data.gas_day import GasDayStatus, gas_day_status
+from octopus_app.data.gas_day import GasDayStatus, gas_day_status, is_usable
 from octopus_app.data.model import Consumption, ConsumptionSummary, Energy, Unit
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.octopus.model import Agreement, Gas
@@ -107,6 +107,25 @@ def test_a_gas_day_with_an_unknown_count_and_positive_total_is_unverified() -> N
     )
 
     assert gas_day_status(summary) is GasDayStatus.UNVERIFIED
+
+
+def test_only_complete_and_unverified_gas_days_are_usable() -> None:
+    day = date(2026, 1, 10)
+
+    def usable(total: str, count: int | None) -> bool:
+        return is_usable(
+            ConsumptionSummary(
+                energy=Energy.gas,
+                date=day,
+                total_kwh=Decimal(total),
+                half_hour_count=count,
+            )
+        )
+
+    assert usable("12.5", 48)
+    assert usable("12.5", None)
+    assert not usable("12.5", 36)
+    assert not usable("0", None)
 
 
 def test_a_gas_day_with_an_unknown_count_and_zero_total_is_incomplete() -> None:

@@ -34,3 +34,7 @@ before it has been rolled into `daily_consumption_summary`.
   retention) is the source of truth for anything longer-range.
 - `retention_days` now bounds both the startup backfill's lookback and
   ongoing storage growth, since the weekly pruning job enforces it.
+
+## Update 2026-10-10: daily summary and pruning, data-gated backfill
+
+Pruning now runs daily, not weekly. One daily `DAILY_JOB_TIME` (04:00) job refetches the raw consumption window, then runs `update_consumption_summary`, then prunes, in one background thread; pruning is still gated on that same run's summary succeeding, so the reasoning above about sequencing within one thread still holds. The summary backfill is no longer one-time: it runs at any startup where the summary's counted days (those with a known `half_hour_count`) reach back less than 6 months, and it requests everything the Octopus API serves. See `feature/gas-completeness-tracking` ([#647](https://github.com/mholubinka1/home-monitoring/issues/647), [#648](https://github.com/mholubinka1/home-monitoring/issues/648)).

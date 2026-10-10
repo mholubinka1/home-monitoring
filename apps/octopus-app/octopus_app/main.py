@@ -170,7 +170,7 @@ def run_backfill_at_startup(
     as_of: dt | None = None,
 ) -> threading.Thread | None:
     # Gated on the data, not on a prior job_run: the backfill runs whenever the
-    # summary holds less than MIN_COUNTED_HISTORY_DAYS of counted days.
+    # summary's counted days reach back less than MIN_COUNTED_HISTORY_DAYS.
     if as_of is None:
         as_of = dt.now(datetime.UTC)
     threshold = local_day.to_local_date(as_of) - timedelta(
@@ -179,10 +179,14 @@ def run_backfill_at_startup(
     oldest_counted = mariadb.oldest_counted_summary_date()
     if oldest_counted is not None and oldest_counted <= threshold:
         logger.info(
-            "Consumption summary already holds at least 6 months of counted days; "
+            "Consumption summary's counted days reach back at least 6 months; "
             "skipping yearly comparison backfill."
         )
         return None
+    logger.info(
+        f"Consumption summary's oldest counted day is {oldest_counted}; "
+        "running yearly comparison backfill."
+    )
     run = _run_with_backoff_in_background(
         YEARLY_COMPARISON_BACKFILL_JOB, backfill.run, mariadb
     )

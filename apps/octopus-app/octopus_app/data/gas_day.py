@@ -19,3 +19,7 @@ def gas_day_status(summary: ConsumptionSummary) -> GasDayStatus:
     if summary.half_hour_count == local_day.expected_half_hour_count(summary.date):
         return GasDayStatus.COMPLETE
     return GasDayStatus.INCOMPLETE
+
+
+def is_usable(summary: ConsumptionSummary) -> bool:
+    return gas_day_status(summary) is not GasDayStatus.INCOMPLETE
