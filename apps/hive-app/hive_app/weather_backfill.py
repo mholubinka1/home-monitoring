@@ -1,14 +1,22 @@
 import argparse
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from hive_app.common.config import LocationSettings, get_settings
 from hive_app.data.model import WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import OpenMeteoClient
+from hive_app.data.weather_types import location_key
+
+# Days and months are local days and months; issue #663 makes this configurable.
+LOCAL_TIMEZONE = ZoneInfo("Europe/London")
+ARCHIVE_SOURCE = "open-meteo-archive"
+ONE_HOUR = timedelta(hours=1)
 
 # The first daily gas day: weather before it has nothing to be compared with.
 DEFAULT_START = date(2024, 7, 24)
@@ -30,6 +38,59 @@ class ChunkResult:
     start: date
     end: date
     rows_written: int
+
+
+@dataclass(frozen=True)
+class CompletenessReport:
+    archive_rows_per_month: dict[str, int]
+    complete_days: int
+    incomplete_days: dict[date, int]
+
+    @property
+    def total_days(self) -> int:
+        return self.complete_days + len(self.incomplete_days)
+
+
+def _local_day_start(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, tzinfo=LOCAL_TIMEZONE).astimezone(UTC)
+
+
+def _expected_hours(day: date) -> int:
+    # 23, 24 or 25 on a clock-change day.
+    return (
+        _local_day_start(day + timedelta(days=1)) - _local_day_start(day)
+    ) // ONE_HOUR
+
+
+def completeness_report(
+    mariadb: MariaDBClient, location: str, start: date, end: date
+) -> CompletenessReport:
+    """Hourly readings per local day from `start` to `end` inclusive. An hour
+    counts once whichever source holds it (ADR-0010: bucketed by local date)."""
+    hours = mariadb.read_weather_observation_hours(
+        location, _local_day_start(start), _local_day_start(end + timedelta(days=1))
+    )
+    present_per_day = Counter(
+        observed_at.astimezone(LOCAL_TIMEZONE).date()
+        for observed_at in {observed_at for _, observed_at in hours}
+    )
+    archive_rows_per_month: Counter[str] = Counter(
+        observed_at.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m")
+        for source, observed_at in hours
+        if source == ARCHIVE_SOURCE
+    )
+
+    incomplete_days = {}
+    for offset in range((end - start).days + 1):
+        day = start + timedelta(days=offset)
+        missing = _expected_hours(day) - present_per_day[day]
+        if missing:
+            incomplete_days[day] = missing
+    return CompletenessReport(
+        archive_rows_per_month=dict(sorted(archive_rows_per_month.items())),
+        complete_days=(end - start).days + 1 - len(incomplete_days),
+        incomplete_days=incomplete_days,
+    )
 
 
 class WeatherHistoryBackfill:
@@ -90,6 +151,16 @@ class WeatherHistoryBackfill:
         raise AssertionError("unreachable")  # pragma: no cover
 
 
+def _print_report(report: CompletenessReport) -> None:
+    for month, rows in report.archive_rows_per_month.items():
+        print(f"{month}: {rows} archive hours")
+    print(f"complete days: {report.complete_days} of {report.total_days}")
+    if not report.incomplete_days:
+        print("no incomplete days")
+    for day, missing in report.incomplete_days.items():
+        print(f"incomplete: {day}, {missing} hours missing")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Backfill hourly weather history: run via `docker exec hive-app python -m
     hive_app.weather_backfill --config-file <path>`. Safe to repeat over the
@@ -114,7 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Could not load config from {args.config_file}.", file=sys.stderr)
         return 1
 
-    backfill = WeatherHistoryBackfill(MariaDBClient(settings.mariadb))
+    mariadb = MariaDBClient(settings.mariadb)
+    backfill = WeatherHistoryBackfill(mariadb)
     try:
         results = backfill.run(args.start, datetime.now(UTC).date())
     except Exception as e:
@@ -124,6 +196,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     for result in results:
         print(f"{result.start} to {result.end}: {result.rows_written} hours stored")
     print(f"Total: {sum(r.rows_written for r in results)} hours stored")
+
+    # run() succeeded, so the location is cached. Today is still in progress.
+    location = mariadb.read_weather_location()
+    if location is None:
+        raise AssertionError("unreachable")  # pragma: no cover
+    _print_report(
+        completeness_report(
+            mariadb,
+            location_key(location.latitude, location.longitude),
+            args.start,
+            datetime.now(LOCAL_TIMEZONE).date() - timedelta(days=1),
+        )
+    )
     return 0
 
 

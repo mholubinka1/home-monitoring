@@ -107,6 +107,27 @@ class MariaDBClient(MariaDBClientBase):
         ]
         self._write_all(records, "Weather forecast data")
 
+    def read_weather_observation_hours(
+        self, location: str, start: datetime, end: datetime
+    ) -> list[tuple[str, datetime]]:
+        """(source, observed_at in UTC) of every stored hour for the location
+        key with start <= observed_at < end, whatever its source."""
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(
+                    sql_model.weather_observation.source,
+                    sql_model.weather_observation.observed_at,
+                )
+                .filter(
+                    sql_model.weather_observation.location == location,
+                    sql_model.weather_observation.observed_at >= start,
+                    sql_model.weather_observation.observed_at < end,
+                )
+                .all()
+            )
+            # The database stores naive UTC; stamp it back as UTC.
+            return [(source, observed.replace(tzinfo=UTC)) for source, observed in rows]
+
     @staticmethod
     def _weather_location_row(session: Session) -> sql_model.weather_location | None:
         return (
