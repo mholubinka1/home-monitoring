@@ -107,7 +107,7 @@ class PricingRetriever:
             if agreement.valid_to is not None and agreement.valid_to <= window_start:
                 logger.debug(
                     f"Agreement {agreement.product_code}/{agreement.tariff_code} "
-                    f"ended ({agreement.valid_to}) before the retention window "
+                    f"ended ({agreement.valid_to}) at or before the retention window "
                     f"start ({window_start}) — skipping."
                 )
                 continue
