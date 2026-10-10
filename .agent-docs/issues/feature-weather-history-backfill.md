@@ -29,12 +29,12 @@ A re-runnable hive-app command that fills `weather_observation` with hourly weat
 
 ### What to build
 
-For the recent days the archive has not reached yet, fetch from the forecast service's `past_days` (up to 92) first, so the archive's reanalysis later replaces overlapping hours, and never store future hours as observations. After the run, print rows per month, the count of complete London days (23, 24 or 25 hourly readings, live preferred over archive per hour) and the days with missing hours.
+Fill up to the latest completed hour from the archive alone (it returns provisional values for the newest days; decided at build on 2026-10-10, replacing the planned forecast-service `past_days` source), never storing future hours as observations. After the run, print rows per month, the count of complete London days (23, 24 or 25 hourly readings, live preferred over archive per hour) and the days with missing hours.
 
 ### Acceptance criteria
 
-- [ ] Given days beyond the archive's reach, then their hours are stored from `past_days` with the archive label.
-- [ ] Given a later run when the archive has the same hours, then the archive values replace them.
+- [ ] Given the archive returns hours up to the latest completed hour, then they are all stored with the archive label.
+- [ ] Given a later run when the archive's values for the same hours have changed, then the new values replace them.
 - [ ] Given a response that includes hours in the future, then none of them are stored.
 - [ ] Given a daylight-saving day, then the report counts 23 or 25 hours correctly.
 - [ ] Given a day with a missing hour, then it is listed as incomplete in the report.
