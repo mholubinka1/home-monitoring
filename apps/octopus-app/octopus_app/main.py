@@ -332,7 +332,7 @@ def main() -> None:
 
     client = MonitoringClient(settings)
     consumption = ConsumptionRetriever(client)
-    pricing = PricingRetriever(client)
+    pricing = PricingRetriever(client, refresh_config.retention)
     consumption_summary = ConsumptionSummaryRetriever(client.mariadb)
     yearly_comparison_backfill = ConsumptionSummaryBackfill(client)
     agile_forecast = AgileForecastRetriever(client)

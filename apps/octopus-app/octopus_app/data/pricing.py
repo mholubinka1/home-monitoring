@@ -1,6 +1,6 @@
 import logging.config
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from typing import Protocol
 
@@ -59,17 +59,21 @@ class PricingSource(MeterSource, Protocol):
 
 class PricingRetriever:
     _client: PricingSource
+    _retention_days: int
 
-    def __init__(self, client: PricingSource) -> None:
+    def __init__(self, client: PricingSource, retention_days: int) -> None:
         self._client = client
+        self._retention_days = retention_days
 
-    def refresh(self) -> None:
+    def refresh(self, as_of: datetime | None = None) -> None:
+        as_of = as_of or datetime.now(UTC)
+        window_start = as_of - timedelta(days=self._retention_days)
         self._client.refresh_meters()
         self._sync_agreements()
         products = self._client.fetch_products()
         self._sync_product_catalogue(products)
-        self._sync_own_product_rates()
-        self._sync_comparison_rates(products)
+        self._sync_own_product_rates(window_start)
+        self._sync_comparison_rates(products, window_start)
 
     def _sync_agreements(self) -> None:
         for meter in self._client.meters:
@@ -90,7 +94,7 @@ class PricingRetriever:
             for agreement in meter.agreements:
                 yield meter, agreement
 
-    def _sync_own_product_rates(self) -> None:
+    def _sync_own_product_rates(self, window_start: datetime) -> None:
         for meter, agreement in self._meter_agreement_pairs():
             if agreement.has_zero_or_negative_width:
                 logger.debug(
@@ -98,6 +102,13 @@ class PricingRetriever:
                     f"has a zero or negative-width valid range "
                     f"({agreement.valid_from} to {agreement.valid_to}) — no rate "
                     "window is possible, skipping."
+                )
+                continue
+            if agreement.valid_to is not None and agreement.valid_to <= window_start:
+                logger.debug(
+                    f"Agreement {agreement.product_code}/{agreement.tariff_code} "
+                    f"ended ({agreement.valid_to}) at or before the retention window "
+                    f"start ({window_start}) — skipping."
                 )
                 continue
             fetch_rates = (
@@ -109,7 +120,7 @@ class PricingRetriever:
                 rates = fetch_rates(
                     agreement.product_code,
                     agreement.tariff_code,
-                    agreement.valid_from,
+                    max(agreement.valid_from, window_start),
                     agreement.valid_to,
                 )
                 self._client.persist_rate(
@@ -122,7 +133,9 @@ class PricingRetriever:
                     exc_info=True,
                 )
 
-    def _sync_comparison_rates(self, products: list[Product]) -> None:
+    def _sync_comparison_rates(
+        self, products: list[Product], window_start: datetime
+    ) -> None:
         own_product_codes = {
             agreement.product_code for _, agreement in self._meter_agreement_pairs()
         }
@@ -147,7 +160,7 @@ class PricingRetriever:
                 continue
             try:
                 rates = self._client.fetch_electricity_rates(
-                    product.product_code, tariff_code, None, None
+                    product.product_code, tariff_code, window_start, None
                 )
                 self._client.persist_rate(
                     product.product_code, self._client.region_code, rates
