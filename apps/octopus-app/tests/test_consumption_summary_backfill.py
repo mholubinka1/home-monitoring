@@ -205,6 +205,30 @@ def test_run_leaves_a_day_before_the_apis_first_day_uncounted_and_its_total_unto
 
 
 @responses.activate
+def test_run_requests_from_the_start_of_the_oldest_london_day_during_bst(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # 1096 days before 2026-07-15 is 2023-07-15, a BST date: its London day
+    # starts at 23:00 UTC the day before, so requesting from UTC midnight would
+    # drop its first two half-hours and store it as 46 of 48.
+    responses.add(
+        responses.GET, CONSUMPTION_ENDPOINT, json={"results": [], "next": None}
+    )
+    source = _RealConsumptionSummaryBackfillSource(
+        OctopusEnergyAPIClient(
+            OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test")
+        ),
+        mariadb_client,
+        [_make_meter()],
+    )
+
+    ConsumptionSummaryBackfill(source).run(as_of=datetime(2026, 7, 15, tzinfo=UTC))
+
+    assert len(responses.calls) == 1
+    assert "period_from=2023-07-14T23%3A00%3A00Z" in responses.calls[0].request.url
+
+
+@responses.activate
 def test_run_marks_a_partial_api_day_incomplete(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -323,15 +347,12 @@ def test_run_buckets_each_interval_by_its_local_day_across_the_bst_boundary(
     # Octopus returns local-offset timestamps. On a BST day the first two
     # half-hours (00:00 and 00:30 +01:00) are 23:00 and 23:30 UTC the day
     # before, so bucketing by the UTC date would split Jul 10 across two rows
-    # and disagree with the weekly job, which buckets by local day.
+    # and disagree with the daily job, which buckets by local day.
     as_of = datetime(2026, 7, 15, tzinfo=UTC)
-    period_from = as_of - timedelta(days=1096)
 
     responses.add(
         responses.GET,
-        CONSUMPTION_ENDPOINT
-        + f"?page_size=5000&period_from={period_from.isoformat().replace('+00:00', 'Z')}"
-        "&order_by=-period",
+        CONSUMPTION_ENDPOINT,
         json={
             "results": [
                 {
