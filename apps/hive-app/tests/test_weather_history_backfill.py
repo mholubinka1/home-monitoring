@@ -10,7 +10,6 @@ from hive_app.data.model import ResolvedLocation, WeatherObservation
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.weather_backfill import (
-    LOCAL_TIMEZONE,
     WeatherHistoryBackfill,
     completeness_report,
     main,
@@ -188,6 +187,35 @@ def test_a_chunk_that_succeeds_on_a_retry_is_stored(
 
 
 @responses.activate
+def test_a_rejected_request_is_not_retried(mariadb_client: MariaDBClient) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    responses.add(responses.GET, ARCHIVE_ENDPOINT, status=400)
+
+    with pytest.raises(RuntimeError, match="Repeat from 2024-07-24"):
+        WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
+            date(2024, 7, 24), date(2024, 7, 24)
+        )
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_rate_limited_request_is_retried(mariadb_client: MariaDBClient) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    responses.add(responses.GET, ARCHIVE_ENDPOINT, status=429)
+    responses.add(
+        responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
+    )
+
+    results = WeatherHistoryBackfill(
+        mariadb_client, clock=lambda: NOW, sleep=_no_sleep
+    ).run(date(2024, 7, 24), date(2024, 7, 24))
+
+    assert [r.rows_written for r in results] == [1]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
 def test_without_a_cached_location_the_run_stops_and_makes_no_request(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -270,6 +298,24 @@ def test_the_command_without_a_cached_location_fails_telling_the_operator_why(
     assert "let hive-app resolve a location" in capsys.readouterr().err
 
 
+def _write_config(tmp_path: Path) -> Path:
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        "hive:\n"
+        "  username: user@example.com\n"
+        "  password: hunter2\n"
+        f"  auth_state_path: {tmp_path / 'state.json'}\n"
+        "mariadb:\n"
+        "  host: localhost\n"
+        "  port: 3306\n"
+        "  database: main\n"
+        "  username: test\n"
+        "  password: test\n",
+        encoding="utf-8",
+    )
+    return config_file
+
+
 def _hour_rows(source: str, location: str, first: datetime, count: int) -> list:
     return [
         WeatherObservation(
@@ -289,10 +335,14 @@ def _hour_rows(source: str, location: str, first: datetime, count: int) -> list:
 def test_a_spring_forward_day_with_all_23_hours_is_reported_complete(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # 2025-03-30 in London runs from 00:00 GMT to 00:00 BST: 00:00Z to 23:00Z.
+    # A stamp holds the hour ending at it (ADR-0029). 2025-03-30 in London runs
+    # from 00:00 GMT to 00:00 BST: its hour-ends are 01:00Z to 23:00Z.
     mariadb_client.write_weather_observations(
         _hour_rows(
-            "open-meteo-archive", "51.40,-0.05", datetime(2025, 3, 30, tzinfo=UTC), 23
+            "open-meteo-archive",
+            "51.40,-0.05",
+            datetime(2025, 3, 30, 1, tzinfo=UTC),
+            23,
         )
     )
 
@@ -307,12 +357,14 @@ def test_a_spring_forward_day_with_all_23_hours_is_reported_complete(
 def test_an_autumn_day_with_25_hours_and_a_normal_day_with_24_are_complete(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # 2025-10-26 runs from 23:00Z on the 25th to 00:00Z on the 27th (BST to GMT).
+    # 2025-10-26 runs from 23:00Z on the 25th to 00:00Z on the 27th (BST to
+    # GMT): its hour-ends are 00:00Z on the 26th to 00:00Z on the 27th (25),
+    # then the 27th's are 01:00Z on the 27th to 00:00Z on the 28th (24).
     mariadb_client.write_weather_observations(
         _hour_rows(
             "open-meteo-archive",
             "51.40,-0.05",
-            datetime(2025, 10, 25, 23, tzinfo=UTC),
+            datetime(2025, 10, 26, tzinfo=UTC),
             25 + 24,
         )
     )
@@ -328,9 +380,9 @@ def test_an_autumn_day_with_25_hours_and_a_normal_day_with_24_are_complete(
 def test_a_day_missing_an_hour_is_incomplete_and_a_day_with_no_rows_misses_them_all(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # 2025-06-10 is BST: its local midnight is 23:00Z on the 9th. Dropping the
-    # 12:00Z row leaves 2025-06-10 one hour short; the 23:00Z row on the 10th
-    # is local 00:00 on the 11th, so the 11th is short by 23 of its 24.
+    # 2025-06-10 is BST: its hour-ends are 00:00Z to 23:00Z on the 10th.
+    # Dropping the 12:00Z row leaves it one hour short; the 11th and 12th have
+    # no rows.
     rows = _hour_rows(
         "open-meteo-archive", "51.40,-0.05", datetime(2025, 6, 10, tzinfo=UTC), 24
     )
@@ -342,16 +394,56 @@ def test_a_day_missing_an_hour_is_incomplete_and_a_day_with_no_rows_misses_them_
 
     assert report.complete_days == 0
     assert report.incomplete_days == {
-        date(2025, 6, 10): 2,
-        date(2025, 6, 11): 23,
+        date(2025, 6, 10): 1,
+        date(2025, 6, 11): 24,
         date(2025, 6, 12): 24,
     }
+
+
+def test_a_summer_day_holding_the_hour_ending_at_its_midnight_is_complete(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # 2024-07-24 is BST: the stamps 00:00Z..23:00Z are the hours ending
+    # 01:00..24:00 local, so the 00:00Z stamp belongs to the 24th, not the 23rd.
+    mariadb_client.write_weather_observations(
+        _hour_rows(
+            "open-meteo-archive", "51.40,-0.05", datetime(2024, 7, 24, tzinfo=UTC), 24
+        )
+    )
+
+    report = completeness_report(
+        mariadb_client, "51.40,-0.05", date(2024, 7, 24), date(2024, 7, 24)
+    )
+
+    assert not report.incomplete_days
+    assert report.complete_days == 1
+
+
+def test_a_winter_day_holding_the_hour_ending_at_its_midnight_is_complete(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # 2025-01-15 is GMT: the stamps 01:00Z on the 15th..00:00Z on the 16th.
+    mariadb_client.write_weather_observations(
+        _hour_rows(
+            "open-meteo-archive",
+            "51.40,-0.05",
+            datetime(2025, 1, 15, 1, tzinfo=UTC),
+            24,
+        )
+    )
+
+    report = completeness_report(
+        mariadb_client, "51.40,-0.05", date(2025, 1, 15), date(2025, 1, 15)
+    )
+
+    assert not report.incomplete_days
+    assert report.complete_days == 1
 
 
 def test_an_hour_held_by_either_source_counts_but_another_location_does_not(
     mariadb_client: MariaDBClient,
 ) -> None:
-    first = datetime(2025, 1, 15, tzinfo=UTC)
+    first = datetime(2025, 1, 15, 1, tzinfo=UTC)
     mariadb_client.write_weather_observations(
         _hour_rows("open-meteo-archive", "51.40,-0.05", first, 12)
         + _hour_rows("open-meteo", "51.40,-0.05", first + timedelta(hours=12), 11)
@@ -368,7 +460,9 @@ def test_an_hour_held_by_either_source_counts_but_another_location_does_not(
 def test_the_report_counts_archive_rows_per_local_month(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # 23:00Z on 31 March is already April in London (BST); live rows are not counted.
+    # The 23:00Z stamp on 31 March holds the hour ending at local midnight, so
+    # it is still March; the 00:00Z stamp on 1 April is April. Live rows are
+    # not counted.
     mariadb_client.write_weather_observations(
         _hour_rows(
             "open-meteo-archive",
@@ -383,7 +477,7 @@ def test_the_report_counts_archive_rows_per_local_month(
         mariadb_client, "51.40,-0.05", date(2025, 3, 1), date(2025, 4, 2)
     )
 
-    assert report.archive_rows_per_month == {"2025-03": 1, "2025-04": 2}
+    assert report.archive_rows_per_month == {"2025-03": 2, "2025-04": 1}
 
 
 @responses.activate
@@ -393,32 +487,44 @@ def test_a_successful_run_prints_the_report_up_to_yesterday(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
-    yesterday = datetime.now(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    # NOW is 22:53 BST on 2026-10-10, so yesterday is 2026-10-09; the stamps
+    # 01:00Z and 02:00Z hold the hours ending 02:00 and 03:00 BST that day.
+    yesterday = date(2026, 10, 9)
     responses.add(
         responses.GET,
         ARCHIVE_ENDPOINT,
-        json=hourly_payload([f"{yesterday}T00:00", f"{yesterday}T01:00"]),
+        json=hourly_payload([f"{yesterday}T01:00", f"{yesterday}T02:00"]),
     )
-    config_file = tmp_path / "config.yml"
-    config_file.write_text(
-        "hive:\n"
-        "  username: user@example.com\n"
-        "  password: hunter2\n"
-        f"  auth_state_path: {tmp_path / 'state.json'}\n"
-        "mariadb:\n"
-        "  host: localhost\n"
-        "  port: 3306\n"
-        "  database: main\n"
-        "  username: test\n"
-        "  password: test\n",
-        encoding="utf-8",
-    )
+    config_file = _write_config(tmp_path)
 
-    exit_code = main(["--config-file", str(config_file), "--start", str(yesterday)])
+    exit_code = main(
+        ["--config-file", str(config_file), "--start", str(yesterday)],
+        clock=lambda: NOW,
+    )
 
     out = capsys.readouterr().out
     assert exit_code == 0
-    assert f"{yesterday:%Y-%m}: 2 archive hours" in out
+    assert f"Completeness up to {yesterday} (today is still in progress):" in out
+    assert "2026-10: 2 archive hours stored" in out
     assert "complete days: 0 of 1" in out
-    assert f"incomplete: {yesterday}," in out
+    assert f"incomplete: {yesterday}, 22 hours missing" in out
     assert "51.4" not in out
+
+
+@responses.activate
+def test_a_start_after_yesterday_is_rejected_before_any_request(
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    config_file = _write_config(tmp_path)
+
+    exit_code = main(
+        ["--config-file", str(config_file), "--start", "2026-10-10"],
+        clock=lambda: NOW,
+    )
+
+    assert exit_code == 1
+    assert "2026-10-09" in capsys.readouterr().err
+    assert len(responses.calls) == 0

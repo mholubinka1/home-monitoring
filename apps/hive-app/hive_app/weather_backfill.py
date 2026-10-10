@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import requests
+
 from hive_app.common.config import LocationSettings, get_settings
 from hive_app.data.model import WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
@@ -31,6 +33,17 @@ def _describe(error: Exception) -> str:
     status = getattr(getattr(error, "response", None), "status_code", None)
     name = type(error).__name__
     return f"{name}, HTTP {status}" if status is not None else name
+
+
+def _is_transient(error: Exception) -> bool:
+    # Worth repeating: a network failure, a server error or rate limiting.
+    # A rejected request or an unreadable payload will fail the same way again.
+    if isinstance(error, requests.ConnectionError | requests.Timeout):
+        return True
+    if isinstance(error, requests.HTTPError):
+        status = error.response.status_code if error.response is not None else None
+        return status is not None and (status == 429 or status >= 500)
+    return False
 
 
 @dataclass(frozen=True)
@@ -67,15 +80,20 @@ def completeness_report(
 ) -> CompletenessReport:
     """Hourly readings per local day from `start` to `end` inclusive. An hour
     counts once whichever source holds it (ADR-0010: bucketed by local date)."""
+    # A stamp H holds the hour ending at H (ADR-0029), so a local day's hours
+    # are the stamps from its 01:00 to the next 00:00, and each stamp is
+    # bucketed by the local date of (stamp - 1 hour).
     hours = mariadb.read_weather_observation_hours(
-        location, _local_day_start(start), _local_day_start(end + timedelta(days=1))
+        location,
+        _local_day_start(start) + ONE_HOUR,
+        _local_day_start(end + timedelta(days=1)) + ONE_HOUR,
     )
     present_per_day = Counter(
-        observed_at.astimezone(LOCAL_TIMEZONE).date()
+        (observed_at - ONE_HOUR).astimezone(LOCAL_TIMEZONE).date()
         for observed_at in {observed_at for _, observed_at in hours}
     )
     archive_rows_per_month: Counter[str] = Counter(
-        observed_at.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m")
+        (observed_at - ONE_HOUR).astimezone(LOCAL_TIMEZONE).strftime("%Y-%m")
         for source, observed_at in hours
         if source == ARCHIVE_SOURCE
     )
@@ -144,16 +162,17 @@ class WeatherHistoryBackfill:
         for attempt in range(1, ATTEMPTS_PER_CHUNK + 1):
             try:
                 return client.get_archive_observations(start, end)
-            except Exception:
-                if attempt == ATTEMPTS_PER_CHUNK:
+            except Exception as e:
+                if attempt == ATTEMPTS_PER_CHUNK or not _is_transient(e):
                     raise
                 self._sleep(BACKOFF_SECONDS * attempt)
         raise AssertionError("unreachable")  # pragma: no cover
 
 
-def _print_report(report: CompletenessReport) -> None:
+def _print_report(report: CompletenessReport, up_to: date) -> None:
+    print(f"Completeness up to {up_to} (today is still in progress):")
     for month, rows in report.archive_rows_per_month.items():
-        print(f"{month}: {rows} archive hours")
+        print(f"{month}: {rows} archive hours stored")
     print(f"complete days: {report.complete_days} of {report.total_days}")
     if not report.incomplete_days:
         print("no incomplete days")
@@ -161,7 +180,10 @@ def _print_report(report: CompletenessReport) -> None:
         print(f"incomplete: {day}, {missing} hours missing")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
     """Backfill hourly weather history: run via `docker exec hive-app python -m
     hive_app.weather_backfill --config-file <path>`. Safe to repeat over the
     same range; rows are replaced, not duplicated."""
@@ -175,6 +197,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    clock = clock or (lambda: datetime.now(UTC))
+    now = clock()
+    yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    if args.start > yesterday:
+        print(
+            f"--start {args.start} is after yesterday ({yesterday}): "
+            "pass a start on or before yesterday.",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         # get_settings reports its own failures and calls sys.exit(1).
         settings = get_settings(config_file_path=args.config_file)
@@ -186,9 +219,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     mariadb = MariaDBClient(settings.mariadb)
-    backfill = WeatherHistoryBackfill(mariadb)
+    backfill = WeatherHistoryBackfill(mariadb, clock=clock)
     try:
-        results = backfill.run(args.start, datetime.now(UTC).date())
+        results = backfill.run(args.start, now.date())
     except Exception as e:
         print(f"Weather backfill failed: {e}", file=sys.stderr)
         return 1
@@ -206,8 +239,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             mariadb,
             location_key(location.latitude, location.longitude),
             args.start,
-            datetime.now(LOCAL_TIMEZONE).date() - timedelta(days=1),
-        )
+            yesterday,
+        ),
+        yesterday,
     )
     return 0
 
