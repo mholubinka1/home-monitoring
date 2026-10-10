@@ -38,7 +38,12 @@ def _describe(error: Exception) -> str:
 def _is_transient(error: Exception) -> bool:
     # Worth repeating: a network failure, a server error or rate limiting.
     # A rejected request or an unreadable payload will fail the same way again.
-    if isinstance(error, requests.ConnectionError | requests.Timeout):
+    if isinstance(
+        error,
+        requests.ConnectionError
+        | requests.Timeout
+        | requests.exceptions.ChunkedEncodingError,
+    ):
         return True
     if isinstance(error, requests.HTTPError):
         status = error.response.status_code if error.response is not None else None
@@ -238,6 +243,9 @@ def main(
     try:
         # Building the client connects to the database (Schema Sync).
         mariadb = MariaDBClient(settings.mariadb)
+        # The archive request is in UTC (timezone=UTC), so its end is the UTC
+        # date; that always covers the stamps of the local yesterday the report
+        # ends on, including its closing 00:00 stamp.
         result = WeatherHistoryBackfill(mariadb, clock=clock).run(
             args.start, now.date()
         )

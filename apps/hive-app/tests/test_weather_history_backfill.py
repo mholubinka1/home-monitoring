@@ -233,7 +233,12 @@ def test_a_chunk_that_succeeds_on_a_retry_is_stored(
 
 @pytest.mark.parametrize(
     "failure",
-    [requests.ConnectionError(), requests.Timeout()],
+    [
+        requests.ConnectionError(),
+        requests.Timeout(),
+        # The connection dropping while a large response body is read.
+        requests.exceptions.ChunkedEncodingError(),
+    ],
     ids=lambda e: type(e).__name__,
 )
 @responses.activate
@@ -267,10 +272,13 @@ def test_a_rejected_request_is_not_retried(mariadb_client: MariaDBClient) -> Non
     assert len(responses.calls) == 1
 
 
+@pytest.mark.parametrize("status", [429, 503])
 @responses.activate
-def test_a_rate_limited_request_is_retried(mariadb_client: MariaDBClient) -> None:
+def test_a_rate_limited_or_unavailable_request_is_retried(
+    mariadb_client: MariaDBClient, status: int
+) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
-    responses.add(responses.GET, ARCHIVE_ENDPOINT, status=429)
+    responses.add(responses.GET, ARCHIVE_ENDPOINT, status=status)
     responses.add(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
