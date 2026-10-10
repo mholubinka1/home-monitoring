@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -873,6 +873,29 @@ def test_an_own_agreement_that_ended_before_the_window_is_not_requested(
     assert any(
         "gas-tariffs" in url and "standard-unit-rates" in url for url in requested_urls
     )
+
+
+@pytest.mark.parametrize(
+    ("ends_after_window_start", "requested"),
+    [(timedelta(0), False), (timedelta(minutes=1), True)],
+)
+@responses.activate
+def test_an_own_agreement_ending_at_the_window_start_is_not_requested_but_one_ending_after_it_is(
+    mariadb_client: MariaDBClient, ends_after_window_start: timedelta, requested: bool
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    _mock_electricity_rate_endpoints()
+    window_start = REFRESHED_AT - timedelta(days=RETENTION_DAYS)
+    meter = _electricity_meter_with(
+        datetime(2022, 11, 1, tzinfo=UTC), window_start + ends_after_window_start
+    )
+    source = _make_source(mariadb_client, [meter])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert bool(_unit_rate_request_params("VAR-22-11-01")) is requested
 
 
 @responses.activate
