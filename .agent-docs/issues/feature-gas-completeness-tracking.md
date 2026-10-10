@@ -1,6 +1,6 @@
 # Issues: feature-gas-completeness-tracking
 
-> Work complete — [PR #660](https://github.com/mholubinka1/home-monitoring/pull/660) ready to merge. One criterion is deliberately left unticked (GCT-1: the live database check of the new column), since it can only be done at deploy.
+> Work complete — merged in [PR #660](https://github.com/mholubinka1/home-monitoring/pull/660). GCT-1's live database check was done after the 2026-10-10 deploy: Schema Sync added `half_hour_count` and the startup backfill filled counts back to 2024-10-12 for both energies.
 
 ## GCT-1 · Record the readings behind each daily total and define a complete gas day — [#646](https://github.com/mholubinka1/home-monitoring/issues/646)
 
@@ -19,7 +19,7 @@
 - [x] Given a spring-forward day with 46 and an autumn day with 50, then each is complete.
 - [x] Given 48 readings that are all zero, then the day is not complete.
 - [x] Given an unknown count and a positive total, then the day is usable and reported as unverified; with a zero total it is not usable.
-- [ ] Schema Sync adds the column to the existing table, existing rows reading NULL (SQLite test in octopus-app; the real MariaDB fixture already covers adding a column to an existing table, and the live database is checked at deploy); the Complete Gas Day glossary entry is added.
+- [x] Schema Sync adds the column to the existing table, existing rows reading NULL (SQLite test in octopus-app; the real MariaDB fixture already covers adding a column to an existing table, and the live database is checked at deploy); the Complete Gas Day glossary entry is added.
 
 ---
 
