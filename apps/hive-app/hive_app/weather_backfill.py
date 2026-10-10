@@ -162,7 +162,7 @@ class WeatherHistoryBackfill:
             clock=self._clock,
         )
 
-        results = []
+        results: list[ChunkResult] = []
         chunk_start = start
         while chunk_start <= end:
             chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), end)
