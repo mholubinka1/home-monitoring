@@ -21,6 +21,10 @@ from octopus_app.data.pricing import PricingRetriever
 
 PRODUCTS_ENDPOINT = "https://api.octopus.energy/v1/products/"
 
+RETENTION_DAYS = 45
+REFRESHED_AT = datetime(2026, 1, 15, 12, tzinfo=UTC)
+WINDOW_START_Z = "2025-12-01T12:00:00Z"  # REFRESHED_AT minus RETENTION_DAYS
+
 
 class _RealPricingSource:
     """A real PricingSource adapter for tests: genuine OctopusEnergyAPIClient
@@ -238,7 +242,7 @@ def test_refresh_persists_every_meters_agreements(
     gas_meter = _make_gas_meter()
     source = _make_source(mariadb_client, [electricity_meter, gas_meter])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.agreement).all()
@@ -292,7 +296,7 @@ def test_refresh_persists_products_available_in_the_account_s_region(
     )
     source = _make_source(mariadb_client, [])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product).all()
@@ -311,7 +315,7 @@ def test_refresh_persists_the_account_s_own_product_electricity_rates(
     electricity_meter = _make_electricity_meter()
     source = _make_source(mariadb_client, [electricity_meter])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -332,7 +336,7 @@ def test_refresh_persists_gas_rates_for_the_account_s_own_product_in_the_same_sh
     gas_meter = _make_gas_meter()
     source = _make_source(mariadb_client, [gas_meter])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -383,7 +387,7 @@ def test_refresh_does_not_persist_export_products(
     )
     source = _make_source(mariadb_client, [])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product).all()
@@ -425,7 +429,7 @@ def test_refresh_persists_rates_for_every_catalogued_electricity_product(
     )
     source = _make_source(mariadb_client, [])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -461,7 +465,7 @@ def test_refresh_skips_a_product_with_no_published_rate_for_the_region_without_c
     )
     source = _make_source(mariadb_client, [])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -501,7 +505,7 @@ def test_refresh_skips_a_dual_register_only_product_without_crashing(
     )
     source = _make_source(mariadb_client, [])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -530,7 +534,7 @@ def test_a_failing_agreement_s_rate_fetch_is_skipped_without_blocking_others(
     source = _make_source(mariadb_client, [electricity_meter, gas_meter])
 
     with caplog.at_level(logging.WARNING):
-        PricingRetriever(source).refresh()
+        PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -601,7 +605,7 @@ def test_a_failing_comparison_product_s_rate_fetch_is_skipped_without_blocking_o
     source = _make_source(mariadb_client, [])
 
     with caplog.at_level(logging.WARNING):
-        PricingRetriever(source).refresh()
+        PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -661,7 +665,7 @@ def test_refresh_does_not_refetch_the_account_s_own_product_during_the_compariso
     # also tried to look up VAR-22-11-01's tariff code, it would fetch
     # rates for the arbitrary "-H" billing method — but no rate endpoints
     # are mocked for that tariff_code, so a connection error would occur.
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
@@ -685,7 +689,7 @@ def test_refresh_skips_the_rate_fetch_for_a_zero_width_electricity_agreement(
     source = _make_source(mariadb_client, [electricity_meter])
 
     with caplog.at_level(logging.DEBUG, logger="octopus-monitor"):
-        PricingRetriever(source).refresh()
+        PricingRetriever(source, RETENTION_DAYS).refresh()
 
     rate_calls = [
         call
@@ -719,7 +723,7 @@ def test_refresh_skips_the_rate_fetch_for_a_zero_width_gas_agreement(
     source = _make_source(mariadb_client, [gas_meter])
 
     with caplog.at_level(logging.DEBUG, logger="octopus-monitor"):
-        PricingRetriever(source).refresh()
+        PricingRetriever(source, RETENTION_DAYS).refresh()
 
     rate_calls = [
         call
@@ -774,7 +778,7 @@ def test_refresh_still_excludes_a_zero_width_agreement_s_product_from_comparison
     electricity_meter = _make_electricity_meter_with_zero_width_agreement()
     source = _make_source(mariadb_client, [electricity_meter])
 
-    PricingRetriever(source).refresh()
+    PricingRetriever(source, RETENTION_DAYS).refresh()
 
     product_detail_calls = [
         call
@@ -786,3 +790,182 @@ def test_refresh_still_excludes_a_zero_width_agreement_s_product_from_comparison
     with mariadb_client.session_read_scope() as session:
         stored = session.query(model.product_rate).all()
     assert stored == []
+
+
+def _unit_rate_request_params(product_code: str) -> list[dict[str, str]]:
+    return [
+        dict(call.request.params)
+        for call in responses.calls
+        if f"/products/{product_code}/" in call.request.url
+        and "standard-unit-rates" in call.request.url
+    ]
+
+
+@responses.activate
+def test_an_open_own_agreement_from_long_ago_is_requested_from_the_window_start(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    _mock_electricity_rate_endpoints()
+    source = _make_source(mariadb_client, [_make_electricity_meter()])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    [params] = _unit_rate_request_params("VAR-22-11-01")
+    assert params.get("period_from") == WINDOW_START_Z
+    assert "period_to" not in params
+
+
+def _electricity_meter_with(
+    valid_from: datetime, valid_to: datetime | None
+) -> Electricity:
+    return Electricity(
+        mpan="1234567890123",
+        serial_number="00A1234567",
+        agreements=[
+            Agreement(
+                tariff_code="E-1R-VAR-22-11-01-A",
+                valid_from=valid_from,
+                valid_to=valid_to,
+            )
+        ],
+    )
+
+
+@responses.activate
+def test_an_own_agreement_that_began_inside_the_window_is_requested_from_its_own_start(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    _mock_electricity_rate_endpoints()
+    meter = _electricity_meter_with(datetime(2026, 1, 1, tzinfo=UTC), None)
+    source = _make_source(mariadb_client, [meter])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    [params] = _unit_rate_request_params("VAR-22-11-01")
+    assert params.get("period_from") == "2026-01-01T00:00:00Z"
+    assert "period_to" not in params
+
+
+@responses.activate
+def test_an_own_agreement_that_ended_before_the_window_is_not_requested(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    _mock_electricity_rate_endpoints()
+    _mock_gas_rate_endpoints()
+    ended = _electricity_meter_with(
+        datetime(2022, 11, 1, tzinfo=UTC), datetime(2025, 6, 1, tzinfo=UTC)
+    )
+    source = _make_source(mariadb_client, [ended, _make_gas_meter()])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    requested_urls = [call.request.url for call in responses.calls]
+    assert not any("electricity-tariffs" in url for url in requested_urls)
+    assert any(
+        "gas-tariffs" in url and "standard-unit-rates" in url for url in requested_urls
+    )
+
+
+@responses.activate
+def test_an_own_agreement_that_ended_inside_the_window_is_requested_up_to_its_end(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    _mock_electricity_rate_endpoints()
+    meter = _electricity_meter_with(
+        datetime(2022, 11, 1, tzinfo=UTC), datetime(2026, 1, 5, tzinfo=UTC)
+    )
+    source = _make_source(mariadb_client, [meter])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    [params] = _unit_rate_request_params("VAR-22-11-01")
+    assert params.get("period_from") == WINDOW_START_Z
+    assert params.get("period_to") == "2026-01-05T00:00:00Z"
+
+
+@responses.activate
+def test_a_comparison_product_is_requested_from_the_window_start(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET,
+        PRODUCTS_ENDPOINT,
+        json={
+            "results": [
+                {
+                    "code": "AGILE-24-10-01",
+                    "display_name": "Agile Octopus",
+                    "direction": "IMPORT",
+                }
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        PRODUCTS_ENDPOINT + "AGILE-24-10-01/",
+        json={
+            "single_register_electricity_tariffs": {
+                "H": {"direct_debit_monthly": {"code": "E-1R-AGILE-24-10-01-H"}}
+            }
+        },
+        status=200,
+    )
+    _mock_electricity_rate_endpoints(
+        product_code="AGILE-24-10-01", tariff_code="E-1R-AGILE-24-10-01-H"
+    )
+    source = _make_source(mariadb_client, [])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    [params] = _unit_rate_request_params("AGILE-24-10-01")
+    assert params.get("period_from") == WINDOW_START_Z
+    assert "period_to" not in params
+
+
+@responses.activate
+def test_a_rate_in_force_since_before_the_window_is_stored(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+    for endpoint, value in (("standard-unit-rates", 24.53), ("standing-charges", 48.2)):
+        responses.add(
+            responses.GET,
+            PRODUCTS_ENDPOINT + "VAR-22-11-01/electricity-tariffs/"
+            f"E-1R-VAR-22-11-01-A/{endpoint}/",
+            json={
+                "results": [
+                    {
+                        "value_inc_vat": value,
+                        "valid_from": "2025-06-01T00:00:00Z",
+                        "valid_to": None,
+                    }
+                ],
+                "next": None,
+            },
+            status=200,
+        )
+    source = _make_source(mariadb_client, [_make_electricity_meter()])
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    with mariadb_client.session_read_scope() as session:
+        stored = session.query(model.product_rate).all()
+    assert len(stored) == 1
+    assert stored[0].valid_from == datetime(2025, 6, 1, tzinfo=UTC).replace(tzinfo=None)
+    assert stored[0].valid_to is None
