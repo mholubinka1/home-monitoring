@@ -24,6 +24,9 @@ HOURLY_VARIABLES = (
     "sunshine_duration",
 )
 HOURLY_FIELDS = ",".join(HOURLY_VARIABLES)
+# The label on every backfilled (archive) observation, whichever endpoint
+# supplied it (ADR-0029); the backfill's report filters on it.
+ARCHIVE_SOURCE = "open-meteo-archive"
 # Each live run re-reads this many past hours (plus the current hour's stamp),
 # so an hour missed by an earlier run -- the daily restart, an outage -- is
 # filled by the next one.
@@ -88,7 +91,7 @@ class OpenMeteoClient:
         # and longitude. Each caller passes its own "timezone" (see each
         # call site): the hourly calls use UTC, the daily forecast local days.
         response = requests.get(
-            url=url or self.base_url,
+            url=url if url is not None else self.base_url,
             params={
                 "latitude": str(self._settings.latitude),
                 "longitude": str(self._settings.longitude),
@@ -130,7 +133,7 @@ class OpenMeteoClient:
             },
             url=self.archive_url,
         )
-        return self._hourly_observations(payload["hourly"], "open-meteo-archive")
+        return self._hourly_observations(payload["hourly"], ARCHIVE_SOURCE)
 
     def _hourly_observations(
         self, hourly_payload: dict[str, Any], source: str

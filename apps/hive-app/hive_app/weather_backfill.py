@@ -12,12 +12,11 @@ import requests
 from hive_app.common.config import LocationSettings, get_settings
 from hive_app.data.model import WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.open_meteo_client import OpenMeteoClient
+from hive_app.data.open_meteo_client import ARCHIVE_SOURCE, OpenMeteoClient
 from hive_app.data.weather_types import location_key
 
 # Days and months are local days and months; issue #663 makes this configurable.
 LOCAL_TIMEZONE = ZoneInfo("Europe/London")
-ARCHIVE_SOURCE = "open-meteo-archive"
 ONE_HOUR = timedelta(hours=1)
 
 # The first daily gas day: weather before it has nothing to be compared with.
