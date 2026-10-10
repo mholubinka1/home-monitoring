@@ -85,8 +85,13 @@ class MariaDBClient(MariaDBClientBase):
             )
             for observation in observations
         ]
+        # Redacted: a SQLAlchemy error embeds the bound values, including the
+        # location key (the Weather Location's rounded coordinates).
         self._write_all(
-            records, "Weather observation data", key_columns=WEATHER_OBSERVATION_KEY
+            records,
+            "Weather observation data",
+            key_columns=WEATHER_OBSERVATION_KEY,
+            redact_errors=True,
         )
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:

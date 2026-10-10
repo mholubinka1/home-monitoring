@@ -1,10 +1,12 @@
 # ruff: noqa: DTZ001
+import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 import requests
 import responses
+from sqlalchemy import text
 from weather_hourly_payloads import hourly_payload
 
 from hive_app.data.model import ResolvedLocation, WeatherObservation
@@ -213,6 +215,34 @@ def test_a_failed_write_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
 
     assert "51.4" not in str(failure.value)
     assert [row[2] for row in _stored(mariadb_client)] == [datetime(2023, 1, 1, 0)]
+
+
+@responses.activate
+def test_a_real_write_failure_logs_and_reports_no_observation_values(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+
+    def archive_then_lose_the_table(_request: object) -> tuple[int, dict, str]:
+        # The insert then fails inside _write_all with a real SQLAlchemy
+        # error, whose text would carry the bound values (the location key).
+        with mariadb_client.session_write_scope() as session:
+            session.execute(text("DROP TABLE weather_observation"))
+        return 200, {}, json.dumps(hourly_payload(["2024-07-24T00:00"]))
+
+    responses.add_callback(
+        responses.GET, ARCHIVE_ENDPOINT, callback=archive_then_lose_the_table
+    )
+    logged: list[str] = []
+    monkeypatch.setattr("hive_app.data.mysql.client.logger.error", logged.append)
+
+    with pytest.raises(RuntimeError, match="Repeat from 2024-07-24") as failure:
+        WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
+            date(2024, 7, 24), date(2024, 7, 24)
+        )
+
+    assert logged, "the write failure should still be logged"
+    assert "51.40" not in " ".join(logged) + str(failure.value)
 
 
 @responses.activate
