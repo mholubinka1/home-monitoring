@@ -516,7 +516,7 @@ class MariaDBClient(MariaDBClientBase):
         # gap detection (a day outside the trailing window with no existing
         # summary row) requires seeing all of history, not just the recent
         # cutoff. Table growth is bounded by the raw retention window via
-        # the weekly prune_old_data job (see DataPruner), which always runs
+        # the daily prune_old_data job (see DataPruner), which always runs
         # after this summarization job in the same scheduling tick -- so by
         # the time pruning deletes anything, it has already been summarized.
         # `- 1` because the window is inclusive of as_of itself: 14 trailing

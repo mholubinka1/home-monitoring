@@ -23,9 +23,8 @@ from octopus_app.data.pricing import PricingRetriever
 from octopus_app.data.pruning import DataPruner
 from octopus_app.main import (
     register_agile_forecast_refresh_job,
-    register_consumption_backfill_job,
-    register_consumption_summary_job,
     register_cost_forecast_refresh_job,
+    register_daily_consumption_job,
     register_jobs,
     register_pricing_job,
     run_backfill_at_startup,
@@ -178,31 +177,19 @@ def test_run_initial_pricing_sync_does_not_propagate_a_startup_failure() -> None
     run_initial_pricing_sync(pricing)
 
 
-def test_consumption_summary_job_is_registered_for_monday_at_0400(
-    mariadb_client: MariaDBClient,
-) -> None:
-    scheduler = Scheduler()
-
-    job = register_consumption_summary_job(
-        scheduler,
-        Mock(spec=ConsumptionSummaryRetriever),
-        Mock(spec=DataPruner),
-        mariadb_client,
-    )
-
-    assert job.unit == "weeks"
-    assert job.start_day == "monday"
-    assert str(job.at_time) == "04:00:00"
-
-
 def test_a_successful_consumption_summary_run_is_recorded_as_a_successful_job_run(
     mariadb_client: MariaDBClient,
 ) -> None:
     scheduler = Scheduler()
     consumption_summary = Mock(spec=ConsumptionSummaryRetriever)
 
-    job = register_consumption_summary_job(
-        scheduler, consumption_summary, Mock(spec=DataPruner), mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        consumption_summary,
+        Mock(spec=DataPruner),
+        mariadb_client,
     )
     job.run().join()
 
@@ -227,8 +214,13 @@ def test_a_persistently_failing_consumption_summary_run_retries_with_backoff(
     consumption_summary.refresh.side_effect = RuntimeError("MariaDB unavailable")
     pruner = Mock(spec=DataPruner)
 
-    job = register_consumption_summary_job(
-        scheduler, consumption_summary, pruner, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        consumption_summary,
+        pruner,
+        mariadb_client,
     )
     job.run().join()
 
@@ -388,8 +380,13 @@ def test_pruning_runs_immediately_after_a_successful_summary_run_in_the_same_tic
     consumption_summary = Mock(spec=ConsumptionSummaryRetriever)
     pruner = Mock(spec=DataPruner)
 
-    job = register_consumption_summary_job(
-        scheduler, consumption_summary, pruner, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        consumption_summary,
+        pruner,
+        mariadb_client,
     )
     job.run().join()
 
@@ -409,8 +406,13 @@ def test_pruning_is_skipped_and_recorded_when_the_summary_run_ultimately_fails(
     consumption_summary.refresh.side_effect = RuntimeError("MariaDB unavailable")
     pruner = Mock(spec=DataPruner)
 
-    job = register_consumption_summary_job(
-        scheduler, consumption_summary, pruner, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        consumption_summary,
+        pruner,
+        mariadb_client,
     )
     job.run().join()
 
@@ -435,8 +437,13 @@ def test_pruning_reflects_this_cycles_outcome_not_a_stale_previous_success(
     consumption_summary.refresh.side_effect = RuntimeError("MariaDB unavailable")
     pruner = Mock(spec=DataPruner)
 
-    job = register_consumption_summary_job(
-        scheduler, consumption_summary, pruner, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        consumption_summary,
+        pruner,
+        mariadb_client,
     )
     job.run().join()
 
@@ -545,27 +552,19 @@ def test_a_persistently_failing_backfill_retries_with_backoff_and_does_not_crash
     assert all(run.status == "failure" for run in runs)
 
 
-def test_consumption_backfill_job_is_registered_daily_at_0400(
-    mariadb_client: MariaDBClient,
-) -> None:
-    scheduler = Scheduler()
-
-    job = register_consumption_backfill_job(
-        scheduler, REFRESH_CONFIG, Mock(spec=ConsumptionRetriever), mariadb_client
-    )
-
-    assert job.unit == "days"
-    assert str(job.at_time) == "04:00:00"
-
-
 def test_a_successful_backfill_run_calls_retrieve_and_is_recorded_as_successful(
     mariadb_client: MariaDBClient,
 ) -> None:
     scheduler = Scheduler()
     consumption = Mock(spec=ConsumptionRetriever)
 
-    job = register_consumption_backfill_job(
-        scheduler, REFRESH_CONFIG, consumption, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        consumption,
+        Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=DataPruner),
+        mariadb_client,
     )
     job.run().join()
 
@@ -597,8 +596,13 @@ def test_a_backfill_run_recomputes_period_from_at_call_time_not_registration(
 
     monkeypatch.setattr("octopus_app.main.dt", FrozenDatetime)
 
-    job = register_consumption_backfill_job(
-        scheduler, REFRESH_CONFIG, consumption, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        consumption,
+        Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=DataPruner),
+        mariadb_client,
     )
 
     current_time = dt(2026, 6, 1, tzinfo=datetime.UTC)
@@ -618,8 +622,13 @@ def test_a_persistently_failing_backfill_retries_with_exponential_backoff(
     consumption = Mock(spec=ConsumptionRetriever)
     consumption.retrieve.side_effect = RuntimeError("Octopus API unavailable")
 
-    job = register_consumption_backfill_job(
-        scheduler, REFRESH_CONFIG, consumption, mariadb_client
+    job = register_daily_consumption_job(
+        scheduler,
+        REFRESH_CONFIG,
+        consumption,
+        Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=DataPruner),
+        mariadb_client,
     )
     job.run().join()
 
@@ -636,3 +645,62 @@ def test_a_persistently_failing_backfill_retries_with_exponential_backoff(
     assert len(runs) == 5
     assert all(run.status == "failure" for run in runs)
     assert all(run.error_message == "Octopus API unavailable" for run in runs)
+
+
+def test_the_daily_job_refetches_then_summarizes_then_prunes_in_that_order(
+    mariadb_client: MariaDBClient,
+) -> None:
+    steps = Mock()
+    consumption = Mock(spec=ConsumptionRetriever)
+    consumption_summary = Mock(spec=ConsumptionSummaryRetriever)
+    pruner = Mock(spec=DataPruner)
+    steps.attach_mock(consumption.retrieve, "refetch")
+    steps.attach_mock(consumption_summary.refresh, "summarize")
+    steps.attach_mock(pruner.run, "prune")
+
+    job = register_daily_consumption_job(
+        Scheduler(),
+        REFRESH_CONFIG,
+        consumption,
+        consumption_summary,
+        pruner,
+        mariadb_client,
+    )
+    job.run().join()
+
+    assert [name for name, _, _ in steps.mock_calls] == [
+        "refetch",
+        "summarize",
+        "prune",
+    ]
+    assert job.unit == "days"
+    assert str(job.at_time) == "04:00:00"
+
+
+def test_a_failed_refetch_does_not_stop_the_summary_or_pruning(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
+    consumption = Mock(spec=ConsumptionRetriever)
+    consumption.retrieve.side_effect = RuntimeError("Octopus API unavailable")
+    consumption_summary = Mock(spec=ConsumptionSummaryRetriever)
+    pruner = Mock(spec=DataPruner)
+
+    job = register_daily_consumption_job(
+        Scheduler(),
+        REFRESH_CONFIG,
+        consumption,
+        consumption_summary,
+        pruner,
+        mariadb_client,
+    )
+    job.run().join()
+
+    consumption_summary.refresh.assert_called_once()
+    pruner.run.assert_called_once()
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).order_by(model.job_run.ran_at).all()
+    statuses = {(run.job_name, run.status) for run in runs}
+    assert ("consumption_backfill", "failure") in statuses
+    assert ("update_consumption_summary", "success") in statuses
+    assert ("prune_old_data", "success") in statuses

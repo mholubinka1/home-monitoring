@@ -118,3 +118,22 @@ def test_a_gas_day_with_an_unknown_count_and_zero_total_is_incomplete() -> None:
     )
 
     assert gas_day_status(summary) is GasDayStatus.INCOMPLETE
+
+
+def test_a_gas_day_whose_gas_arrives_late_is_incomplete_until_the_next_summary_run(
+    mariadb_client: MariaDBClient,
+) -> None:
+    day = date(2026, 1, 10)
+    summarizer = ConsumptionSummaryRetriever(mariadb_client)
+    mariadb_client.write_consumption(_gas_meter(), _half_hours(day, 36, Decimal("0.5")))
+
+    summarizer.refresh(as_of=datetime(2026, 1, 11, 12, tzinfo=UTC))
+    [first] = mariadb_client.read_daily_consumption_summary(Energy.gas, day, day)
+
+    mariadb_client.write_consumption(_gas_meter(), _half_hours(day, 48, Decimal("0.5")))
+    summarizer.refresh(as_of=datetime(2026, 1, 12, 12, tzinfo=UTC))
+    [second] = mariadb_client.read_daily_consumption_summary(Energy.gas, day, day)
+
+    assert gas_day_status(first) is GasDayStatus.INCOMPLETE
+    assert gas_day_status(second) is GasDayStatus.COMPLETE
+    assert second.total_kwh == Decimal("24.00000")

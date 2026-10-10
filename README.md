@@ -61,12 +61,12 @@ providing:
   so any other value here means the app can never connect to a database that exists.
 - Data refresh settings: `refresh_interval_hours` (how often consumption is polled) and
   `retention_days` (how far back to backfill on every startup, and the raw-data
-  retention window enforced weekly by the `prune_old_data` job, see
+  retention window enforced daily by the `prune_old_data` job, see
   [ADR-0003](.agent-docs/adr/0003-90-day-data-retention.md); no persisted watermark
   means the startup backfill re-runs in full on every restart, not just the first
-  one). This is separate from the one-time 2-year `daily_consumption_summary`
-  backfill that runs once on first startup (gated by `job_run` history), which needs no
-  configuration.
+  one). This is separate from the `daily_consumption_summary` backfill, which
+  fetches everything the Octopus API still serves (about 2 years) at any startup where
+  the summary holds less than 6 months of counted days, and needs no configuration.
 
 For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template`. Only
 the `hive` (account username and password) and `mariadb` sections are required for

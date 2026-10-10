@@ -33,13 +33,13 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 CONSUMPTION_REFRESH_JOB = "consumption_refresh"
 CONSUMPTION_BACKFILL_JOB = "consumption_backfill"
 PRICING_REFRESH_JOB = "pricing_refresh"
-WEEKLY_CONSUMPTION_SUMMARY_JOB = "update_consumption_summary"
+CONSUMPTION_SUMMARY_JOB = "update_consumption_summary"
 PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
 AGILE_FORECAST_REFRESH_JOB = "agile_forecast_refresh"
 MIN_COUNTED_HISTORY_DAYS = 183  # roughly 6 months
-DAILY_JOB_TIME = "04:00"  # shared by every daily/weekly-cadence job, so
+DAILY_JOB_TIME = "04:00"  # shared by every daily-cadence job, so
 # none of them land in watchtower's 03:00 update window -- that schedule is
 # configured on the Pi host (pi-desktop's compose stack), not in this repo's
 # docker-compose.yml, which only enables watchtower via container labels.
@@ -204,24 +204,6 @@ def register_jobs(
     )
 
 
-def register_consumption_backfill_job(
-    scheduler: Scheduler,
-    refresh_config: RefreshSettings,
-    consumption: ConsumptionRetriever,
-    mariadb: MariaDBClient,
-) -> Job:
-    def backfill() -> None:
-        _retrieve_full_window("Consumption backfill.", consumption, refresh_config)
-
-    return _schedule_refresh_job(
-        scheduler,
-        lambda s: s.every().day.at(DAILY_JOB_TIME),
-        CONSUMPTION_BACKFILL_JOB,
-        backfill,
-        mariadb,
-    )
-
-
 def register_pricing_job(
     scheduler: Scheduler,
     refresh_config: RefreshSettings,
@@ -237,38 +219,53 @@ def register_pricing_job(
     )
 
 
-def register_consumption_summary_job(
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments
+def register_daily_consumption_job(
     scheduler: Scheduler,
+    refresh_config: RefreshSettings,
+    consumption: ConsumptionRetriever,
     consumption_summary: ConsumptionSummaryRetriever,
     pruner: DataPruner,
     mariadb: MariaDBClient,
 ) -> Job:
-    """Registers one weekly Monday-04:00 job that summarizes, then -- only if that
-    summarization succeeded -- prunes raw data in the same background thread,
-    immediately after. Sequencing them within one thread (rather than as two
-    independently-scheduled jobs) is deliberate: prune_old_data's job_run gate must
-    see *this* cycle's summarization outcome, not whichever outcome happened to be
-    most recently recorded when its own tick fired -- two separately-scheduled jobs
-    can't guarantee that ordering, since the summary job's own retry-with-backoff
-    dispatch is itself asynchronous."""
+    """Registers one daily job that refetches the full raw window, then summarizes,
+    then -- only if that summarization succeeded -- prunes raw data, all in the same
+    background thread. Summarizing after the refetch means each day's summary reads
+    the freshest raw rows; a failed refetch (already retried, then swallowed by
+    _with_backoff_recording) does not stop the summary. Sequencing the steps within
+    one thread (rather than as independently-scheduled jobs) is deliberate:
+    prune_old_data's job_run gate must see *this* cycle's summarization outcome, not
+    whichever outcome happened to be most recently recorded when its own tick fired
+    -- separately-scheduled jobs can't guarantee that ordering, since each job's own
+    retry-with-backoff dispatch is itself asynchronous."""
+
+    def refetch() -> None:
+        _retrieve_full_window("Consumption backfill.", consumption, refresh_config)
+
+    refetch_with_backoff = _with_backoff_recording(
+        CONSUMPTION_BACKFILL_JOB, refetch, mariadb
+    )
     summarize = _with_backoff_recording(
-        WEEKLY_CONSUMPTION_SUMMARY_JOB, consumption_summary.refresh, mariadb
+        CONSUMPTION_SUMMARY_JOB, consumption_summary.refresh, mariadb
     )
     prune = _with_backoff_recording(PRUNE_OLD_DATA_JOB, pruner.run, mariadb)
 
-    def summarize_then_prune() -> None:
+    def refetch_then_summarize_then_prune() -> None:
+        refetch_with_backoff()
         summarize()
-        if mariadb.latest_job_run_is_successful(WEEKLY_CONSUMPTION_SUMMARY_JOB):
+        if mariadb.latest_job_run_is_successful(CONSUMPTION_SUMMARY_JOB):
             prune()
         else:
             logger.info(
-                f"{WEEKLY_CONSUMPTION_SUMMARY_JOB} did not succeed this cycle; "
+                f"{CONSUMPTION_SUMMARY_JOB} did not succeed this cycle; "
                 f"skipping {PRUNE_OLD_DATA_JOB}."
             )
             mariadb.record_job_run(PRUNE_OLD_DATA_JOB, "skipped")
 
-    run = _run_in_background(WEEKLY_CONSUMPTION_SUMMARY_JOB, summarize_then_prune)
-    return scheduler.every().monday.at(DAILY_JOB_TIME).do(run)
+    run = _run_in_background(
+        CONSUMPTION_BACKFILL_JOB, refetch_then_summarize_then_prune
+    )
+    return scheduler.every().day.at(DAILY_JOB_TIME).do(run)
 
 
 def register_cost_forecast_refresh_job(
@@ -346,18 +343,20 @@ def main() -> None:
     run_initial_agile_forecast_sync(agile_forecast)
     run_initial_cost_forecast_sync(cost_forecast)
     register_jobs(default_scheduler, refresh_config, consumption, client.mariadb)
-    # consumption_backfill shares `consumption`'s in-memory cursor with
+    # The daily job's refetch shares `consumption`'s in-memory cursor with
     # consumption_refresh above, so their background threads can genuinely
     # overlap. Left unguarded, same reasoning as the backfill/eager-sync race
     # above: both compute a correct cursor from idempotent upserts, so
     # whichever finishes last is still right. See ADR-0011.
-    register_consumption_backfill_job(
-        default_scheduler, refresh_config, consumption, client.mariadb
+    register_daily_consumption_job(
+        default_scheduler,
+        refresh_config,
+        consumption,
+        consumption_summary,
+        pruner,
+        client.mariadb,
     )
     register_pricing_job(default_scheduler, refresh_config, pricing, client.mariadb)
-    register_consumption_summary_job(
-        default_scheduler, consumption_summary, pruner, client.mariadb
-    )
     register_agile_forecast_refresh_job(
         default_scheduler, agile_forecast, client.mariadb
     )
