@@ -51,6 +51,11 @@ def _is_transient(error: Exception) -> bool:
     return False
 
 
+class BackfillError(RuntimeError):
+    """The backfill's own failure, worded for the operator and safe to print:
+    built only from dates, counts and _describe, never from an error's text."""
+
+
 @dataclass(frozen=True)
 class ChunkResult:
     start: date
@@ -148,7 +153,7 @@ class WeatherHistoryBackfill:
     def run(self, start: date, end: date) -> BackfillResult:
         location = self._mariadb.read_weather_location()
         if location is None:
-            raise RuntimeError(
+            raise BackfillError(
                 "No cached weather location: let hive-app resolve a location "
                 "first, then run the backfill again."
             )
@@ -165,10 +170,14 @@ class WeatherHistoryBackfill:
                 observations = self._fetch_with_retries(client, chunk_start, chunk_end)
                 self._mariadb.write_weather_observations(observations)
             except Exception as e:
-                raise RuntimeError(
+                stored = (
+                    f"{len(results)} earlier chunk(s) stored"
+                    if results
+                    else "nothing stored"
+                )
+                raise BackfillError(
                     f"Weather backfill failed for {chunk_start} to {chunk_end} "
-                    f"({_describe(e)}); chunks before it are stored. "
-                    f"Repeat from {chunk_start}."
+                    f"({_describe(e)}); {stored}. Repeat from {chunk_start}."
                 ) from e
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
             chunk_start = chunk_end + timedelta(days=1)
@@ -250,9 +259,9 @@ def main(
             args.start, now.date()
         )
     except Exception as e:
-        # run()'s own RuntimeErrors are built from _describe and safe to print;
-        # anything else (a raw database error) may carry SQL and parameters.
-        reason = str(e) if isinstance(e, RuntimeError) else _describe(e)
+        # Only the backfill's own errors are safe to print; anything else (a raw
+        # database error, even a library RuntimeError) may carry SQL and values.
+        reason = str(e) if isinstance(e, BackfillError) else _describe(e)
         print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 

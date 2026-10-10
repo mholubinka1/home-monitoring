@@ -264,12 +264,15 @@ def test_a_rejected_request_is_not_retried(mariadb_client: MariaDBClient) -> Non
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
     responses.add(responses.GET, ARCHIVE_ENDPOINT, status=400)
 
-    with pytest.raises(RuntimeError, match="Repeat from 2024-07-24"):
+    with pytest.raises(RuntimeError, match="Repeat from 2024-07-24") as failure:
         WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
             date(2024, 7, 24), date(2024, 7, 24)
         )
 
     assert len(responses.calls) == 1
+    # The first chunk failed, so nothing was stored before it.
+    assert "nothing stored" in str(failure.value)
+    assert "chunks before it are stored" not in str(failure.value)
 
 
 @pytest.mark.parametrize("status", [429, 503])
@@ -620,14 +623,18 @@ def test_an_unreachable_database_is_described_not_printed_raw(
     assert "localhost" not in err
 
 
+@pytest.mark.parametrize("error_type", [ConnectionError, RuntimeError])
 @pytest.mark.usefixtures("mariadb_client")
 def test_a_database_error_before_the_backfill_is_described_not_printed_raw(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
+    error_type: type[Exception],
 ) -> None:
+    # A RuntimeError from library code is not one of the backfill's own
+    # messages, so it is described too, never printed raw.
     def database_down(*_args: object) -> None:
-        raise ConnectionError("SELECT ... FROM weather_location WHERE user=hive")
+        raise error_type("SELECT ... FROM weather_location WHERE user=hive")
 
     monkeypatch.setattr(MariaDBClient, "read_weather_location", database_down)
 
@@ -638,7 +645,7 @@ def test_a_database_error_before_the_backfill_is_described_not_printed_raw(
 
     err = capsys.readouterr().err
     assert exit_code == 1
-    assert "Weather backfill failed: ConnectionError" in err
+    assert f"Weather backfill failed: {error_type.__name__}" in err
     assert "SELECT" not in err
 
 
