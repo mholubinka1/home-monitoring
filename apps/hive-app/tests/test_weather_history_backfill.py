@@ -163,6 +163,7 @@ def test_a_failed_chunk_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
         ).run(date(2023, 1, 1), date(2025, 6, 30))
 
     assert "HTTP 500" in str(failure.value)
+    assert "1 earlier chunk(s) stored" in str(failure.value)
     assert "51.4" not in str(failure.value)
 
     assert [row[2] for row in _stored(mariadb_client)] == [datetime(2023, 1, 1, 0)]
@@ -272,7 +273,7 @@ def test_a_rejected_request_is_not_retried(mariadb_client: MariaDBClient) -> Non
     assert len(responses.calls) == 1
     # The first chunk failed, so nothing was stored before it.
     assert "nothing stored" in str(failure.value)
-    assert "chunks before it are stored" not in str(failure.value)
+    assert "earlier chunk" not in str(failure.value)
 
 
 @pytest.mark.parametrize("status", [429, 503])
