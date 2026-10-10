@@ -7,7 +7,6 @@ import requests
 import responses
 from weather_hourly_payloads import hourly_payload
 
-from hive_app import weather_backfill
 from hive_app.data.model import ResolvedLocation, WeatherObservation
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
@@ -352,6 +351,15 @@ def test_the_command_without_a_cached_location_fails_telling_the_operator_why(
     assert "let hive-app resolve a location" in capsys.readouterr().err
 
 
+def test_the_command_without_a_config_file_fails_asking_for_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([])
+
+    assert exit_code == 1
+    assert "pass --config-file <path>" in capsys.readouterr().err
+
+
 def test_the_command_with_an_unreadable_config_fails_naming_the_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -611,10 +619,13 @@ def test_a_failing_report_exits_1_naming_the_error_without_the_location(
         json=hourly_payload([f"{yesterday}T01:00"]),
     )
 
-    def failing_report(*_args: object) -> None:
+    def lost_connection(*_args: object) -> None:
         raise ConnectionError("lost connection for 51.40,-0.05")
 
-    monkeypatch.setattr(weather_backfill, "completeness_report", failing_report)
+    # Fail at the database boundary, after the backfill has written its rows.
+    monkeypatch.setattr(
+        MariaDBClient, "read_weather_observation_hours", lost_connection
+    )
 
     exit_code = main(
         ["--config-file", str(_write_config(tmp_path)), "--start", str(yesterday)],
