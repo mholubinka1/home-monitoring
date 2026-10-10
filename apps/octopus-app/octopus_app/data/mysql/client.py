@@ -571,19 +571,19 @@ class MariaDBClient(MariaDBClientBase):
         ]
 
     def counted_history_start(self) -> date | None:
-        # The date from which every energy in the summary has counted days:
-        # the latest of each energy's oldest counted day, or None when the
-        # summary is empty or any energy has no counted day at all.
+        # The date from which every energy has counted days: the latest of
+        # each energy's oldest counted day, or None when any energy has no
+        # counted day at all -- judged against every Energy, not just those
+        # present in the table, so an energy whose rows were all lost counts.
         dcs = model.daily_consumption_summary
         with self.session_read_scope() as session:
-            energies = {energy for (energy,) in session.query(dcs.energy).distinct()}
             oldest_counted: dict[str, date] = dict(
                 session.query(dcs.energy, func.min(dcs.date))
                 .filter(dcs.half_hour_count.isnot(None))
                 .group_by(dcs.energy)
                 .all()
             )
-        if not energies or energies - oldest_counted.keys():
+        if any(as_energy_char(energy) not in oldest_counted for energy in Energy):
             return None
         return max(oldest_counted.values())
 

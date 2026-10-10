@@ -485,8 +485,17 @@ def _summary_day(day: datetime.date, count: int | None) -> ConsumptionSummary:
 def test_backfill_runs_when_counted_days_reach_back_one_day_short_of_six_months(
     mariadb_client: MariaDBClient,
 ) -> None:
+    one_day_short = datetime.date(2026, 4, 11)
     mariadb_client.write_consumption_summary(
-        [_summary_day(datetime.date(2026, 4, 11), 48)]
+        [
+            _summary_day(one_day_short, 48),
+            ConsumptionSummary(
+                energy=Energy.electricity,
+                date=one_day_short,
+                total_kwh=Decimal(1),
+                half_hour_count=48,
+            ),
+        ]
     )
     backfill = Mock(spec=ConsumptionSummaryBackfill)
 
@@ -505,9 +514,18 @@ def test_backfill_runs_when_counted_days_reach_back_one_day_short_of_six_months(
 def test_backfill_is_skipped_once_counted_days_reach_back_exactly_six_months(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # 183 days before STARTUP's London date (2026-10-10).
+    # 183 days before STARTUP's London date (2026-10-10), for both energies.
+    boundary = datetime.date(2026, 4, 10)
     mariadb_client.write_consumption_summary(
-        [_summary_day(datetime.date(2026, 4, 10), 48)]
+        [
+            _summary_day(boundary, 48),
+            ConsumptionSummary(
+                energy=Energy.electricity,
+                date=boundary,
+                total_kwh=Decimal(1),
+                half_hour_count=48,
+            ),
+        ]
     )
     backfill = Mock(spec=ConsumptionSummaryBackfill)
 
@@ -544,6 +562,28 @@ def test_backfill_runs_when_one_energys_counted_days_fall_short_of_six_months(
                 half_hour_count=48,
             ),
             _summary_day(datetime.date(2026, 9, 1), 48),
+        ]
+    )
+    backfill = Mock(spec=ConsumptionSummaryBackfill)
+
+    worker = run_backfill_at_startup(backfill, mariadb_client, as_of=STARTUP)
+    assert worker is not None
+    worker.join()
+
+    backfill.run.assert_called_once()
+
+
+def test_backfill_runs_when_one_energy_has_no_summary_rows_at_all(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.write_consumption_summary(
+        [
+            ConsumptionSummary(
+                energy=Energy.electricity,
+                date=datetime.date(2025, 10, 1),
+                total_kwh=Decimal(1),
+                half_hour_count=48,
+            )
         ]
     )
     backfill = Mock(spec=ConsumptionSummaryBackfill)

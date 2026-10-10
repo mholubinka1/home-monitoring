@@ -184,10 +184,16 @@ def run_backfill_at_startup(
             "skipping yearly comparison backfill."
         )
         return None
-    logger.info(
-        f"Consumption summary has counted days for every energy only since "
-        f"{counted_since}; running yearly comparison backfill."
-    )
+    if counted_since is None:
+        logger.info(
+            "Consumption summary has an energy with no counted days; "
+            "running yearly comparison backfill."
+        )
+    else:
+        logger.info(
+            f"Consumption summary has counted days for every energy only since "
+            f"{counted_since}; running yearly comparison backfill."
+        )
     run = _run_with_backoff_in_background(
         YEARLY_COMPARISON_BACKFILL_JOB, backfill.run, mariadb
     )
