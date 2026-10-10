@@ -27,7 +27,7 @@ Record how many half-hours back each daily total, define a single "complete gas 
 
 ## Testing Decisions
 
-- External behaviour at the existing consumption-summary seams (the summarization tests and the summary backfill tests) with the SQLite fixture, plus Schema Sync against the real MariaDB fixture for the new column.
+- External behaviour at the existing consumption-summary seams (the summarization tests and the summary backfill tests) with the SQLite fixture, plus Schema Sync for the new column. Changed during implementation (2026-10-10): the real MariaDB fixture lives in `libs/common/tests` and is not reachable from octopus-app's tests, so the new column is tested on SQLite; the real fixture already covers adding a column to an existing table (`libs/common/tests/test_schema_translate_map.py`), and the live column is checked at deploy.
 - Good tests: a 48-half-hour day is complete; 36 of 48 is not; spring-forward (46) and autumn (50) days are complete; a zero total is incomplete even with 48 zero readings; an unknown count is unverified but usable; a day that fills in later becomes complete on the next daily refresh; the backfill records counts for API days and leaves older days NULL; the summary is scheduled daily.
 - Prior art: the summary refresh and backfill tests and the DST-boundary tests from the local-day work.
 
