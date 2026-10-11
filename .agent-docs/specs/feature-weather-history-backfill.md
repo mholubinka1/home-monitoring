@@ -19,12 +19,12 @@ A one-off, safely re-runnable command that fills `weather_observation` with hour
 
 ## Implementation Decisions
 
-- **Where.** A command in hive-app (which owns the weather tables), run by hand on the Pi, not a scheduled job. It uses the cached Weather Location ([ADR-0028](../adr/0028-weather-location-derived-lazily-from-account-postcode.md)) and fails with a clear message if none exists.
+- **Where.** A command in hive-app (which owns the weather tables), run by hand on the Pi, not a scheduled job. It uses the cached Weather Location ([ADR-0028](../adr/0028-weather-location-derived-lazily-from-account-postcode.md)) and fails with a clear message if none exists. (Since changed by feature-weather-backfill-at-startup: hive-app also runs it at startup when needed.)
 - **Range.** From 2024-07-24 (the first daily gas day; a default that can be overridden) to the latest available hour. Times are requested and stored in UTC, like the live job.
 - **Source.** The historical archive alone, in sensible chunks (for example a year per request). Decided at build (2026-10-10, see the ADR-0029 update): the archive has no lag in practice, returning hourly values up to the end of the current day by filling the newest days from a forecast model until its reanalysis catches up, so the forecast service's `past_days` is not used. Never store future hours as observations: truncate to the latest completed hour. A later re-run replaces the provisional recent hours with reanalysis through the keyed upsert.
 - **Stamp convention.** Confirmed against the archive: hourly sums are stamped at the end of their hour (a row stamped H holds the hour ending at H), matching the live job.
 - **Variables.** Hourly temperature, humidity, pressure, wind speed, precipitation, shortwave radiation, cloud cover and sunshine duration, all available hourly from the archive (sunshine included, confirmed at build).
-- **Label and idempotence.** Every backfilled row is labelled `open-meteo-archive` (regardless of which endpoint supplied it) and written with the keyed upsert from slice 1 under the current location key (if the Weather Location changes later, run the backfill again to build the new location's history; the earlier location's rows are left alone), so a re-run replaces earlier backfilled values and never touches live (`open-meteo`) rows.
+- **Label and idempotence.** Every backfilled row is labelled `open-meteo-archive` (regardless of which endpoint supplied it) and written with the keyed upsert from slice 1 under the current location key (if the Weather Location changes later, run the backfill again to build the new location's history; the earlier location's rows are left alone — since changed by feature-weather-backfill-at-startup: the next startup does this automatically), so a re-run replaces earlier backfilled values and never touches live (`open-meteo`) rows.
 - **Failures.** Transient request failures retry with backoff; a chunk that still fails stops the run with a message saying which range to repeat. No coordinates or secrets in logs beyond what the live job already logs.
 - **Report.** After the run, print rows written per month, the count of complete London days (23, 24 or 25 hourly readings, live preferred over archive per hour) and the list of days with missing hours.
 
@@ -36,7 +36,7 @@ A one-off, safely re-runnable command that fills `weather_observation` with hour
 
 ## Out of Scope
 
-- Running it against the Pi (a separate, asked-first step) and any scheduling.
+- Running it against the Pi (a separate, asked-first step) and any scheduling. (Since changed by feature-weather-backfill-at-startup: hive-app runs it at startup.)
 - Backfilling forecasts, or any variable we do not already store plus solar.
 - The model and dashboards.
 
