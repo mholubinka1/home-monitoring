@@ -85,8 +85,13 @@ class MariaDBClient(MariaDBClientBase):
             )
             for observation in observations
         ]
+        # Redacted: a SQLAlchemy error embeds the bound values, including the
+        # location key (the Weather Location's rounded coordinates).
         self._write_all(
-            records, "Weather observation data", key_columns=WEATHER_OBSERVATION_KEY
+            records,
+            "Weather observation data",
+            key_columns=WEATHER_OBSERVATION_KEY,
+            redact_errors=True,
         )
 
     def write_weather_forecast(self, forecast: list[WeatherForecastDay]) -> None:
@@ -106,6 +111,27 @@ class MariaDBClient(MariaDBClientBase):
             for day in forecast
         ]
         self._write_all(records, "Weather forecast data")
+
+    def read_weather_observation_hours(
+        self, location: str, start: datetime, end: datetime
+    ) -> list[tuple[str, datetime]]:
+        """(source, observed_at in UTC) of every stored hour for the location
+        key with start <= observed_at < end, whatever its source."""
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(
+                    sql_model.weather_observation.source,
+                    sql_model.weather_observation.observed_at,
+                )
+                .filter(
+                    sql_model.weather_observation.location == location,
+                    sql_model.weather_observation.observed_at >= start,
+                    sql_model.weather_observation.observed_at < end,
+                )
+                .all()
+            )
+            # The database stores naive UTC; stamp it back as UTC.
+            return [(source, observed.replace(tzinfo=UTC)) for source, observed in rows]
 
     @staticmethod
     def _weather_location_row(session: Session) -> sql_model.weather_location | None:

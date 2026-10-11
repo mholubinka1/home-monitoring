@@ -24,6 +24,9 @@ HOURLY_VARIABLES = (
     "sunshine_duration",
 )
 HOURLY_FIELDS = ",".join(HOURLY_VARIABLES)
+# The label on every backfilled (archive) observation, whichever endpoint
+# supplied it (ADR-0029); the backfill's report filters on it.
+ARCHIVE_SOURCE = "open-meteo-archive"
 # Each live run re-reads this many past hours (plus the current hour's stamp),
 # so an hour missed by an earlier run -- the daily restart, an outage -- is
 # filled by the next one.
@@ -71,6 +74,7 @@ class OpenMeteoForecastResponse(BaseModel):
 
 class OpenMeteoClient:
     base_url: str = "https://api.open-meteo.com/v1/forecast"
+    archive_url: str = "https://archive-api.open-meteo.com/v1/archive"
 
     def __init__(
         self,
@@ -80,12 +84,14 @@ class OpenMeteoClient:
         self._settings = settings
         self._clock = clock
 
-    def _request(self, endpoint_params: dict[str, str]) -> dict[str, Any]:
+    def _request(
+        self, endpoint_params: dict[str, str], url: str | None = None
+    ) -> dict[str, Any]:
         # Shared by every Open-Meteo endpoint this client calls: latitude
-        # and longitude. Each caller passes its own "timezone" -- the two
-        # endpoints need different ones (see each call site).
+        # and longitude. Each caller passes its own "timezone" (see each
+        # call site): the hourly calls use UTC, the daily forecast local days.
         response = requests.get(
-            url=self.base_url,
+            url=url if url is not None else self.base_url,
             params={
                 "latitude": str(self._settings.latitude),
                 "longitude": str(self._settings.longitude),
@@ -103,15 +109,37 @@ class OpenMeteoClient:
                 "past_hours": str(LOOKBACK_HOURS),
                 # Only the current hour's stamp, whose sums cover the hour
                 # that has just ended (Open-Meteo stamps an hourly sum at the
-                # end of its hour; to be confirmed against the archive in the
-                # history backfill, #623).
+                # end of its hour; confirmed against the archive, ADR-0029).
                 "forecast_hours": "1",
                 # Forcing UTC means the naive hour stamps Open-Meteo returns
                 # can be treated as UTC below without guessing an offset.
                 "timezone": "UTC",
             }
         )
-        hourly = OpenMeteoHourly.model_validate(payload["hourly"])
+        return self._hourly_observations(payload["hourly"], "open-meteo")
+
+    def get_archive_observations(
+        self, start: date, end: date
+    ) -> list[WeatherObservation]:
+        """Hourly history from the archive for start..end inclusive. The archive
+        returns provisional values up to the end of the current day; hours after
+        the latest completed one are dropped, as for the live job."""
+        payload = self._request(
+            {
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "hourly": HOURLY_FIELDS,
+                "timezone": "UTC",
+            },
+            url=self.archive_url,
+        )
+        return self._hourly_observations(payload["hourly"], ARCHIVE_SOURCE)
+
+    def _hourly_observations(
+        self, hourly_payload: dict[str, Any], source: str
+    ) -> list[WeatherObservation]:
+        """Shared by the live and archive paths so both map variables identically."""
+        hourly = OpenMeteoHourly.model_validate(hourly_payload)
         series = hourly.series()
         mismatched = {
             name: len(values)
@@ -138,7 +166,7 @@ class OpenMeteoClient:
                 continue
             observations.append(
                 WeatherObservation(
-                    source="open-meteo",
+                    source=source,
                     location=location,
                     observed_at=observed_at,
                     temp=hour["temperature_2m"],

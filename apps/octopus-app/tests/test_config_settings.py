@@ -73,3 +73,28 @@ def test_malformed_config_field_value_is_not_leaked_to_logs(
     logged_text = " ".join(logged_messages)
     assert leaked_marker not in logged_text
     assert "password" in logged_text
+
+
+def test_an_unparseable_config_logs_where_it_broke_but_not_the_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Parsing a string, PyYAML's error quotes the offending line (here the
+    # password); parsing the open file, as get_settings does, it gives only the
+    # line and column. Guards against loading the file as a string first.
+    leaked_marker = "hunter2-do-not-log-me"
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        f"mariadb:\n  username: user\n  password: {leaked_marker}: oops\n",
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.critical", logged_messages.append
+    )
+
+    with pytest.raises(SystemExit):
+        get_settings(str(config_file))
+
+    logged_text = " ".join(logged_messages)
+    assert leaked_marker not in logged_text
+    assert "line 3" in logged_text
