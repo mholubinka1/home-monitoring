@@ -5,6 +5,7 @@ from typing import Any
 import requests
 from pydantic import BaseModel
 
+from common.local_day import get_local_timezone
 from hive_app.common.config import LocationSettings
 from hive_app.data.model import WeatherForecastDay, WeatherObservation
 from hive_app.data.weather_types import (
@@ -185,15 +186,15 @@ class OpenMeteoClient:
         payload = self._request(
             {
                 "daily": DAILY_FIELDS,
-                # This repo buckets "day" as the Europe/London local
-                # calendar day for consumption/cost data (ADR-0010), not
-                # UTC -- requesting Open-Meteo's daily aggregation in that
-                # same timezone keeps target_date aligned with
-                # daily_consumption_summary's day boundaries, so a later
+                # This repo buckets "day" as the configured local calendar
+                # day (Europe/London by default) for consumption/cost data
+                # (ADR-0010), not UTC -- requesting Open-Meteo's daily
+                # aggregation in that same timezone keeps target_date aligned
+                # with daily_consumption_summary's day boundaries, so a later
                 # join (gas cost projection, #511) compares like-for-like
-                # days instead of drifting by up to an hour around BST
-                # transitions.
-                "timezone": "Europe/London",
+                # days instead of drifting by up to an hour around clock
+                # changes.
+                "timezone": get_local_timezone().key,
             }
         )
         parsed = OpenMeteoForecastResponse.model_validate(payload)

@@ -6,10 +6,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from logging import getLogger
-from zoneinfo import ZoneInfo
 
 import requests
 
+from common.local_day import (
+    get_local_timezone,
+    set_local_timezone,
+    start_of_local_day,
+    to_local_date,
+)
 from hive_app.common.config import LocationSettings, get_settings
 from hive_app.common.logging import APP_LOGGER_NAME
 from hive_app.data.model import WeatherObservation
@@ -19,8 +24,6 @@ from hive_app.data.weather_types import location_key
 
 logger = getLogger(APP_LOGGER_NAME)
 
-# Days and months are local days and months; issue #663 makes this configurable.
-LOCAL_TIMEZONE = ZoneInfo("Europe/London")
 ONE_HOUR = timedelta(hours=1)
 
 # The first daily gas day: weather before it has nothing to be compared with.
@@ -91,15 +94,11 @@ class CompletenessReport:
         return self.complete_days + len(self.incomplete_days)
 
 
-def _local_day_start(day: date) -> datetime:
-    return datetime(day.year, day.month, day.day, tzinfo=LOCAL_TIMEZONE).astimezone(UTC)
-
-
 def _hour_stamps(day: date) -> list[datetime]:
     # A stamp H holds the hour ending at H (ADR-0029), so a local day's stamps
     # run from its 01:00 to the next 00:00: 23, 24 or 25 on a clock-change day.
-    stamp = _local_day_start(day) + ONE_HOUR
-    last = _local_day_start(day + timedelta(days=1))
+    stamp = start_of_local_day(day) + ONE_HOUR
+    last = start_of_local_day(day + timedelta(days=1))
     stamps = []
     while stamp <= last:
         stamps.append(stamp)
@@ -109,7 +108,7 @@ def _hour_stamps(day: date) -> list[datetime]:
 
 def _local_hour_start(stamp: datetime) -> datetime:
     """The local start of the hour a stamp holds; its date is the stamp's day."""
-    return (stamp - ONE_HOUR).astimezone(LOCAL_TIMEZONE)
+    return (stamp - ONE_HOUR).astimezone(get_local_timezone())
 
 
 def completeness_report(
@@ -119,8 +118,8 @@ def completeness_report(
     counts once whichever source holds it (ADR-0010: bucketed by local date)."""
     hours = mariadb.read_weather_observation_hours(
         location,
-        _local_day_start(start) + ONE_HOUR,
-        _local_day_start(end + timedelta(days=1)) + ONE_HOUR,
+        start_of_local_day(start) + ONE_HOUR,
+        start_of_local_day(end + timedelta(days=1)) + ONE_HOUR,
     )
     present = {observed_at for _, observed_at in hours}
     archive_rows_per_month: Counter[str] = Counter(
@@ -229,7 +228,7 @@ def _print_report(report: CompletenessReport, up_to: date) -> None:
 
 def _local_yesterday(now: datetime) -> date:
     """The last complete local day, where every completeness report ends."""
-    return now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    return to_local_date(now) - timedelta(days=1)
 
 
 def history_start() -> datetime:
@@ -291,6 +290,18 @@ def main(
     )
     args = parser.parse_args(argv)
 
+    try:
+        # get_settings reports its own failures and calls sys.exit(1).
+        settings = get_settings(config_file_path=args.config_file)
+    except SystemExit:
+        if args.config_file is None:
+            print("Could not load config: pass --config-file <path>.", file=sys.stderr)
+        else:
+            print(f"Could not load config from {args.config_file}.", file=sys.stderr)
+        return 1
+    # Before yesterday is worked out: a hand run uses the app's configured zone.
+    set_local_timezone(settings.timezone)
+
     clock = clock or (lambda: datetime.now(UTC))
     now = clock()
     yesterday = _local_yesterday(now)
@@ -300,16 +311,6 @@ def main(
             "pass a start on or before yesterday.",
             file=sys.stderr,
         )
-        return 1
-
-    try:
-        # get_settings reports its own failures and calls sys.exit(1).
-        settings = get_settings(config_file_path=args.config_file)
-    except SystemExit:
-        if args.config_file is None:
-            print("Could not load config: pass --config-file <path>.", file=sys.stderr)
-        else:
-            print(f"Could not load config from {args.config_file}.", file=sys.stderr)
         return 1
 
     try:
