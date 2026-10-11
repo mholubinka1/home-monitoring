@@ -108,7 +108,9 @@ def test_stored_weather_under_another_location_does_not_count(
     assert worker is not None
     worker.join()
 
-    assert len(responses.calls) > 0
+    # The backfill ran for the cached location, not the other one.
+    assert mariadb_client.oldest_weather_observation(HOME_KEY) == FIRST_HOUR
+    assert [run.status for run in _job_runs(mariadb_client)] == ["success"]
 
 
 @responses.activate

@@ -221,6 +221,11 @@ def _print_report(report: CompletenessReport, up_to: date) -> None:
         print(f"incomplete: {day}, {len(missing)} hours missing ({', '.join(missing)})")
 
 
+def _local_yesterday(now: datetime) -> date:
+    """The last complete local day, where every completeness report ends."""
+    return now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+
+
 def history_start() -> datetime:
     """The first hour-ending stamp of DEFAULT_START: stored weather reaching back
     this far holds the whole history the backfill would fetch."""
@@ -244,7 +249,7 @@ def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> N
         reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
         raise BackfillError(reason) from None
     stored = sum(c.rows_written for c in result.chunks)
-    yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    yesterday = _local_yesterday(now)
     try:
         report = completeness_report(
             mariadb, result.location_key, DEFAULT_START, yesterday
@@ -282,7 +287,7 @@ def main(
 
     clock = clock or (lambda: datetime.now(UTC))
     now = clock()
-    yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    yesterday = _local_yesterday(now)
     if args.start > yesterday:
         print(
             f"--start {args.start} is after yesterday ({yesterday}): "
