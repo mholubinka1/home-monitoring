@@ -245,7 +245,7 @@ def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_s
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
 
     # Any: responses adds `params` to the PreparedRequest it hands the callback.
-    def fail_the_chunk_starting_on(request: Any) -> tuple[int, dict, str]:
+    def fail_the_chunk_starting_on(request: Any) -> tuple[int, dict[str, str], str]:
         start = request.params["start_date"]
         if start == failing_start:
             return 500, {}, ""
