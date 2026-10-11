@@ -213,7 +213,7 @@ def run_weather_backfill_at_startup(
         return None
     if oldest is not None and oldest <= history_start():
         logger.info(
-            f"Stored weather reaches back to {DEFAULT_START}; "
+            f"Stored weather starts at or before {DEFAULT_START}; "
             "skipping weather history backfill."
         )
         return None

@@ -17,7 +17,7 @@ A re-runnable hive-app command that fills `weather_observation` with hourly weat
 - [x] Given a date range, when the command runs, then hourly rows with the archive label are stored for every hour returned.
 - [x] Given a second run over the same range, then the row count is unchanged and values are replaced, not duplicated.
 - [x] Given live (`open-meteo`) rows for some of the same hours, then they are untouched.
-- [x] Given a chunk that fails after retries, then earlier chunks stay intact and the message says which range to repeat.
+- [x] Given a chunk that fails after retries, then earlier chunks stay intact and the message says which range to repeat. (Since changed by feature-weather-backfill-at-startup: chunks are fetched newest first, so the newer chunks stay intact and the message names the run's first day.)
 - [x] Given no cached Weather Location, then it stops with a clear message.
 - [x] Given a different current location, then rows are stored under that location's key and the earlier location's rows are untouched.
 

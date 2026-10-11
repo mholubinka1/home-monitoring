@@ -159,7 +159,7 @@ def test_a_failed_chunk_keeps_newer_chunks_and_names_the_date_to_repeat_from(
     responses.add(responses.GET, ARCHIVE_ENDPOINT, status=500)
     sleeps: list[float] = []
 
-    with pytest.raises(RuntimeError, match="Repeat from 2023-07-02") as failure:
+    with pytest.raises(RuntimeError, match="Repeat from 2023-01-01") as failure:
         WeatherHistoryBackfill(
             mariadb_client, clock=lambda: NOW, sleep=sleeps.append
         ).run(date(2023, 1, 1), date(2025, 6, 30))
@@ -177,10 +177,18 @@ def test_a_failed_chunk_keeps_newer_chunks_and_names_the_date_to_repeat_from(
         ARCHIVE_ENDPOINT,
         json=hourly_payload(["2023-07-02T00:00"]),
     )
+    # Repeating from the named date must also fetch the oldest chunk, which the
+    # newest-first run never reached.
+    calls_before = len(responses.calls)
     WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
-        date(2023, 7, 2), date(2025, 6, 30)
+        date(2023, 1, 1), date(2025, 6, 30)
     )
 
+    repeat_starts = {
+        call.request.params["start_date"]
+        for call in list(responses.calls)[calls_before:]
+    }
+    assert "2023-01-01" in repeat_starts
     assert [row[2] for row in _stored(mariadb_client)] == [
         datetime(2023, 7, 2, 0),
         datetime(2025, 1, 1, 0),
@@ -208,7 +216,7 @@ def test_a_failed_write_keeps_newer_chunks_and_names_the_date_to_repeat_from(
         mariadb_client, "write_weather_observations", failing_second_write
     )
 
-    with pytest.raises(RuntimeError, match="Repeat from 2023-07-02") as failure:
+    with pytest.raises(RuntimeError, match="Repeat from 2023-01-01") as failure:
         WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
             date(2023, 1, 1), date(2025, 6, 30)
         )

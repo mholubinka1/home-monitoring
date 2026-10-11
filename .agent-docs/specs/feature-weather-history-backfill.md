@@ -31,7 +31,7 @@ A one-off, safely re-runnable command that fills `weather_observation` with hour
 ## Testing Decisions
 
 - External behaviour with HTTP mocked at the boundary and the SQLite fixture; idempotence also against the real MariaDB fixture.
-- Good tests: a run stores hourly rows with the archive label; a second run leaves the row count unchanged; live rows for the same hours are untouched; provisional recent values are replaced by a later run's values; future hours are never stored; a mid-run failure leaves earlier chunks intact and the repeat completes; DST-boundary days report 23 and 25 hours correctly; the report lists missing hours.
+- Good tests: a run stores hourly rows with the archive label; a second run leaves the row count unchanged; live rows for the same hours are untouched; provisional recent values are replaced by a later run's values; future hours are never stored; a mid-run failure leaves earlier chunks intact and the repeat completes (since changed: chunks are fetched newest first, so the newer chunks are kept and the repeat starts from the run's first day — see feature-weather-backfill-at-startup); DST-boundary days report 23 and 25 hours correctly; the report lists missing hours.
 - Prior art: the existing Open-Meteo client tests and the consumption backfill tests.
 
 ## Out of Scope

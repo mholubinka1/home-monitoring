@@ -185,7 +185,9 @@ class WeatherHistoryBackfill:
                 )
                 raise BackfillError(
                     f"Weather backfill failed for {chunk_start} to {chunk_end} "
-                    f"({describe_error(e)}); {stored}. Repeat from {chunk_start}."
+                    # Repeat from the run's start, not the failed chunk's: chunks
+                    # older than it were never fetched (newest first).
+                    f"({describe_error(e)}); {stored}. Repeat from {start}."
                 ) from e
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
             chunk_end = chunk_start - timedelta(days=1)

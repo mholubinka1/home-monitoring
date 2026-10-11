@@ -260,9 +260,12 @@ def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_s
 
         # Newer chunks are stored, but the history does not reach back to the
         # start, so the next start backfills again.
+        calls_before = len(responses.calls)
         again = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
         assert again is not None
         again.join()
+
+    assert len(responses.calls) > calls_before
 
 
 @responses.activate
