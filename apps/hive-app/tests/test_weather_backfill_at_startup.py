@@ -234,10 +234,10 @@ def test_a_failing_completeness_report_does_not_fail_or_repeat_the_stored_backfi
     assert "51.4" not in caplog.text
 
 
-# The oldest chunk of the 2024-07-24 to 2026-10-11 range, and the newest. The
-# newest failing is what the old oldest-first order got wrong: the oldest was
-# already stored, so the gate skipped every later restart.
-@pytest.mark.parametrize("failing_start", ["2024-07-24", "2025-10-12"])
+# The three chunks of the 2024-07-24 to 2026-10-11 range: oldest, middle, newest.
+# A middle or newest failure is what an oldest-first order got wrong: the oldest
+# chunk was already stored, so the gate skipped every later restart.
+@pytest.mark.parametrize("failing_start", ["2024-07-24", "2024-10-12", "2025-10-12"])
 @responses.activate
 def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_start(
     mariadb_client: MariaDBClient, failing_start: str
@@ -246,9 +246,12 @@ def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_s
 
     # Any: responses adds `params` to the PreparedRequest it hands the callback.
     def fail_the_chunk_starting_on(request: Any) -> tuple[int, dict, str]:
-        if request.params["start_date"] == failing_start:
+        start = request.params["start_date"]
+        if start == failing_start:
             return 500, {}, ""
-        return 200, {}, json.dumps(hourly_payload(["2025-06-01T00:00"]))
+        # The chunk's own first hour, so a stored chunk moves the oldest stored
+        # hour exactly as real data would.
+        return 200, {}, json.dumps(hourly_payload([f"{start}T00:00"]))
 
     responses.add_callback(
         responses.GET, ARCHIVE_ENDPOINT, callback=fail_the_chunk_starting_on
