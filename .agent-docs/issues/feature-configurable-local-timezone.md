@@ -53,7 +53,7 @@ hive-app gets the same optional top-level `timezone` setting, validated and appl
 
 ### What to build
 
-The Grafana dashboard gets a constant `timezone` variable (default `Europe/London`) and every `'Europe/London'` literal in its queries, and in the standalone reference queries, becomes `'${timezone}'`. ADR-0010 gets a dated update, the glossary's Local Day entry and rule-describing "London day" wording say "local day", and the README documents the setting: both apps need the same value, and after changing zone on a populated database the `daily_consumption_summary` table is cleared so the startup backfill rebuilds it.
+The Grafana dashboard gets a constant `timezone` variable (default `Europe/London`) and every `'Europe/London'` literal in its queries, and in the standalone reference queries, becomes `'${timezone}'`. ADR-0010 gets a dated update, the glossary's Local Day entry and rule-describing "London day" wording say "local day", and the README documents the setting: both apps need the same value, and after changing zone on a populated database the `daily_consumption_summary` rows that have a reading count are deleted so the startup backfill rebuilds them (rows without a count cannot be rebuilt and stay in the old zone).
 
 ### Acceptance criteria
 
