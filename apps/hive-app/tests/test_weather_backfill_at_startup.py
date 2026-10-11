@@ -178,23 +178,32 @@ def test_a_successful_backfill_logs_hours_stored_and_complete_days(
     assert "51.4" not in caplog.text
 
 
+# The write fails inside a chunk, which the backfill wraps; the location read
+# fails before any chunk, so its error reaches the job unwrapped.
+@pytest.mark.parametrize(
+    "failing_call", ["write_weather_observations", "read_weather_location"]
+)
 @responses.activate
 def test_a_raw_error_never_reaches_job_run_or_the_logs(
-    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture, failing_call: str
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
     responses.add(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
+    raw_error = ValueError("lat=51.40 lon=-0.05")
+    # The startup check reads the location before the job starts, so only the
+    # backfill's own reads, one per attempt, fail.
+    failures: Any = (
+        raw_error
+        if failing_call == "write_weather_observations"
+        else [mariadb_client.read_weather_location()] + [raw_error] * 5
+    )
 
-    # Fail at the database boundary, as the archive rows are written.
+    # Fail at the database boundary.
     with (
         caplog.at_level(logging.DEBUG, logger="hive-monitor"),
-        patch.object(
-            MariaDBClient,
-            "write_weather_observations",
-            side_effect=ValueError("lat=51.40 lon=-0.05"),
-        ),
+        patch.object(MariaDBClient, failing_call, side_effect=failures),
         patch("hive_app.common.decorator.time.sleep"),
     ):
         worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
