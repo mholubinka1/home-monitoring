@@ -556,9 +556,11 @@ def test_the_command_reports_days_in_the_timezone_from_its_config(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(40.7, -74.0, "postcode"))
-    # NOW is 17:53 EDT on 2026-10-10, so yesterday is 2026-10-09. The stamps
-    # 05:00Z and 06:00Z hold the hours ending 01:00 and 02:00 EDT that day, i.e.
-    # the 00:00 and 01:00 local hours.
+    # 23:30Z is 19:30 EDT on 2026-10-10 but already 00:30 BST on the 11th, so
+    # only the configured zone makes yesterday the 9th. The stamps 05:00Z and
+    # 06:00Z hold the hours ending 01:00 and 02:00 EDT that day, i.e. the 00:00
+    # and 01:00 local hours.
+    late_evening_in_new_york = datetime(2026, 10, 10, 23, 30, tzinfo=UTC)
     yesterday = date(2026, 10, 9)
     responses.add(
         responses.GET,
@@ -569,11 +571,12 @@ def test_the_command_reports_days_in_the_timezone_from_its_config(
 
     exit_code = main(
         ["--config-file", str(config_file), "--start", str(yesterday)],
-        clock=lambda: NOW,
+        clock=lambda: late_evening_in_new_york,
     )
 
     out = capsys.readouterr().out
     assert exit_code == 0
+    assert f"Completeness up to {yesterday}" in out
     assert f"incomplete: {yesterday}, 22 hours missing (02:00, 03:00," in out
 
 
