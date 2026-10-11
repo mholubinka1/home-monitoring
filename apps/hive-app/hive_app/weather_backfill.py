@@ -5,15 +5,19 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from logging import getLogger
 from zoneinfo import ZoneInfo
 
 import requests
 
 from hive_app.common.config import LocationSettings, get_settings
+from hive_app.common.logging import APP_LOGGER_NAME
 from hive_app.data.model import WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import ARCHIVE_SOURCE, OpenMeteoClient
 from hive_app.data.weather_types import location_key
+
+logger = getLogger(APP_LOGGER_NAME)
 
 # Days and months are local days and months; issue #663 makes this configurable.
 LOCAL_TIMEZONE = ZoneInfo("Europe/London")
@@ -143,11 +147,12 @@ class WeatherHistoryBackfill:
         self,
         mariadb: MariaDBClient,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self._mariadb = mariadb
         self._clock = clock
-        self._sleep = sleep
+        # Looked up at construction, not import, so tests can patch time.sleep.
+        self._sleep = sleep if sleep is not None else time.sleep
 
     def run(self, start: date, end: date) -> BackfillResult:
         location = self._mariadb.read_weather_location()
@@ -208,6 +213,37 @@ def _print_report(report: CompletenessReport, up_to: date) -> None:
         print("no incomplete days")
     for day, missing in report.incomplete_days.items():
         print(f"incomplete: {day}, {len(missing)} hours missing ({', '.join(missing)})")
+
+
+def history_start() -> datetime:
+    """The first hour-ending stamp of DEFAULT_START: stored weather reaching back
+    this far holds the whole history the backfill would fetch."""
+    return _hour_stamps(DEFAULT_START)[0]
+
+
+def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> None:
+    """The startup backfill, run in a background job: DEFAULT_START to today,
+    then a log of the hours stored and the completeness up to yesterday. Only a
+    BackfillError escapes, with no cause attached: the job records and logs the
+    error's text and traceback, and a raw error may carry coordinates or SQL."""
+    now = clock()
+    try:
+        result = WeatherHistoryBackfill(mariadb, clock=clock).run(
+            DEFAULT_START, now.date()
+        )
+        yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+        report = completeness_report(
+            mariadb, result.location_key, DEFAULT_START, yesterday
+        )
+    except Exception as e:
+        # from None: a BackfillError's cause is the raw error, whose traceback
+        # the job's retry logging would print.
+        reason = str(e) if isinstance(e, BackfillError) else _describe(e)
+        raise BackfillError(reason) from None
+    logger.info(
+        f"Weather backfill stored {sum(c.rows_written for c in result.chunks)} hours; "
+        f"complete days: {report.complete_days} of {report.total_days}."
+    )
 
 
 def main(

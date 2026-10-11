@@ -185,9 +185,12 @@ a live SMS 2FA code; see the runbook.
 
 ### Backfilling weather history
 
-A hand-run command fills hourly weather from Open-Meteo's archive, from 2024-07-24,
-for the cached Weather Location. Rows are labelled `open-meteo-archive`, live rows are
-left untouched, and repeating a range is safe (rows are replaced, not duplicated).
+hive-app runs this automatically at startup whenever the stored weather history for the
+current Weather Location doesn't reach back to 2024-07-24 (recorded in `job_run` as
+`weather_history_backfill`). The same hand-run command fills hourly weather from
+Open-Meteo's archive, from 2024-07-24 or a chosen `--start`, for the cached Weather
+Location. Rows are labelled `open-meteo-archive`, live rows are left untouched, and
+repeating a range is safe (rows are replaced, not duplicated).
 
 ```bash
 docker exec hive-app python -m hive_app.weather_backfill --config-file /config/config.yml
@@ -198,5 +201,3 @@ docker exec hive-app python -m hive_app.weather_backfill --config-file /config/c
 - If a chunk fails, the message ends "Repeat from `<date>`": earlier chunks are kept, so
   re-run with `--start <date>`.
 - It finishes with a completeness report of hours per local day, up to yesterday.
-- The newest few days are the archive's provisional values; re-run it about a week
-  later (with `--start` a fortnight back) to replace them with the final reanalysis.
