@@ -363,7 +363,7 @@ class MariaDBClient(MariaDBClientBase):
                 .all()
             )
 
-        # Grouped in Python by Europe/London local calendar day, not the raw
+        # Grouped in Python by local calendar day, not the raw
         # UTC date -- Octopus's own daily reporting (and the "day" a UK user
         # means by "cost for 26 July") is local time. See ADR-0010 for why
         # this is Python/zoneinfo-based rather than SQL CONVERT_TZ.
@@ -433,7 +433,7 @@ class MariaDBClient(MariaDBClientBase):
         # weather_observation has no pre-aggregated daily max (unlike
         # weather_forecast's one-row-per-target_date shape), so the max is
         # taken here in Python across whatever observations exist for each
-        # Europe/London local day (ADR-0010) -- not the raw UTC date, to stay
+        # local day (ADR-0010) -- not the raw UTC date, to stay
         # consistent with how every other local-day bucketing in this app
         # works. The date range filter below is intentionally generous by a
         # day on each side of the requested window (observations are queried
@@ -529,7 +529,7 @@ class MariaDBClient(MariaDBClientBase):
                 model.consumption.est_kwh,
             ).all()
 
-            # Grouped in Python by Europe/London local calendar day, not the
+            # Grouped in Python by local calendar day, not the
             # raw UTC date -- keeps this job's day boundaries consistent
             # with ConsumptionSummaryBackfill, which also buckets by local
             # day (via local_day.to_local_date).

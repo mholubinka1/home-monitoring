@@ -50,7 +50,7 @@ class ConsumptionSummaryBackfill:
     def run(self, as_of: datetime | None = None) -> None:
         if as_of is None:
             as_of = datetime.now(UTC)
-        # Anchored to the start of the cutoff date's London day, not as_of's
+        # Anchored to the start of the cutoff date's local day, not as_of's
         # exact time-of-day nor UTC midnight (an hour late during BST) --
         # otherwise Octopus omits intervals at the start of the oldest
         # backfilled day, storing it as a partial total and short count.

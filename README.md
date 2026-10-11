@@ -75,6 +75,24 @@ template section is commented with what uses it. Run the first Hive login, and a
 re-authentication, with `python -m hive_app.login` as described in
 [the re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md).
 
+### Local-day timezone
+
+Every day figure (consumption and cost summaries, the weather completeness report,
+Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "local day"
+([ADR-0010](.agent-docs/adr/0010-local-day-bucketing-python-vs-sql.md)). It defaults to
+`Europe/London`, so a deployment that sets nothing behaves as before. To change it:
+
+- Set the top-level `timezone` key (an IANA name such as `America/New_York`) in **both**
+  apps' `config.yml`. The apps read separate files, so the two values must match. An
+  unknown name stops the app at startup, naming `timezone`.
+- Set the dashboard's `timezone` variable to the same zone (Dashboard settings, Variables).
+- On a database that already holds data, clear `daily_consumption_summary` and restart
+  octopus-app: its startup backfill rebuilds the summary in the new zone. Without that,
+  old days stay bucketed in the old zone.
+
+The one fixed zone is x2r.uk's: its Agile forecast timestamps are always read as
+`Europe/London`, because that is the zone x2r documents.
+
 ### Docker Compose
 
 Create `.env` from `.env.template`, providing `MARIADB_USER`/`MARIADB_PASSWORD` — the
