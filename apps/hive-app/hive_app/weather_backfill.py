@@ -5,15 +5,19 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from logging import getLogger
 from zoneinfo import ZoneInfo
 
 import requests
 
 from hive_app.common.config import LocationSettings, get_settings
+from hive_app.common.logging import APP_LOGGER_NAME
 from hive_app.data.model import WeatherObservation
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import ARCHIVE_SOURCE, OpenMeteoClient
 from hive_app.data.weather_types import location_key
+
+logger = getLogger(APP_LOGGER_NAME)
 
 # Days and months are local days and months; issue #663 makes this configurable.
 LOCAL_TIMEZONE = ZoneInfo("Europe/London")
@@ -26,7 +30,7 @@ ATTEMPTS_PER_CHUNK = 3
 BACKOFF_SECONDS = 2.0
 
 
-def _describe(error: Exception) -> str:
+def describe_error(error: Exception) -> str:
     # The error type and any HTTP status, never str(error): a requests error's
     # text carries the request URL and so the location's coordinates.
     status = getattr(getattr(error, "response", None), "status_code", None)
@@ -52,7 +56,13 @@ def _is_transient(error: Exception) -> bool:
 
 class BackfillError(RuntimeError):
     """The backfill's own failure, worded for the operator and safe to print:
-    built only from dates, counts and _describe, never from an error's text."""
+    built only from dates, counts and describe_error, never from an error's text."""
+
+
+def printable_reason(error: Exception) -> str:
+    """What may be shown for an error: a BackfillError's own text (built from
+    dates, counts and describe_error), otherwise only its description."""
+    return str(error) if isinstance(error, BackfillError) else describe_error(error)
 
 
 @dataclass(frozen=True)
@@ -65,6 +75,7 @@ class ChunkResult:
 @dataclass(frozen=True)
 class BackfillResult:
     location_key: str
+    # In the order fetched: newest first.
     chunks: list[ChunkResult]
 
 
@@ -143,11 +154,12 @@ class WeatherHistoryBackfill:
         self,
         mariadb: MariaDBClient,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self._mariadb = mariadb
         self._clock = clock
-        self._sleep = sleep
+        # Looked up at construction, not import, so tests can patch time.sleep.
+        self._sleep = sleep if sleep is not None else time.sleep
 
     def run(self, start: date, end: date) -> BackfillResult:
         location = self._mariadb.read_weather_location()
@@ -161,25 +173,30 @@ class WeatherHistoryBackfill:
             clock=self._clock,
         )
 
+        # Newest chunk first: if a chunk keeps failing, the oldest stretch is the
+        # one left missing, so the startup gate (how far back the stored history
+        # reaches) sees the gap and retries at the next start.
         results: list[ChunkResult] = []
-        chunk_start = start
-        while chunk_start <= end:
-            chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), end)
+        chunk_end = end
+        while chunk_end >= start:
+            chunk_start = max(chunk_end - timedelta(days=CHUNK_DAYS - 1), start)
             try:
                 observations = self._fetch_with_retries(client, chunk_start, chunk_end)
                 self._mariadb.write_weather_observations(observations)
             except Exception as e:
                 stored = (
-                    f"{len(results)} earlier chunk(s) stored"
+                    f"{len(results)} newer chunk(s) stored"
                     if results
                     else "nothing stored"
                 )
                 raise BackfillError(
                     f"Weather backfill failed for {chunk_start} to {chunk_end} "
-                    f"({_describe(e)}); {stored}. Repeat from {chunk_start}."
+                    # Repeat from the run's start, not the failed chunk's: chunks
+                    # older than it were never fetched (newest first).
+                    f"({describe_error(e)}); {stored}. Repeat from {start}."
                 ) from e
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
-            chunk_start = chunk_end + timedelta(days=1)
+            chunk_end = chunk_start - timedelta(days=1)
         return BackfillResult(
             location_key(location.latitude, location.longitude), results
         )
@@ -210,6 +227,53 @@ def _print_report(report: CompletenessReport, up_to: date) -> None:
         print(f"incomplete: {day}, {len(missing)} hours missing ({', '.join(missing)})")
 
 
+def _local_yesterday(now: datetime) -> date:
+    """The last complete local day, where every completeness report ends."""
+    return now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+
+
+def history_start() -> datetime:
+    """The first hour-ending stamp of DEFAULT_START: stored weather reaching back
+    this far holds the whole history the backfill would fetch."""
+    return _hour_stamps(DEFAULT_START)[0]
+
+
+def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> None:
+    """The startup backfill, run in a background job: DEFAULT_START to today,
+    then a log of the hours stored and the completeness up to yesterday. Only a
+    BackfillError from the backfill itself escapes, with no cause attached: the job
+    records and logs the error's text and traceback, and a raw error may carry
+    coordinates or SQL. A failing report is logged as a warning, not raised."""
+    now = clock()
+    try:
+        result = WeatherHistoryBackfill(mariadb, clock=clock).run(
+            DEFAULT_START, now.date()
+        )
+    except Exception as e:
+        # from None: a BackfillError's cause is the raw error, whose traceback
+        # the job's retry logging would print.
+        reason = printable_reason(e)
+        raise BackfillError(reason) from None
+    stored = sum(c.rows_written for c in result.chunks)
+    yesterday = _local_yesterday(now)
+    try:
+        report = completeness_report(
+            mariadb, result.location_key, DEFAULT_START, yesterday
+        )
+    except Exception as e:
+        # The history is stored: a failed report must not fail the job, whose
+        # retries would download it all again.
+        logger.warning(
+            f"Weather backfill stored {stored} hours; "
+            f"completeness report unavailable ({describe_error(e)})."
+        )
+        return
+    logger.info(
+        f"Weather backfill stored {stored} hours; "
+        f"complete days: {report.complete_days} of {report.total_days}."
+    )
+
+
 def main(
     argv: Sequence[str] | None = None,
     clock: Callable[[], datetime] | None = None,
@@ -229,7 +293,7 @@ def main(
 
     clock = clock or (lambda: datetime.now(UTC))
     now = clock()
-    yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    yesterday = _local_yesterday(now)
     if args.start > yesterday:
         print(
             f"--start {args.start} is after yesterday ({yesterday}): "
@@ -260,11 +324,11 @@ def main(
     except Exception as e:
         # Only the backfill's own errors are safe to print; anything else (a raw
         # database error, even a library RuntimeError) may carry SQL and values.
-        reason = str(e) if isinstance(e, BackfillError) else _describe(e)
+        reason = printable_reason(e)
         print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 
-    for chunk in result.chunks:
+    for chunk in sorted(result.chunks, key=lambda c: c.start):
         print(f"{chunk.start} to {chunk.end}: {chunk.rows_written} hours stored")
     print(f"Total: {sum(c.rows_written for c in result.chunks)} hours stored")
 
@@ -274,7 +338,7 @@ def main(
             mariadb, result.location_key, args.start, yesterday
         )
     except Exception as e:
-        print(f"Weather backfill report failed: {_describe(e)}", file=sys.stderr)
+        print(f"Weather backfill report failed: {describe_error(e)}", file=sys.stderr)
         return 1
     _print_report(report, yesterday)
     return 0

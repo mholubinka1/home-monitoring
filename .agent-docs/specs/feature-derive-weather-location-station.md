@@ -45,7 +45,7 @@ hive-app derives the **Weather Location** itself. octopus-app records the **Acco
 
 - Deploying to the Pi, and obtaining a Weather Underground API key.
 - Building the Grafana panels (#512, #513, #514).
-- Backfilling pre-existing weather data.
+- Backfilling pre-existing weather data. (Since built: feature-weather-history-backfill, run at hive-app startup by feature-weather-backfill-at-startup.)
 - Making Open-Meteo the primary observation source.
 - A reverse lookup of the Octopus account from hive-app, or giving hive-app Octopus credentials.
 

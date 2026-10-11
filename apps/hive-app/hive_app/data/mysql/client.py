@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from logging import Logger, getLogger
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
@@ -132,6 +133,18 @@ class MariaDBClient(MariaDBClientBase):
             )
             # The database stores naive UTC; stamp it back as UTC.
             return [(source, observed.replace(tzinfo=UTC)) for source, observed in rows]
+
+    def oldest_weather_observation(self, location: str) -> datetime | None:
+        """The earliest stored hour (UTC) for the location key, whatever its
+        source, or None if there is none."""
+        with self.session_read_scope() as session:
+            oldest = (
+                session.query(func.min(sql_model.weather_observation.observed_at))
+                .filter(sql_model.weather_observation.location == location)
+                .scalar()
+            )
+            # The database stores naive UTC; stamp it back as UTC.
+            return oldest.replace(tzinfo=UTC) if oldest is not None else None
 
     @staticmethod
     def _weather_location_row(session: Session) -> sql_model.weather_location | None:

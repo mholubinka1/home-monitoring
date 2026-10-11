@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from logging import Logger, getLogger
 
 from schedule import Job, Scheduler, default_scheduler
@@ -22,6 +23,13 @@ from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert, ReauthNotifier
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
 from hive_app.data.weather_location import WeatherLocationResolver
+from hive_app.data.weather_types import location_key
+from hive_app.weather_backfill import (
+    DEFAULT_START,
+    backfill_and_log,
+    describe_error,
+    history_start,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -32,6 +40,7 @@ WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"
 WEATHER_OBSERVATION_REFRESH_INTERVAL_MINUTES = 60
 WEATHER_FORECAST_REFRESH_JOB = "weather_forecast_refresh"
 WEATHER_FORECAST_REFRESH_INTERVAL_MINUTES = 60
+WEATHER_HISTORY_BACKFILL_JOB = "weather_history_backfill"
 
 
 def _with_backoff_recording(
@@ -172,6 +181,59 @@ def authenticate_at_startup(authenticator: HiveAuthenticator) -> None:
         )
 
 
+def run_weather_backfill_at_startup(
+    mariadb: MariaDBClient,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> threading.Thread | None:
+    # Gated on the data, not on a prior job_run: the backfill runs whenever the
+    # stored history for the current location doesn't reach back to the first
+    # hour of DEFAULT_START.
+    try:
+        location = mariadb.read_weather_location()
+        oldest = (
+            mariadb.oldest_weather_observation(
+                location_key(location.latitude, location.longitude)
+            )
+            if location is not None
+            else None
+        )
+    except Exception as e:
+        # An optional background task must not stop hive-app starting; the
+        # error's text may carry SQL and values, so only describe it.
+        logger.warning(
+            f"Could not check stored weather history ({describe_error(e)}); "
+            "skipping weather history backfill until the next restart."
+        )
+        return None
+    if location is None:
+        logger.info(
+            "No weather location is cached yet; the next restart will backfill "
+            "weather history once a location is resolved."
+        )
+        return None
+    if oldest is not None and oldest <= history_start():
+        logger.info(
+            f"Stored weather starts at or before {DEFAULT_START}; "
+            "skipping weather history backfill."
+        )
+        return None
+    if oldest is None:
+        logger.info(
+            "No stored weather for the current location; "
+            f"backfilling history from {DEFAULT_START}."
+        )
+    else:
+        logger.info(
+            f"Stored weather doesn't reach back to {DEFAULT_START}; "
+            "backfilling history."
+        )
+    return _run_with_backoff_in_background(
+        WEATHER_HISTORY_BACKFILL_JOB,
+        lambda: backfill_and_log(mariadb, clock),
+        mariadb,
+    )()
+
+
 def _build_reauth_notifier(topic_url: str | None) -> ReauthNotifier | None:
     if not topic_url:
         logger.warning(
@@ -221,6 +283,7 @@ def main() -> None:
 
     weather = _build_weather_retriever(settings.location, mariadb)
     register_weather_jobs(default_scheduler, weather, mariadb)
+    run_weather_backfill_at_startup(mariadb)
 
     while True:
         run_pending_safely(default_scheduler)

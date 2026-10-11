@@ -120,7 +120,7 @@ def test_live_rows_for_the_same_hours_are_untouched_by_the_backfill(
 
 
 @responses.activate
-def test_a_multi_year_range_is_requested_in_consecutive_year_long_chunks(
+def test_a_multi_year_range_is_requested_in_consecutive_year_long_chunks_newest_first(
     mariadb_client: MariaDBClient,
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
@@ -135,60 +135,68 @@ def test_a_multi_year_range_is_requested_in_consecutive_year_long_chunks(
         for call in responses.calls
     ]
     assert requested == [
-        ("2023-01-01", "2023-12-31"),
-        ("2024-01-01", "2024-12-30"),
-        ("2024-12-31", "2025-06-30"),
+        ("2024-07-01", "2025-06-30"),
+        ("2023-07-02", "2024-06-30"),
+        ("2023-01-01", "2023-07-01"),
     ]
     assert [(r.start, r.end) for r in results.chunks] == [
-        (date(2023, 1, 1), date(2023, 12, 31)),
-        (date(2024, 1, 1), date(2024, 12, 30)),
-        (date(2024, 12, 31), date(2025, 6, 30)),
+        (date(2024, 7, 1), date(2025, 6, 30)),
+        (date(2023, 7, 2), date(2024, 6, 30)),
+        (date(2023, 1, 1), date(2023, 7, 1)),
     ]
 
 
 @responses.activate
-def test_a_failed_chunk_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
+def test_a_failed_chunk_keeps_newer_chunks_and_names_the_date_to_repeat_from(
     mariadb_client: MariaDBClient,
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
     responses.add(
         responses.GET,
         ARCHIVE_ENDPOINT,
-        json=hourly_payload(["2023-01-01T00:00"]),
+        json=hourly_payload(["2025-01-01T00:00"]),
     )
     responses.add(responses.GET, ARCHIVE_ENDPOINT, status=500)
     sleeps: list[float] = []
 
-    with pytest.raises(RuntimeError, match="Repeat from 2024-01-01") as failure:
+    with pytest.raises(RuntimeError, match="Repeat from 2023-01-01") as failure:
         WeatherHistoryBackfill(
             mariadb_client, clock=lambda: NOW, sleep=sleeps.append
         ).run(date(2023, 1, 1), date(2025, 6, 30))
 
     assert "HTTP 500" in str(failure.value)
-    assert "1 earlier chunk(s) stored" in str(failure.value)
+    assert "1 newer chunk(s) stored" in str(failure.value)
     assert "51.4" not in str(failure.value)
 
-    assert [row[2] for row in _stored(mariadb_client)] == [datetime(2023, 1, 1, 0)]
+    assert [row[2] for row in _stored(mariadb_client)] == [datetime(2025, 1, 1, 0)]
     assert len(responses.calls) == 1 + 3
     assert len(sleeps) == 2
 
     responses.replace(
         responses.GET,
         ARCHIVE_ENDPOINT,
-        json=hourly_payload(["2024-01-01T00:00"]),
+        json=hourly_payload(["2023-07-02T00:00"]),
     )
+    # Repeating from the named date must also fetch the oldest chunk, which the
+    # newest-first run never reached.
+    calls_before = len(responses.calls)
     WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
-        date(2024, 1, 1), date(2025, 6, 30)
+        date(2023, 1, 1), date(2025, 6, 30)
     )
 
+    repeat_starts = {
+        call.request.params["start_date"]
+        for call in list(responses.calls)[calls_before:]
+    }
+    assert "2023-01-01" in repeat_starts
     assert [row[2] for row in _stored(mariadb_client)] == [
-        datetime(2023, 1, 1, 0),
-        datetime(2024, 1, 1, 0),
+        datetime(2023, 7, 2, 0),
+        datetime(2025, 1, 1, 0),
     ]
 
 
 @responses.activate
-def test_a_failed_write_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
+def test_a_failed_write_keeps_newer_chunks_and_names_the_date_to_repeat_from(
     mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
@@ -208,7 +216,7 @@ def test_a_failed_write_keeps_earlier_chunks_and_names_the_date_to_repeat_from(
         mariadb_client, "write_weather_observations", failing_second_write
     )
 
-    with pytest.raises(RuntimeError, match="Repeat from 2024-01-01") as failure:
+    with pytest.raises(RuntimeError, match="Repeat from 2023-01-01") as failure:
         WeatherHistoryBackfill(mariadb_client, clock=lambda: NOW, sleep=_no_sleep).run(
             date(2023, 1, 1), date(2025, 6, 30)
         )
