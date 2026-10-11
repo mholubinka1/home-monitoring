@@ -270,15 +270,20 @@ def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_s
     assert len(responses.calls) > calls_before
 
 
+@pytest.mark.parametrize(
+    "failing_read", ["read_weather_location", "oldest_weather_observation"]
+)
 @responses.activate
 def test_a_database_error_in_the_startup_check_is_logged_and_startup_continues(
-    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture, failing_read: str
 ) -> None:
+    # A cached location, so the check reaches its second read too.
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
     with (
         caplog.at_level(logging.INFO, logger="hive-monitor"),
         patch.object(
             MariaDBClient,
-            "read_weather_location",
+            failing_read,
             side_effect=ConnectionError("SELECT ... lat=51.40"),
         ),
     ):
