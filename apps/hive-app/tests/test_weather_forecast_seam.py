@@ -33,11 +33,11 @@ def test_an_open_meteo_forecast_is_persisted_and_queryable(
 
     forecast = client.get_forecast()
 
-    # ADR-0010: this repo buckets "day" as Europe/London local time for
-    # consumption/cost data -- the forecast request must ask Open-Meteo to
-    # bucket its daily aggregation the same way, not UTC, or target_date
-    # would drift from daily_consumption_summary's day boundaries around a
-    # BST transition (relevant once #511 joins the two).
+    # ADR-0010: this repo buckets "day" as local time (here the default,
+    # Europe/London) for consumption/cost data -- the forecast request must
+    # ask Open-Meteo to bucket its daily aggregation the same way, not UTC, or
+    # target_date would drift from daily_consumption_summary's day boundaries
+    # around a clock change (relevant once #511 joins the two).
     assert len(responses.calls) == 1
     assert "timezone=Europe%2FLondon" in responses.calls[0].request.url
 
