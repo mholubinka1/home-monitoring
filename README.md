@@ -201,3 +201,6 @@ docker exec hive-app python -m hive_app.weather_backfill --config-file /config/c
 - If a chunk fails, the message ends "Repeat from `<date>`": earlier chunks are kept, so
   re-run with `--start <date>`.
 - It finishes with a completeness report of hours per local day, up to yesterday.
+- After a database wipe or restore, the newest few days are refilled with the archive's
+  provisional values; a week or so later, re-run with `--start` a fortnight back to
+  replace them with the final reanalysis.

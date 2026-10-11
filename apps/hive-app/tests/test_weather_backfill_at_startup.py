@@ -50,7 +50,7 @@ def test_with_no_stored_weather_startup_backfills_and_records_success(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
 
-    worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+    worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
     assert worker is not None
     worker.join()
 
@@ -70,7 +70,7 @@ def test_stored_weather_reaching_the_first_hour_skips_the_backfill(
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
     _store(mariadb_client, FIRST_HOUR, source, HOME_KEY)
 
-    assert run_weather_backfill_at_startup(mariadb_client, as_of=NOW) is None
+    assert run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW) is None
 
     assert len(responses.calls) == 0
     assert _job_runs(mariadb_client) == []
@@ -86,7 +86,7 @@ def test_stored_weather_starting_later_still_backfills(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
 
-    worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+    worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
     assert worker is not None
     worker.join()
 
@@ -103,7 +103,7 @@ def test_stored_weather_under_another_location_does_not_count(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
 
-    worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+    worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
     assert worker is not None
     worker.join()
 
@@ -115,7 +115,9 @@ def test_without_a_cached_location_startup_does_not_backfill(
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.INFO, logger="hive-monitor"):
-        assert run_weather_backfill_at_startup(mariadb_client, as_of=NOW) is None
+        assert (
+            run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW) is None
+        )
 
     assert len(responses.calls) == 0
     assert "next restart will backfill" in caplog.text
@@ -134,7 +136,7 @@ def test_a_failing_backfill_is_retried_recorded_and_never_raised(
         patch("hive_app.common.decorator.time.sleep"),
         patch("hive_app.weather_backfill.time.sleep"),
     ):
-        worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+        worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
         assert worker is not None
         worker.join()
 
@@ -159,7 +161,7 @@ def test_a_successful_backfill_logs_hours_stored_and_complete_days(
     )
 
     with caplog.at_level(logging.INFO, logger="hive-monitor"):
-        worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+        worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
         assert worker is not None
         worker.join()
 
@@ -188,11 +190,32 @@ def test_a_raw_error_never_reaches_job_run_or_the_logs(
         ),
         patch("hive_app.common.decorator.time.sleep"),
     ):
-        worker = run_weather_backfill_at_startup(mariadb_client, as_of=NOW)
+        worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
         assert worker is not None
         worker.join()
 
     runs = _job_runs(mariadb_client)
     assert runs
     assert all("51.40" not in (run.error_message or "") for run in runs)
+    assert "51.40" not in caplog.text
+
+
+@responses.activate
+def test_a_database_error_in_the_startup_check_is_logged_and_startup_continues(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with (
+        caplog.at_level(logging.INFO, logger="hive-monitor"),
+        patch.object(
+            MariaDBClient,
+            "read_weather_location",
+            side_effect=ConnectionError("SELECT ... lat=51.40"),
+        ),
+    ):
+        assert (
+            run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW) is None
+        )
+
+    assert len(responses.calls) == 0
+    assert "ConnectionError" in caplog.text
     assert "51.40" not in caplog.text

@@ -30,7 +30,7 @@ ATTEMPTS_PER_CHUNK = 3
 BACKOFF_SECONDS = 2.0
 
 
-def _describe(error: Exception) -> str:
+def describe_error(error: Exception) -> str:
     # The error type and any HTTP status, never str(error): a requests error's
     # text carries the request URL and so the location's coordinates.
     status = getattr(getattr(error, "response", None), "status_code", None)
@@ -56,7 +56,7 @@ def _is_transient(error: Exception) -> bool:
 
 class BackfillError(RuntimeError):
     """The backfill's own failure, worded for the operator and safe to print:
-    built only from dates, counts and _describe, never from an error's text."""
+    built only from dates, counts and describe_error, never from an error's text."""
 
 
 @dataclass(frozen=True)
@@ -181,7 +181,7 @@ class WeatherHistoryBackfill:
                 )
                 raise BackfillError(
                     f"Weather backfill failed for {chunk_start} to {chunk_end} "
-                    f"({_describe(e)}); {stored}. Repeat from {chunk_start}."
+                    f"({describe_error(e)}); {stored}. Repeat from {chunk_start}."
                 ) from e
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
             chunk_start = chunk_end + timedelta(days=1)
@@ -238,7 +238,7 @@ def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> N
     except Exception as e:
         # from None: a BackfillError's cause is the raw error, whose traceback
         # the job's retry logging would print.
-        reason = str(e) if isinstance(e, BackfillError) else _describe(e)
+        reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
         raise BackfillError(reason) from None
     logger.info(
         f"Weather backfill stored {sum(c.rows_written for c in result.chunks)} hours; "
@@ -296,7 +296,7 @@ def main(
     except Exception as e:
         # Only the backfill's own errors are safe to print; anything else (a raw
         # database error, even a library RuntimeError) may carry SQL and values.
-        reason = str(e) if isinstance(e, BackfillError) else _describe(e)
+        reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
         print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 
@@ -310,7 +310,7 @@ def main(
             mariadb, result.location_key, args.start, yesterday
         )
     except Exception as e:
-        print(f"Weather backfill report failed: {_describe(e)}", file=sys.stderr)
+        print(f"Weather backfill report failed: {describe_error(e)}", file=sys.stderr)
         return 1
     _print_report(report, yesterday)
     return 0
