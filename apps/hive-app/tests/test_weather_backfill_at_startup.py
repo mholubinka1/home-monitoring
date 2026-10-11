@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -241,13 +242,14 @@ def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_s
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
 
-    def fail_only_the_oldest_chunk(request: object) -> tuple[int, dict, str]:
-        if request.params["start_date"] == failing_start:  # type: ignore[attr-defined]
+    # Any: responses adds `params` to the PreparedRequest it hands the callback.
+    def fail_the_chunk_starting_on(request: Any) -> tuple[int, dict, str]:
+        if request.params["start_date"] == failing_start:
             return 500, {}, ""
         return 200, {}, json.dumps(hourly_payload(["2025-06-01T00:00"]))
 
     responses.add_callback(
-        responses.GET, ARCHIVE_ENDPOINT, callback=fail_only_the_oldest_chunk
+        responses.GET, ARCHIVE_ENDPOINT, callback=fail_the_chunk_starting_on
     )
 
     with (

@@ -19,6 +19,6 @@ At hive-app startup, check how far back stored weather reaches for the current W
 - [ ] Given no cached Weather Location, then startup skips the backfill without geocoding or requesting anything.
 - [ ] Given a run that keeps failing, then it is retried with backoff, each failure is recorded in `job_run`, and hive-app keeps starting.
 - [ ] A successful run logs the hours stored and "complete days: N of M", with no coordinates.
-- [ ] The README says the backfill runs at startup, keeps the command for `--start` re-runs and drops the "re-run a week later" advice; ADR-0029 gets a dated note.
+- [ ] The README says the backfill runs at startup, keeps the command for `--start` re-runs and restricts the "re-run a week later" advice to after a wipe or restore; ADR-0029 gets a dated note.
 
 ---

@@ -19,9 +19,9 @@ At hive-app startup, check how far back the stored weather goes for the current 
 
 - **Gate on the data.** At startup, the oldest stored observation hour for the current location key (either source) is compared with the first hour of the default start day (2024-07-24, its first hour-ending stamp per ADR-0029). Later or none: run. Otherwise skip with an info log. Like the gas gate, this checks how far back the data reaches, not gaps within it.
 - **Cached location only.** The gate reads the cached Weather Location; with none (a brand-new database before the hourly weather job has resolved one) it skips with an info log and never geocodes at startup. The next restart (Watchtower restarts hive-app daily) runs it.
-- **Background, recorded, retried.** Runs in a background thread through hive-app's existing background-with-backoff wrapper under the job name `weather_history_backfill`, from 2024-07-24 to today, reusing `WeatherHistoryBackfill` unchanged. A failed run retries as a whole (the backfill is idempotent).
+- **Background, recorded, retried.** Runs in a background thread through hive-app's existing background-with-backoff wrapper under the job name `weather_history_backfill`, from 2024-07-24 to today, reusing `WeatherHistoryBackfill`. A failed run retries as a whole (the backfill is idempotent). Changed during review (2026-10-11): the backfill now fetches chunks newest first, so a run that keeps failing leaves the oldest stretch missing and the gate retries at the next start; its "Repeat from" message names the run's first day, since older chunks were never fetched.
 - **Log summary.** On success it logs the hours stored and "complete days: N of M" up to yesterday; the full incomplete-day list stays in the command's printed report. Logs carry no coordinates (the location key only if needed; prefer not).
-- **Docs.** README: startup does this automatically; the command remains for `--start` re-runs; drop the "re-run a week later" advice (live rows already cover the provisional recent days and are preferred). ADR-0029 dated note.
+- **Docs.** README: startup does this automatically; the command remains for `--start` re-runs; restrict the "re-run a week later" advice to after a wipe or restore (otherwise live rows already cover the provisional recent days and are preferred). ADR-0029 dated note.
 
 ## Testing Decisions
 
