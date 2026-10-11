@@ -1,5 +1,7 @@
 # Issues: feature-configurable-local-timezone
 
+> Work complete — PR ready to merge.
+
 Parent: [#663](https://github.com/mholubinka1/home-monitoring/issues/663). Spec: `.agent-docs/specs/feature-configurable-local-timezone.md`.
 
 ## TZ-1 · Shared local-day module and a configurable timezone in octopus-app — [#667](https://github.com/mholubinka1/home-monitoring/issues/667)
@@ -14,12 +16,12 @@ Move octopus-app's `local_day` module into `libs/common` as the one shared local
 
 ### Acceptance criteria
 
-- [ ] With no `timezone` setting, every octopus-app day bucket matches today's `Europe/London` behaviour, including the 23- and 25-hour daylight-saving days (the existing tests pass unchanged).
-- [ ] With `timezone: America/New_York`, the shared module's day starts, local dates and expected half-hour counts (46/48/50) follow New York's days and DST, and octopus-app's consumption summaries bucket by New York days.
-- [ ] An unknown timezone name fails octopus-app at startup with a critical log naming `timezone`, and no job runs.
-- [ ] A naive x2r.uk timestamp is read as `Europe/London` whatever the configured timezone.
-- [ ] octopus-app's `local_day` module is gone; its call sites import the shared module; the active zone is reset between tests by a fixture.
-- [ ] The octopus-app config template documents `timezone`.
+- [x] With no `timezone` setting, every octopus-app day bucket matches today's `Europe/London` behaviour, including the 23- and 25-hour daylight-saving days (the existing tests pass unchanged).
+- [x] With `timezone: America/New_York`, the shared module's day starts, local dates and expected half-hour counts (46/48/50) follow New York's days and DST, and octopus-app's consumption summaries bucket by New York days.
+- [x] An unknown timezone name fails octopus-app at startup with a critical log naming `timezone`, and no job runs.
+- [x] A naive x2r.uk timestamp is read as `Europe/London` whatever the configured timezone.
+- [x] octopus-app's `local_day` module is gone; its call sites import the shared module; the active zone is reset between tests by a fixture.
+- [x] The octopus-app config template documents `timezone`.
 
 ---
 
@@ -35,11 +37,11 @@ hive-app gets the same optional top-level `timezone` setting, validated and appl
 
 ### Acceptance criteria
 
-- [ ] With no `timezone` setting, hive-app's completeness report and forecast request behave as today (the existing tests pass unchanged; the forecast request sends `Europe/London`).
-- [ ] With `timezone: America/New_York`, the completeness report expects 23/24/25 stamps per New York local day and the forecast request sends `America/New_York`.
-- [ ] An unknown timezone name fails hive-app at startup with a critical log naming `timezone`.
-- [ ] `LOCAL_TIMEZONE` and the forecast request's `Europe/London` literal are gone from hive-app.
-- [ ] The hive-app config template documents `timezone`.
+- [x] With no `timezone` setting, hive-app's completeness report and forecast request behave as today (the existing tests pass unchanged; the forecast request sends `Europe/London`).
+- [x] With `timezone: America/New_York`, the completeness report expects 23/24/25 stamps per New York local day and the forecast request sends `America/New_York`.
+- [x] An unknown timezone name fails hive-app at startup with a critical log naming `timezone`.
+- [x] `LOCAL_TIMEZONE` and the forecast request's `Europe/London` literal are gone from hive-app.
+- [x] The hive-app config template documents `timezone`.
 
 ---
 
@@ -55,9 +57,9 @@ The Grafana dashboard gets a constant `timezone` variable (default `Europe/Londo
 
 ### Acceptance criteria
 
-- [ ] `dashboard.json` has a `timezone` template variable defaulting to `Europe/London`, and no query contains a literal `Europe/London`.
-- [ ] `queries.md` documents the `timezone` variable and uses `'${timezone}'` in its reference queries instead of the literal.
-- [ ] A test fails if `Europe/London` appears in the dashboard queries or `queries.md` outside the variable's default.
-- [ ] ADR-0010 has a dated update; the glossary describes the Local Day as a setting; the README describes the `timezone` setting, that both apps must match, and the rebuild step after a zone change.
+- [x] `dashboard.json` has a `timezone` template variable defaulting to `Europe/London`, and no query contains a literal `Europe/London`.
+- [x] `queries.md` documents the `timezone` variable and uses `'${timezone}'` in its reference queries instead of the literal.
+- [x] A test fails if `Europe/London` appears in the dashboard queries or `queries.md` outside the variable's default.
+- [x] ADR-0010 has a dated update; the glossary describes the Local Day as a setting; the README describes the `timezone` setting, that both apps must match, and the rebuild step after a zone change.
 
 ---
