@@ -6,7 +6,7 @@ Live weather collection only began on 2026-10-06, but the heating model needs we
 
 ## Solution
 
-A one-off, safely re-runnable command that fills `weather_observation` with hourly weather (every variable we store, plus solar) from 2024-07-24 up to the present, so history joins seamlessly onto the live series. Slice 2 of 5 ([ADR-0029](../adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)); it depends on slice 1 (the unique key and the new columns).
+A one-off, safely re-runnable command that fills `weather_observation` with hourly weather (every variable we store, plus solar) from 2024-07-24 up to the present, so history joins seamlessly onto the live series. Slice 2 of 5 ([ADR-0029](../adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)); it depends on slice 1 (the unique key and the new columns). (Since changed by feature-weather-backfill-at-startup: hive-app also runs it automatically at startup whenever the current location's stored history doesn't reach back to 2024-07-24, so a changed location or a wiped table refills without a manual run; the command remains for re-runs.)
 
 ## User Stories
 

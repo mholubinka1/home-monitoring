@@ -59,6 +59,12 @@ class BackfillError(RuntimeError):
     built only from dates, counts and describe_error, never from an error's text."""
 
 
+def printable_reason(error: Exception) -> str:
+    """What may be shown for an error: a BackfillError's own text (built from
+    dates, counts and describe_error), otherwise only its description."""
+    return str(error) if isinstance(error, BackfillError) else describe_error(error)
+
+
 @dataclass(frozen=True)
 class ChunkResult:
     start: date
@@ -246,7 +252,7 @@ def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> N
     except Exception as e:
         # from None: a BackfillError's cause is the raw error, whose traceback
         # the job's retry logging would print.
-        reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
+        reason = printable_reason(e)
         raise BackfillError(reason) from None
     stored = sum(c.rows_written for c in result.chunks)
     yesterday = _local_yesterday(now)
@@ -318,7 +324,7 @@ def main(
     except Exception as e:
         # Only the backfill's own errors are safe to print; anything else (a raw
         # database error, even a library RuntimeError) may carry SQL and values.
-        reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
+        reason = printable_reason(e)
         print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 

@@ -1,6 +1,6 @@
 # Issues: feature-weather-history-backfill
 
-> Work complete — [PR #664](https://github.com/mholubinka1/home-monitoring/pull/664) ready to merge. Running the backfill on the Pi is a separate, asked-first step after deploy.
+> Work complete — [PR #664](https://github.com/mholubinka1/home-monitoring/pull/664) ready to merge. Running the backfill on the Pi is a separate, asked-first step after deploy. (Since changed by feature-weather-backfill-at-startup: hive-app runs it at startup.)
 
 ## BKF-1 · Backfill hourly weather history from the archive — [#623](https://github.com/mholubinka1/home-monitoring/issues/623)
 
