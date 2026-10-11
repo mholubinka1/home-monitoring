@@ -128,4 +128,4 @@ def test_an_unknown_timezone_fails_at_load_naming_the_timezone_field(
         get_settings(str(config_file))
 
     assert exit_info.value.code == 1
-    assert "timezone" in " ".join(logged_messages)
+    assert "invalid or missing field(s): timezone" in " ".join(logged_messages)

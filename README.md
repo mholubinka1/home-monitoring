@@ -86,12 +86,20 @@ Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "loc
   apps' `config.yml`. The apps read separate files, so the two values must match. An
   unknown name stops the app at startup, naming `timezone`.
 - Set the dashboard's `timezone` variable to the same zone (Dashboard settings, Variables).
+  The dashboard is imported from `data/grafana/dashboard.json`, so also set that
+  variable's `query` and `current` values in the JSON, or a re-import puts the old zone
+  back.
 - On a database that already holds data, clear `daily_consumption_summary` and restart
   octopus-app: its startup backfill rebuilds the summary in the new zone. Without that,
   old days stay bucketed in the old zone.
 
 The one fixed zone is x2r.uk's: its Agile forecast timestamps are always read as
 `Europe/London`, because that is the zone x2r documents.
+
+One limit: hive-app's weather completeness report expects hourly stamps on the UTC hour,
+so in a zone whose offset from UTC is not a whole number of hours (for example
+`Asia/Kolkata`, +05:30) it lists every day as incomplete. The stored weather and every
+other figure are unaffected.
 
 ### Docker Compose
 
