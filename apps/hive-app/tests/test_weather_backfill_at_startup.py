@@ -69,8 +69,12 @@ def test_stored_weather_reaching_the_first_hour_skips_the_backfill(
     mariadb_client: MariaDBClient, source: str
 ) -> None:
     mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    # A recent hour from the other source too: the oldest hour across both counts.
+    other = "open-meteo-archive" if source == "open-meteo" else "open-meteo"
+    _store(mariadb_client, datetime(2026, 10, 6, 12, tzinfo=UTC), other, HOME_KEY)
     _store(mariadb_client, FIRST_HOUR, source, HOME_KEY)
 
+    assert mariadb_client.oldest_weather_observation(HOME_KEY) == FIRST_HOUR
     assert run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW) is None
 
     assert len(responses.calls) == 0
