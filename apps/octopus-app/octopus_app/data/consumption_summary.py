@@ -26,7 +26,7 @@ class ConsumptionSummaryRetriever:
 
     def refresh(self, as_of: datetime | None = None) -> None:
         # The window is made of local days, so "today" is the local date, which
-        # between 00:00 and 01:00 BST is a day ahead of the UTC date.
+        # can be a day ahead of the UTC date (e.g. 00:00-01:00 BST in London).
         if as_of is None:
             as_of = datetime.now(UTC)
         today = local_day.to_local_date(as_of)

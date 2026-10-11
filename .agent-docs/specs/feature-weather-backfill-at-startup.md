@@ -33,7 +33,7 @@ At hive-app startup, check how far back the stored weather goes for the current 
 
 - Detecting or filling gaps in the middle of the history.
 - Refetching the archive's provisional recent days.
-- Making the local-day timezone configurable (#663).
+- Making the local-day timezone configurable (#663). (Since resolved: see `feature-configurable-local-timezone.md`.)
 
 ## Further Notes
 

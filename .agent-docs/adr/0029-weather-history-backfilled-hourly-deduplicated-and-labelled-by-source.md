@@ -43,3 +43,7 @@ Checked against Open-Meteo on 2026-10-10 (central London coordinates, 14 days in
 ## Update 2026-10-11: the backfill runs at startup
 
 hive-app now runs the backfill itself, in a background job recorded in `job_run` as `weather_history_backfill`, whenever the oldest stored observation for the current location key (either source) is later than the first hour of 2024-07-24; with no cached Weather Location it does nothing and never geocodes, so the next restart backfills once one is resolved. The gate is the data, not a prior `job_run`, so a changed location or a wiped table is refilled without a manual step; chunks are fetched newest first, so an interrupted run leaves the oldest stretch missing and is retried at the next start. The hand-run command stays for re-runs from a chosen `--start`; a later re-run to replace the archive's provisional recent days is not needed while live rows cover those days (they are preferred), but after a wipe or restore the newest days come back provisional and the gate, which checks only how far back the history reaches, will not revisit them, so a re-run with `--start` about a fortnight back a week or so later replaces them.
+
+## Update 2026-10-11: the local day is a setting
+
+Where this ADR says a "London day" or defines the local day as the Europe/London calendar day, read the configured local day: the `timezone` setting in each app's `config.yml`, defaulting to Europe/London (see [ADR-0010](0010-local-day-bucketing-python-vs-sql.md)). Hour stamps stay UTC; only the day boundaries move.

@@ -2,6 +2,7 @@
 so they follow the same setting as the apps (ADR-0010)."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,27 +24,50 @@ def test_the_dashboard_has_a_timezone_variable_defaulting_to_london() -> None:
     assert variable["query"] == DEFAULT_TIMEZONE
 
 
-def _raw_queries(node: Any) -> list[str]:
-    """Every rawSql string in the dashboard, wherever panels nest them."""
+def _strings(node: Any) -> list[str]:
+    """Every string anywhere in a parsed JSON document."""
+    if isinstance(node, str):
+        return [node]
     if isinstance(node, dict):
-        found = [node["rawSql"]] if isinstance(node.get("rawSql"), str) else []
-        return found + [q for value in node.values() for q in _raw_queries(value)]
+        return [s for value in node.values() for s in _strings(value)]
     if isinstance(node, list):
-        return [q for item in node for q in _raw_queries(item)]
+        return [s for item in node for s in _strings(item)]
     return []
 
 
-def test_no_dashboard_query_hard_codes_a_timezone() -> None:
+def _convert_tz_zones(text: str) -> list[set[str]]:
+    """The two zone arguments of every CONVERT_TZ call in the text."""
+    pattern = r"CONVERT_TZ\(.*?,\s*'([^']+)',\s*'([^']+)'\)"
+    return [set(zones) for zones in re.findall(pattern, text, flags=re.DOTALL)]
+
+
+def _dashboard_without_the_timezone_variable() -> dict[str, Any]:
     dashboard = json.loads(DASHBOARD.read_text(encoding="utf-8"))
-    queries = _raw_queries(dashboard["panels"])
-
-    assert queries, "no panel queries found"
-    assert [q for q in queries if f"'{DEFAULT_TIMEZONE}'" in q] == []
-    assert any("'${timezone}'" in q for q in queries)
+    variables = dashboard["templating"]["list"]
+    dashboard["templating"]["list"] = [v for v in variables if v["name"] != "timezone"]
+    return dashboard
 
 
-def test_the_reference_queries_use_the_timezone_variable_not_a_literal() -> None:
+def test_the_dashboard_names_its_timezone_only_in_the_variable() -> None:
+    strings = _strings(_dashboard_without_the_timezone_variable())
+
+    assert [s for s in strings if DEFAULT_TIMEZONE in s] == []
+
+
+def test_every_dashboard_day_conversion_takes_its_zone_from_the_variable() -> None:
+    text = "\n".join(_strings(_dashboard_without_the_timezone_variable()))
+
+    zones = _convert_tz_zones(text)
+
+    assert zones, "no CONVERT_TZ calls found"
+    assert [z for z in zones if z != {"UTC", "${timezone}"}] == []
+
+
+def test_every_reference_query_conversion_takes_its_zone_from_the_variable() -> None:
     text = REFERENCE_QUERIES.read_text(encoding="utf-8")
 
+    zones = _convert_tz_zones(text)
+
+    assert zones, "no CONVERT_TZ calls found"
+    assert [z for z in zones if z != {"UTC", "${timezone}"}] == []
     assert f"'{DEFAULT_TIMEZONE}'" not in text
-    assert "'${timezone}'" in text
