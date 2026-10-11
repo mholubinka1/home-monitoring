@@ -4,8 +4,8 @@ from decimal import Decimal
 from logging import Logger, getLogger
 from typing import Protocol
 
+from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.consumption import ConsumptionFetchSource
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql.client import MariaDBClient

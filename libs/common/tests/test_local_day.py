@@ -1,7 +1,13 @@
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
-from octopus_app.data.local_day import (
+import pytest
+
+from common.local_day import (
+    DEFAULT_TIMEZONE,
     expected_half_hour_count,
+    get_local_timezone,
+    set_local_timezone,
     start_of_local_day,
     to_local_date,
 )
@@ -63,3 +69,57 @@ def test_the_start_of_a_gmt_local_day_is_utc_midnight() -> None:
     assert start_of_local_day(date(2026, 1, 6)) == datetime(
         2026, 1, 6, 0, 0, tzinfo=UTC
     )
+
+
+def test_with_new_york_configured_a_local_day_starts_at_new_york_midnight() -> None:
+    set_local_timezone("America/New_York")
+
+    # Local midnight on 2026-07-06 (EDT, UTC-4) is 04:00 UTC the same date.
+    assert start_of_local_day(date(2026, 7, 6)) == datetime(
+        2026, 7, 6, 4, 0, tzinfo=UTC
+    )
+
+
+def test_an_instant_that_is_the_next_day_in_london_is_the_same_day_in_new_york() -> (
+    None
+):
+    set_local_timezone("America/New_York")
+
+    # 2026-07-20 23:30 UTC is 00:30 BST on the 21st but 19:30 EDT on the 20th.
+    assert to_local_date(datetime(2026, 7, 20, 23, 30, tzinfo=UTC)) == date(2026, 7, 20)
+
+
+def test_with_new_york_configured_the_us_spring_forward_date_has_forty_six_slots() -> (
+    None
+):
+    set_local_timezone("America/New_York")
+
+    assert expected_half_hour_count(date(2026, 3, 8)) == 46
+
+
+def test_with_new_york_configured_the_us_fall_back_date_has_fifty_slots() -> None:
+    set_local_timezone("America/New_York")
+
+    assert expected_half_hour_count(date(2026, 11, 1)) == 50
+
+
+def test_with_new_york_configured_an_ordinary_day_has_forty_eight_slots() -> None:
+    set_local_timezone("America/New_York")
+
+    assert expected_half_hour_count(date(2026, 7, 20)) == 48
+
+
+def test_an_unknown_timezone_is_rejected_naming_it_and_leaves_the_zone_unchanged() -> (
+    None
+):
+    set_local_timezone("America/New_York")
+
+    with pytest.raises(ValueError, match="Not/AZone"):
+        set_local_timezone("Not/AZone")
+
+    assert get_local_timezone() == ZoneInfo("America/New_York")
+
+
+def test_the_default_zone_is_europe_london() -> None:
+    assert DEFAULT_TIMEZONE == "Europe/London"
+    assert get_local_timezone() == ZoneInfo(DEFAULT_TIMEZONE)

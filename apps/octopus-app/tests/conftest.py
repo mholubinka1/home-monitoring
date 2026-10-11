@@ -1,10 +1,20 @@
+from collections.abc import Iterator
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from common.config import MariaDBSettings
+from common.local_day import DEFAULT_TIMEZONE, set_local_timezone
 from octopus_app.data.mysql.client import MariaDBClient, weather_metadata
 from octopus_app.data.mysql.model import SQLBase
+
+
+@pytest.fixture(autouse=True)
+def _reset_local_timezone() -> Iterator[None]:
+    """The active zone is process-wide state: put it back after every test."""
+    yield
+    set_local_timezone(DEFAULT_TIMEZONE)
 
 
 @pytest.fixture

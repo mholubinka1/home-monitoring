@@ -20,11 +20,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from common import local_day
 from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
 from common.mariadb.client import MariaDBClientBase
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.model import (
     Consumption,
     ConsumptionSummary,

@@ -9,6 +9,10 @@ mariadb:
   username:
   password:
 
+# Optional: the IANA timezone that defines a "local day" (default Europe/London).
+# Must match hive-app's timezone setting.
+# timezone: Europe/London
+
 data_refresh:
   retention_days: 45
   refresh_interval_hours: 1

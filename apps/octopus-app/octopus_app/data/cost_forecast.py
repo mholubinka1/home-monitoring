@@ -7,8 +7,8 @@ from itertools import groupby, pairwise
 from logging import Logger, getLogger
 from typing import NamedTuple, Protocol
 
+from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.model import (
     ConsumptionSummary,
     CostForecast,

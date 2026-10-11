@@ -6,9 +6,9 @@ import pytest
 import responses
 from sqlalchemy.orm import Session
 
+from common.local_day import start_of_local_day
 from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.cost_forecast import CostForecastRetriever
-from octopus_app.data.local_day import start_of_local_day
 from octopus_app.data.model import (
     ConsumptionSummary,
     CostForecast,

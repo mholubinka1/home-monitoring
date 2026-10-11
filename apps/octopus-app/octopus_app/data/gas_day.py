@@ -1,6 +1,6 @@
 from enum import Enum
 
-from octopus_app.data import local_day
+from common import local_day
 from octopus_app.data.model import ConsumptionSummary
 
 

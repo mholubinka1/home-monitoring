@@ -3,9 +3,10 @@ import sys
 from logging import Logger, getLogger
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from common.config import MariaDBSettings
+from common.local_day import DEFAULT_TIMEZONE, validate_timezone
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 
 logging.config.dictConfig(config)
@@ -30,6 +31,13 @@ class ApplicationSettings(BaseModel):
     octopus: OctopusAPISettings
     mariadb: MariaDBSettings
     refresh_settings: RefreshSettings = Field(alias="data_refresh")
+    timezone: str = DEFAULT_TIMEZONE
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_must_be_a_known_zone(cls, value: str) -> str:
+        validate_timezone(value)
+        return value
 
 
 def get_settings(

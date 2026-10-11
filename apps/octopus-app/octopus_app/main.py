@@ -11,10 +11,10 @@ from logging import Logger, getLogger
 
 from schedule import Job, Scheduler, default_scheduler
 
+from common import local_day
 from octopus_app.common.config import RefreshSettings, get_settings
 from octopus_app.common.decorator import retry_with_exponential_backoff
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.agile_forecast import AgileForecastRetriever
 from octopus_app.data.base import MonitoringClient
 from octopus_app.data.consumption import ConsumptionRetriever
@@ -323,6 +323,7 @@ def main() -> None:
         args = parser.parse_args()
         settings = get_settings(config_file_path=args.config_file)
         refresh_config = settings.refresh_settings
+        local_day.set_local_timezone(settings.timezone)
         logger.info("Startup complete.")
     except Exception as e:
         logger.critical(f"Error loading startup configurations: {e}.")

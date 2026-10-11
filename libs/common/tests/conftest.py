@@ -11,8 +11,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from common.config import MariaDBSettings
+from common.local_day import DEFAULT_TIMEZONE, set_local_timezone
 from common.mariadb.client import MariaDBClientBase
 from common.mariadb.model import SQLBase
+
+
+@pytest.fixture(autouse=True)
+def _reset_local_timezone() -> Iterator[None]:
+    """The active zone is process-wide state: put it back after every test."""
+    yield
+    set_local_timezone(DEFAULT_TIMEZONE)
+
 
 # Passed on the CLI below, unlike the retired RENAME_RUNBOOK.md's real credentials (which go
 # through MYSQL_PWD instead to stay out of `ps`/shell history) -- that risk doesn't

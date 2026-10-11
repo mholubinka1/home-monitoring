@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+from common.local_day import set_local_timezone
 from octopus_app.data.consumption_summary import ConsumptionSummaryRetriever
 from octopus_app.data.model import Consumption, ConsumptionSummary, Energy, Unit
 from octopus_app.data.mysql import model
@@ -238,3 +239,27 @@ def test_the_trailing_window_is_fourteen_local_days_when_the_utc_date_is_a_day_b
         }
     assert stored[("E", outside)] == Decimal("1.00000")
     assert stored[("E", edge)] == Decimal("5.00000")
+
+
+def test_a_half_hour_is_summarised_on_the_configured_zones_local_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    set_local_timezone("America/New_York")
+    # 23:30 UTC on 20 Jul is 00:30 BST on 21 Jul in London but 19:30 EDT on
+    # 20 Jul in New York: the configured zone decides the day.
+    mariadb_client.write_consumption(
+        _make_electricity_meter(),
+        [_half_hour(datetime(2026, 7, 20, 23, 30, tzinfo=UTC), Decimal("3.0"))],
+    )
+
+    ConsumptionSummaryRetriever(mariadb_client).refresh(
+        as_of=datetime(2026, 7, 21, 12, 0, tzinfo=UTC)
+    )
+
+    with mariadb_client.session_read_scope() as session:
+        stored = {
+            (row.energy, row.date): row.total_kwh
+            for row in session.query(model.daily_consumption_summary).all()
+        }
+    assert stored[("E", date(2026, 7, 20))] == Decimal("3.00000")
+    assert ("E", date(2026, 7, 21)) not in stored

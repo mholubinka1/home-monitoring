@@ -3,10 +3,10 @@ from decimal import Decimal
 
 import responses
 
+from common.local_day import expected_half_hour_count
 from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.consumption_summary import ConsumptionSummaryBackfill
 from octopus_app.data.gas_day import GasDayStatus, gas_day_status
-from octopus_app.data.local_day import expected_half_hour_count
 from octopus_app.data.model import Consumption, ConsumptionSummary, Energy
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
