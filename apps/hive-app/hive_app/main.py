@@ -217,7 +217,16 @@ def run_weather_backfill_at_startup(
             "skipping weather history backfill."
         )
         return None
-    logger.info(f"Stored weather starts after {DEFAULT_START}; backfilling history.")
+    if oldest is None:
+        logger.info(
+            "No stored weather for the current location; "
+            f"backfilling history from {DEFAULT_START}."
+        )
+    else:
+        logger.info(
+            f"Stored weather doesn't reach back to {DEFAULT_START}; "
+            "backfilling history."
+        )
     return _run_with_backoff_in_background(
         WEATHER_HISTORY_BACKFILL_JOB,
         lambda: backfill_and_log(mariadb, clock),

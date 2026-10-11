@@ -69,6 +69,7 @@ class ChunkResult:
 @dataclass(frozen=True)
 class BackfillResult:
     location_key: str
+    # In the order fetched: newest first.
     chunks: list[ChunkResult]
 
 
@@ -166,16 +167,19 @@ class WeatherHistoryBackfill:
             clock=self._clock,
         )
 
+        # Newest chunk first: if a chunk keeps failing, the oldest stretch is the
+        # one left missing, so the startup gate (how far back the stored history
+        # reaches) sees the gap and retries at the next start.
         results: list[ChunkResult] = []
-        chunk_start = start
-        while chunk_start <= end:
-            chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), end)
+        chunk_end = end
+        while chunk_end >= start:
+            chunk_start = max(chunk_end - timedelta(days=CHUNK_DAYS - 1), start)
             try:
                 observations = self._fetch_with_retries(client, chunk_start, chunk_end)
                 self._mariadb.write_weather_observations(observations)
             except Exception as e:
                 stored = (
-                    f"{len(results)} earlier chunk(s) stored"
+                    f"{len(results)} newer chunk(s) stored"
                     if results
                     else "nothing stored"
                 )
@@ -184,7 +188,7 @@ class WeatherHistoryBackfill:
                     f"({describe_error(e)}); {stored}. Repeat from {chunk_start}."
                 ) from e
             results.append(ChunkResult(chunk_start, chunk_end, len(observations)))
-            chunk_start = chunk_end + timedelta(days=1)
+            chunk_end = chunk_start - timedelta(days=1)
         return BackfillResult(
             location_key(location.latitude, location.longitude), results
         )
@@ -224,24 +228,35 @@ def history_start() -> datetime:
 def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> None:
     """The startup backfill, run in a background job: DEFAULT_START to today,
     then a log of the hours stored and the completeness up to yesterday. Only a
-    BackfillError escapes, with no cause attached: the job records and logs the
-    error's text and traceback, and a raw error may carry coordinates or SQL."""
+    BackfillError from the backfill itself escapes, with no cause attached: the job
+    records and logs the error's text and traceback, and a raw error may carry
+    coordinates or SQL. A failing report is logged as a warning, not raised."""
     now = clock()
     try:
         result = WeatherHistoryBackfill(mariadb, clock=clock).run(
             DEFAULT_START, now.date()
-        )
-        yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
-        report = completeness_report(
-            mariadb, result.location_key, DEFAULT_START, yesterday
         )
     except Exception as e:
         # from None: a BackfillError's cause is the raw error, whose traceback
         # the job's retry logging would print.
         reason = str(e) if isinstance(e, BackfillError) else describe_error(e)
         raise BackfillError(reason) from None
+    stored = sum(c.rows_written for c in result.chunks)
+    yesterday = now.astimezone(LOCAL_TIMEZONE).date() - timedelta(days=1)
+    try:
+        report = completeness_report(
+            mariadb, result.location_key, DEFAULT_START, yesterday
+        )
+    except Exception as e:
+        # The history is stored: a failed report must not fail the job, whose
+        # retries would download it all again.
+        logger.warning(
+            f"Weather backfill stored {stored} hours; "
+            f"completeness report unavailable ({describe_error(e)})."
+        )
+        return
     logger.info(
-        f"Weather backfill stored {sum(c.rows_written for c in result.chunks)} hours; "
+        f"Weather backfill stored {stored} hours; "
         f"complete days: {report.complete_days} of {report.total_days}."
     )
 
@@ -300,7 +315,7 @@ def main(
         print(f"Weather backfill failed: {reason}", file=sys.stderr)
         return 1
 
-    for chunk in result.chunks:
+    for chunk in sorted(result.chunks, key=lambda c: c.start):
         print(f"{chunk.start} to {chunk.end}: {chunk.rows_written} hours stored")
     print(f"Total: {sum(c.rows_written for c in result.chunks)} hours stored")
 

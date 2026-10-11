@@ -198,8 +198,9 @@ docker exec hive-app python -m hive_app.weather_backfill --config-file /config/c
 
 - `--start YYYY-MM-DD` backfills from a different first day.
 - hive-app must have resolved a location first; the command never geocodes.
-- If a chunk fails, the message ends "Repeat from `<date>`": earlier chunks are kept, so
-  re-run with `--start <date>`.
+- Chunks are fetched newest first, so an interrupted run leaves the oldest stretch missing
+  and is retried at the next start. If a chunk fails, the message ends "Repeat from
+  `<date>`": newer chunks are kept, so re-run with `--start <date>`.
 - It finishes with a completeness report of hours per local day, up to yesterday.
 - After a database wipe or restore, the newest few days are refilled with the archive's
   provisional values; a week or so later, re-run with `--start` a fortnight back to

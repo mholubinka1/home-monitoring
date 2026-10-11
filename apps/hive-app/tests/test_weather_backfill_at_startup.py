@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -54,12 +55,11 @@ def test_with_no_stored_weather_startup_backfills_and_records_success(
     assert worker is not None
     worker.join()
 
-    with mariadb_client.session_read_scope() as session:
-        runs = session.query(model.job_run).all()
-    assert [(run.job_name, run.status) for run in runs] == [
+    assert [(run.job_name, run.status) for run in _job_runs(mariadb_client)] == [
         ("weather_history_backfill", "success")
     ]
-    assert responses.calls[0].request.params["start_date"] == "2024-07-24"
+    # Newest chunk first, so the range's start is requested last.
+    assert responses.calls[-1].request.params["start_date"] == "2024-07-24"
 
 
 @pytest.mark.parametrize("source", ["open-meteo", "open-meteo-archive"])
@@ -180,7 +180,36 @@ def test_a_raw_error_never_reaches_job_run_or_the_logs(
         responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
     )
 
-    # Fail at the database boundary, after the archive rows are written.
+    # Fail at the database boundary, as the archive rows are written.
+    with (
+        caplog.at_level(logging.DEBUG, logger="hive-monitor"),
+        patch.object(
+            MariaDBClient,
+            "write_weather_observations",
+            side_effect=ValueError("lat=51.40 lon=-0.05"),
+        ),
+        patch("hive_app.common.decorator.time.sleep"),
+    ):
+        worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
+        assert worker is not None
+        worker.join()
+
+    runs = _job_runs(mariadb_client)
+    assert runs
+    assert {run.status for run in runs} == {"failure"}
+    assert all("51.40" not in (run.error_message or "") for run in runs)
+    assert "51.40" not in caplog.text
+
+
+@responses.activate
+def test_a_failing_completeness_report_does_not_fail_or_repeat_the_stored_backfill(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+    responses.add(
+        responses.GET, ARCHIVE_ENDPOINT, json=hourly_payload(["2024-07-24T00:00"])
+    )
+
     with (
         caplog.at_level(logging.DEBUG, logger="hive-monitor"),
         patch.object(
@@ -194,10 +223,46 @@ def test_a_raw_error_never_reaches_job_run_or_the_logs(
         assert worker is not None
         worker.join()
 
-    runs = _job_runs(mariadb_client)
-    assert runs
-    assert all("51.40" not in (run.error_message or "") for run in runs)
-    assert "51.40" not in caplog.text
+    assert [run.status for run in _job_runs(mariadb_client)] == ["success"]
+    # 2024-07-24 to 2026-10-11 is three chunks, requested once each.
+    assert len(responses.calls) == 3
+    assert "completeness report unavailable (ValueError)" in caplog.text
+    assert "stored 3 hours" in caplog.text
+    assert "51.4" not in caplog.text
+
+
+# The oldest chunk of the 2024-07-24 to 2026-10-11 range, and the newest. The
+# newest failing is what the old oldest-first order got wrong: the oldest was
+# already stored, so the gate skipped every later restart.
+@pytest.mark.parametrize("failing_start", ["2024-07-24", "2025-10-12"])
+@responses.activate
+def test_a_persistently_failing_chunk_leaves_the_gap_to_be_retried_at_the_next_start(
+    mariadb_client: MariaDBClient, failing_start: str
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(51.4, -0.05, "postcode"))
+
+    def fail_only_the_oldest_chunk(request: object) -> tuple[int, dict, str]:
+        if request.params["start_date"] == failing_start:  # type: ignore[attr-defined]
+            return 500, {}, ""
+        return 200, {}, json.dumps(hourly_payload(["2025-06-01T00:00"]))
+
+    responses.add_callback(
+        responses.GET, ARCHIVE_ENDPOINT, callback=fail_only_the_oldest_chunk
+    )
+
+    with (
+        patch("hive_app.common.decorator.time.sleep"),
+        patch("hive_app.weather_backfill.time.sleep"),
+    ):
+        worker = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
+        assert worker is not None
+        worker.join()
+
+        # Newer chunks are stored, but the history does not reach back to the
+        # start, so the next start backfills again.
+        again = run_weather_backfill_at_startup(mariadb_client, clock=lambda: NOW)
+        assert again is not None
+        again.join()
 
 
 @responses.activate
