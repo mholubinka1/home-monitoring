@@ -52,7 +52,8 @@ def test_a_window_with_only_seven_warm_days_has_no_measured_value() -> None:
 
     series = moving_baseload(gas, effective, THRESHOLD)
 
-    assert BaselineKind.MEASURED not in {point.kind for point in series.values()}
+    # No window ever reaches 8 warm days, so there is nothing to measure or join.
+    assert series == {}
 
 
 def test_a_window_with_eight_warm_days_is_measured() -> None:
@@ -610,7 +611,7 @@ def test_a_day_exactly_one_margin_above_the_threshold_is_warm() -> None:
     just_under = moving_baseload(gas, {day: 12.9 for day in days}, 12.0)
 
     assert on_the_margin[days[-1]].kind is BaselineKind.MEASURED
-    assert BaselineKind.MEASURED not in {p.kind for p in just_under.values()}
+    assert just_under == {}
 
 
 def test_away_days_are_those_under_a_third_of_the_baseload() -> None:

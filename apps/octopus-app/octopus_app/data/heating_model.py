@@ -135,7 +135,9 @@ def moving_baseload(
     threshold: float,
 ) -> dict[date, BaselinePoint]:
     """The non-heating gas use of every calendar day from the earliest to the
-    latest gas date: the mean gas of the warm days in the trailing window.
+    latest gas date: the mean gas of the warm days in the trailing window. When
+    no window ever reaches MIN_WARM_DAYS warm days there is nothing to measure
+    or join, and the result is empty.
 
     `gas` must already hold only usable days (see gas_day.is_usable): a zero
     total is missing data, and passed in here it would count as a warm day and

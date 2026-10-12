@@ -491,6 +491,9 @@ class MariaDBClient(MariaDBClientBase):
         # exactly local_day.hour_end_stamps(day): 23, 24 or 25 of them.
         # weather_observation is hive-app's table, read cross-app (see the
         # module-level comment on weather_observation_table).
+        # Only days inside [start_date, end_date] are returned. An effective
+        # temperature also needs the previous day's mean, so a caller wanting
+        # one for start_date should ask from the day before.
         if end_date < start_date:
             return {}
         wo = weather_observation_table
