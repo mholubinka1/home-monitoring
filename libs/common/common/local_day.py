@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_TIMEZONE = "Europe/London"
 HALF_HOUR = timedelta(minutes=30)
+ONE_HOUR = timedelta(hours=1)
 
 # Module-level state: read at call time via get_local_timezone(), never bound
 # at import, so set_local_timezone() takes effect for every caller.
@@ -44,3 +45,16 @@ def expected_half_hour_count(local_date: date) -> int:
     start_of_next_day = start_of_local_day(local_date + timedelta(days=1))
     duration = start_of_next_day - start_of_day
     return duration // HALF_HOUR
+
+
+def hour_end_stamps(local_date: date) -> list[datetime]:
+    # A weather_observation stamp H holds the hour ending at H (ADR-0029), so a
+    # local day's stamps run from its 01:00 to the next 00:00 inclusive: 23, 24
+    # or 25 on a clock-change day.
+    stamp = start_of_local_day(local_date) + ONE_HOUR
+    last = start_of_local_day(local_date + timedelta(days=1))
+    stamps = []
+    while stamp <= last:
+        stamps.append(stamp)
+        stamp += ONE_HOUR
+    return stamps
