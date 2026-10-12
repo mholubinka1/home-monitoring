@@ -10,6 +10,7 @@ from logging import getLogger
 import requests
 
 from common.local_day import (
+    ONE_HOUR,
     get_local_timezone,
     hour_end_stamps,
     set_local_timezone,
@@ -24,8 +25,6 @@ from hive_app.data.open_meteo_client import ARCHIVE_SOURCE, OpenMeteoClient
 from hive_app.data.weather_types import location_key
 
 logger = getLogger(APP_LOGGER_NAME)
-
-ONE_HOUR = timedelta(hours=1)
 
 # The first daily gas day: weather before it has nothing to be compared with.
 DEFAULT_START = date(2024, 7, 24)

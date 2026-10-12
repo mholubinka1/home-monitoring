@@ -145,7 +145,10 @@ class UnusableReason(Enum):
     POOR_FIT = "the fit explains too little of the variation"
     THRESHOLD_AT_EDGE = "the threshold is at the edge of the search range"
     NON_POSITIVE_SLOPE = "gas use does not rise as it gets colder"
-    NO_FIT = "no fit could be made"
+    NO_FIT = (
+        "no fit could be scored: no days below any threshold, "
+        "or no baseload could be measured"
+    )
 
 
 @dataclass(frozen=True)
@@ -160,10 +163,12 @@ class FitQuality:
 class HeatingFit:
     usable: bool
     reason: UnusableReason | None
-    threshold: float
-    slope: float
-    weight: float
-    quality: FitQuality | None  # None when no fit could be made
+    # threshold, slope, weight and quality are None exactly when no fit could be
+    # made; a fit that fails a guard keeps its real numbers.
+    threshold: float | None
+    slope: float | None
+    weight: float | None
+    quality: FitQuality | None
     away_days: frozenset[date]
     baseload: dict[date, BaselinePoint]
 
@@ -215,7 +220,9 @@ def _best_candidate(
     window_start: int,
 ) -> _Candidate | None:
     """The (threshold, weight) with the smallest squared error over the fit
-    window days, or None when no combination has any day below its threshold."""
+    window days, or None when no combination could be scored: either no day is
+    below any threshold, or no baseload could be measured for any combination
+    (e.g. a cold-only history where no window reaches MIN_WARM_DAYS warm days)."""
     best: _Candidate | None = None
     for weight, effective in effective_by_weight.items():
         days = _fit_window_days(gas, effective, window_start)
@@ -233,9 +240,9 @@ def _unusable(reason: UnusableReason, away_days: frozenset[date]) -> HeatingFit:
     return HeatingFit(
         usable=False,
         reason=reason,
-        threshold=0.0,
-        slope=0.0,
-        weight=0.0,
+        threshold=None,
+        slope=None,
+        weight=None,
         quality=None,
         away_days=away_days,
         baseload={},

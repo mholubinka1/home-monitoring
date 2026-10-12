@@ -367,5 +367,128 @@ def test_the_blend_weight_is_bounded_at_the_top_of_the_default_grid() -> None:
 
     fit = data.fit(thresholds=NARROW_THRESHOLDS)
 
+    assert fit.weight is not None
     assert fit.weight <= 0.8
     assert max(WEIGHTS) == pytest.approx(0.8)
+
+
+def _flat_summaries(count: int, kwh: float = 7.0) -> list[ConsumptionSummary]:
+    return [_summary(FIRST_DAY + timedelta(days=d), kwh) for d in range(count)]
+
+
+def _constant_means(count: int, mean: float) -> dict[date, float]:
+    return {FIRST_DAY + timedelta(days=d): mean for d in range(count)}
+
+
+def _fit_flat(count: int, mean: float, kwh: float = 7.0) -> HeatingFit:
+    return fit_heating_model(
+        _flat_summaries(count, kwh),
+        _constant_means(count, mean),
+        FIRST_DAY + timedelta(days=count - 1),
+    )
+
+
+def _assert_no_fit_was_made(fit: HeatingFit, reason: UnusableReason) -> None:
+    _assert_unusable(fit, reason)
+    assert fit.threshold is None
+    assert fit.slope is None
+    assert fit.weight is None
+    assert fit.quality is None
+    assert fit.baseload == {}
+
+
+def test_no_summaries_is_unusable_with_no_numbers() -> None:
+    fit = fit_heating_model([], {}, FIRST_DAY)
+
+    _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
+
+
+def test_only_unusable_rows_is_unusable_for_too_few_days() -> None:
+    rows = [_summary(FIRST_DAY + timedelta(days=d), 0.0) for d in range(200)]
+
+    fit = fit_heating_model(rows, _constant_means(200, 5.0), FIRST_DAY)
+
+    _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
+
+
+def test_a_year_warmer_than_every_threshold_has_no_fit() -> None:
+    fit = _fit_flat(365, mean=30.0)
+
+    _assert_no_fit_was_made(fit, UnusableReason.NO_FIT)
+
+
+def test_under_150_days_warmer_than_every_threshold_is_too_few_days() -> None:
+    fit = _fit_flat(100, mean=30.0)
+
+    _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
+
+
+def test_a_cold_only_history_with_no_measurable_baseload_has_no_fit() -> None:
+    fit = _fit_flat(365, mean=0.0, kwh=20.0)
+
+    _assert_no_fit_was_made(fit, UnusableReason.NO_FIT)
+
+
+def test_dropping_away_days_that_leave_nothing_below_a_threshold_has_no_fit() -> None:
+    # 100 warm days at 7 kWh, then 100 cold days of almost no gas: every cold
+    # day is an away day, so the second fit has no day below any threshold.
+    count = 200
+    rows = [
+        _summary(FIRST_DAY + timedelta(days=d), 7.0 if d < 100 else 0.5)
+        for d in range(count)
+    ]
+    means = {
+        FIRST_DAY + timedelta(days=d): 20.0 if d < 100 else 0.0 for d in range(count)
+    }
+
+    fit = fit_heating_model(
+        rows,
+        means,
+        FIRST_DAY + timedelta(days=count - 1),
+        thresholds=NARROW_THRESHOLDS,
+        weights=NARROW_WEIGHTS,
+    )
+
+    _assert_unusable(fit, UnusableReason.NO_FIT)
+    assert len(fit.away_days) == 100
+    assert fit.threshold is None
+
+
+def test_a_guard_failure_after_a_real_fit_keeps_the_fitted_numbers() -> None:
+    data = Synthetic(Planted(gas_noise=25.0))
+
+    fit = data.fit(thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.POOR_FIT)
+    assert fit.threshold is not None
+    assert fit.slope is not None
+    assert fit.weight is not None
+    assert fit.baseload
+
+
+def test_the_fit_follows_only_the_most_recent_365_days() -> None:
+    old = Synthetic(Planted(threshold=10.0, slope=6.0))
+    recent = Synthetic(Planted(threshold=14.0, slope=2.5))
+    # The regime changed at day 300; the 365-day window starts at day 365.
+    recent.gas = {
+        day: (old.gas if i < 300 else recent.gas)[day]
+        for i, day in enumerate(recent.days)
+    }
+
+    fit = recent.fit(thresholds=(13.0, 13.5, 14.0, 14.5, 15.0), weights=(0.5,))
+
+    assert fit.threshold == pytest.approx(14.0, abs=0.5)
+    assert fit.slope == pytest.approx(2.5, rel=0.1)
+
+
+def test_rows_after_as_of_are_ignored() -> None:
+    data = Synthetic()
+    as_of = data.days[600]
+    grids = {"thresholds": NARROW_THRESHOLDS, "weights": NARROW_WEIGHTS}
+    wild = [_summary(s.date, 500.0) if s.date > as_of else s for s in data.summaries()]
+    until_as_of = [s for s in data.summaries() if s.date <= as_of]
+
+    with_future = fit_heating_model(wild, data.means, as_of, **grids)
+    without_future = fit_heating_model(until_as_of, data.means, as_of, **grids)
+
+    assert with_future == without_future
