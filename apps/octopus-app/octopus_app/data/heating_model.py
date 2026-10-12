@@ -2,7 +2,6 @@
 
 import math
 from collections.abc import Mapping, Sequence
-from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
@@ -121,8 +120,6 @@ def moving_baseload(
     gas: Mapping[date, float],
     effective: Mapping[date, float],
     threshold: float,
-    *,
-    excluded: AbstractSet[date] = frozenset(),
 ) -> dict[date, BaselinePoint]:
     """The non-heating gas use of every calendar day from the earliest to the
     latest gas date: the mean gas of the warm days in the trailing window.
@@ -134,9 +131,8 @@ def moving_baseload(
         return {}
     start, end = min(gas), max(gas)
     length = (end - start).days + 1
-    usable = {day: kwh for day, kwh in gas.items() if day not in excluded}
     series = _baseload_series(
-        _calendar(usable, start, length), _calendar(effective, start, length), threshold
+        _calendar(gas, start, length), _calendar(effective, start, length), threshold
     )
     return {
         start + timedelta(days=i): BaselinePoint(kwh, kind)
@@ -168,8 +164,9 @@ class FitQuality:
 class HeatingFit:
     usable: bool
     reason: UnusableReason | None
-    # threshold, slope, weight and quality are None exactly when no fit could be
-    # made; a fit that fails a guard keeps its real numbers.
+    # threshold, slope, weight and quality are None, and baseload is empty,
+    # exactly when no fit could be made; a fit that fails a guard keeps its real
+    # numbers and baseload.
     threshold: float | None
     slope: float | None
     weight: float | None
