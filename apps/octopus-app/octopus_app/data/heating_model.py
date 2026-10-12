@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from enum import Enum
 
 from octopus_app.data.gas_day import is_usable
-from octopus_app.data.model import ConsumptionSummary
+from octopus_app.data.model import ConsumptionSummary, Energy
 
 # Model parameters, all in one place.
 BASELOAD_WINDOW_DAYS = 120  # trailing window (ending on the day) for the baseload
@@ -27,8 +27,14 @@ def effective_temperature(
     todays_mean: float | None, yesterdays_mean: float | None, weight: float
 ) -> float | None:
     """Today's mean blended with yesterday's: the house's slow thermal response
-    means yesterday's weather still affects today's heating."""
-    if todays_mean is None or yesterdays_mean is None:
+    means yesterday's weather still affects today's heating. A missing or
+    non-finite mean on either day gives no effective temperature."""
+    if not (
+        todays_mean is not None
+        and yesterdays_mean is not None
+        and math.isfinite(todays_mean)
+        and math.isfinite(yesterdays_mean)
+    ):
         return None
     return (1 - weight) * todays_mean + weight * yesterdays_mean
 
@@ -374,13 +380,15 @@ def fit_heating_model(
     the latest complete gas day, or the window holds fewer than
     FIT_WINDOW_DAYS days of data.
 
+    Only gas summaries are used; other energies are ignored.
+
     Raises ValueError when a weight is outside 0..WEIGHT_MAX."""
     if not all(0 <= weight <= WEIGHT_MAX for weight in weights):
         raise ValueError(f"weights must each be between 0 and {WEIGHT_MAX}")
     gas = {
         s.date: float(s.total_kwh)
         for s in summaries
-        if is_usable(s) and s.date <= as_of
+        if s.energy is Energy.gas and is_usable(s) and s.date <= as_of
     }
     if not gas:
         return _unusable(UnusableReason.TOO_FEW_DAYS, frozenset())

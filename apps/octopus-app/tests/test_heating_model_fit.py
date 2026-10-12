@@ -500,20 +500,36 @@ def test_a_threshold_at_the_top_edge_of_the_search_grid_is_unusable() -> None:
 
 
 _COLD_TEMPERATURES = (2.0, 4.0, 6.0, 8.0, 9.0, 5.0, 3.0, 7.0)
+# The noise sign of each cold temperature: the degrees below 12.5 of the
+# positive ones (10.5, 6.5, 3.5, 7.5) and of the negative ones (8.5, 4.5, 9.5,
+# 5.5) both sum to 28, so over whole cycles the noise is uncorrelated with them.
+_NOISE_SIGNS = {2.0: 1, 4.0: -1, 6.0: 1, 8.0: -1, 9.0: 1, 5.0: 1, 3.0: -1, 7.0: -1}
 
 
-def _step_fit(warm: int, cold: int) -> HeatingFit:
+def _step_fit(
+    warm: int, cold: int, noise: float = 0.0, slope: float = 3.8
+) -> HeatingFit:
     """Exact data (no noise): `warm` days at 20 C then `cold` days at 2-9 C, gas
     7 + 3.8 * degrees below 12.5. With a zero blend weight the fit recovers the
     threshold exactly, so the day counts either side of it are known: the first
     day has no previous day and is unused, leaving warm - 1 days at or above the
-    threshold, cold days below, and warm + cold - 1 days used."""
+    threshold, cold days below, and warm + cold - 1 days used. `noise` adds a
+    fixed +/- noise to each cold day's gas, balanced so that it is uncorrelated
+    with the temperature and sums to zero over every 8 cold days."""
     days = [FIRST_DAY + timedelta(days=d) for d in range(warm + cold)]
     means = {
         day: 20.0 if i < warm else _COLD_TEMPERATURES[i % len(_COLD_TEMPERATURES)]
         for i, day in enumerate(days)
     }
-    rows = [_summary(day, 7.0 + 3.8 * max(0.0, 12.5 - means[day])) for day in days]
+    rows = [
+        _summary(
+            day,
+            7.0
+            + slope * max(0.0, 12.5 - means[day])
+            + (noise * _NOISE_SIGNS[means[day]] if i >= warm else 0.0),
+        )
+        for i, day in enumerate(days)
+    ]
     return fit_heating_model(
         rows, means, days[-1], thresholds=NARROW_THRESHOLDS, weights=(0.0,)
     )
@@ -609,3 +625,56 @@ def test_away_days_are_those_under_a_third_of_the_baseload() -> None:
     )
 
     assert fit.away_days == frozenset({below})
+
+
+def test_an_r_squared_just_above_one_half_stays_usable() -> None:
+    fit = _step_fit(warm=60, cold=104, noise=8.5, slope=2.0)
+
+    assert fit.quality is not None
+    assert 0.5 < fit.quality.r_squared < 0.6
+    assert fit.usable
+
+
+def test_an_r_squared_just_below_one_half_is_a_poor_fit() -> None:
+    fit = _step_fit(warm=60, cold=104, noise=10.5, slope=2.0)
+
+    assert fit.quality is not None
+    assert 0.4 < fit.quality.r_squared < 0.5
+    _assert_unusable(fit, UnusableReason.POOR_FIT)
+
+
+def test_electricity_summaries_are_ignored() -> None:
+    data = Synthetic(Planted(count=400))
+    grids = {"thresholds": NARROW_THRESHOLDS, "weights": NARROW_WEIGHTS}
+    gas_rows = data.summaries()
+    electricity_rows = [
+        ConsumptionSummary(
+            energy=Energy.electricity,
+            date=s.date,
+            total_kwh=s.total_kwh * 1000,
+            half_hour_count=s.half_hour_count,
+        )
+        for s in gas_rows
+    ]
+
+    mixed = data.fit(electricity_rows + gas_rows, **grids)
+    mixed_other_way = data.fit(gas_rows + electricity_rows, **grids)
+
+    assert mixed == data.fit(gas_rows, **grids)
+    assert mixed_other_way == mixed
+
+
+def test_a_day_with_a_nan_mean_temperature_is_the_same_as_the_day_being_absent() -> (
+    None
+):
+    data = Synthetic(Planted(count=400))
+    grids = {"thresholds": NARROW_THRESHOLDS, "weights": NARROW_WEIGHTS}
+    absent = dict(data.means)
+    del absent[data.days[200]]
+    nan_means = {**data.means, data.days[200]: math.nan}
+    rows = data.summaries()
+
+    with_nan = fit_heating_model(rows, nan_means, data.days[-1], **grids)
+    without = fit_heating_model(rows, absent, data.days[-1], **grids)
+
+    assert with_nan == without

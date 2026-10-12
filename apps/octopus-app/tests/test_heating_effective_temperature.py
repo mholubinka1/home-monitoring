@@ -1,3 +1,4 @@
+import math
 from datetime import date
 
 import pytest
@@ -30,3 +31,26 @@ def test_a_range_gives_each_day_with_a_previous_day_and_omits_the_rest() -> None
 
     # The 5th has no 4th; the 8th has no 7th.
     assert result == {date(2026, 1, 6): 6.0}
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_a_non_finite_mean_for_either_day_gives_no_effective_temperature(
+    bad: float,
+) -> None:
+    assert effective_temperature(bad, 2.0, 0.5) is None
+    assert effective_temperature(10.0, bad, 0.5) is None
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_a_range_drops_a_non_finite_day_and_the_day_after_it(bad: float) -> None:
+    means = {
+        date(2026, 1, 5): 4.0,
+        date(2026, 1, 6): 8.0,
+        date(2026, 1, 7): bad,
+        date(2026, 1, 8): 6.0,
+        date(2026, 1, 9): 10.0,
+    }
+
+    result = effective_temperatures(means, 0.5)
+
+    assert result == {date(2026, 1, 6): 6.0, date(2026, 1, 9): 8.0}
