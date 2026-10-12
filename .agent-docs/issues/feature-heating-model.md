@@ -39,7 +39,7 @@ Pure functions that, from daily gas and effective temperatures, compute a **movi
 - [ ] The baseload series covers every day with data, not only the rolling window.
 - [ ] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
 - [ ] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.
-- [ ] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason.
+- [ ] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason; given no combination that can be scored (no day below any threshold, or no measurable baseload), then the reason is "no fit", or too few days when fewer than about 150 window days have both gas and an effective temperature.
 - [ ] The blend weight is bounded (0 to 0.8).
 
 ---

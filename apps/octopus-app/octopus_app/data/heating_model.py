@@ -284,7 +284,7 @@ def _quality(candidate: _Candidate, days: Sequence[_Day]) -> FitQuality:
     )
 
 
-def _unusable_reason(
+def _failed_guard(
     candidate: _Candidate, quality: FitQuality, thresholds: Sequence[float]
 ) -> UnusableReason | None:
     if quality.days_used < MIN_USABLE_DAYS:
@@ -349,7 +349,7 @@ def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit
         kept, problem.effective_by_weight[final.weight], problem.window_start
     )
     quality = _quality(final, used)
-    reason = _unusable_reason(final, quality, problem.thresholds)
+    reason = _failed_guard(final, quality, problem.thresholds)
     return HeatingFit(
         usable=reason is None,
         reason=reason,
