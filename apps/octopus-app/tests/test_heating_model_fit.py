@@ -366,7 +366,8 @@ def test_the_blend_weight_is_bounded_at_the_top_of_the_default_grid() -> None:
 
     assert fit.weight is not None
     assert fit.weight <= 0.8
-    assert max(WEIGHTS) == pytest.approx(WEIGHT_MAX)
+    assert WEIGHT_MAX == 0.8
+    assert max(WEIGHTS) == 0.8
 
 
 def _flat_summaries(count: int, kwh: float = 7.0) -> list[ConsumptionSummary]:

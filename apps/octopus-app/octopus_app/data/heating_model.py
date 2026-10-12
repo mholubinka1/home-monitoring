@@ -116,6 +116,13 @@ def _baseload_series(
     return _fill_baseload(measured)
 
 
+def _calendar_span(gas: Mapping[date, float]) -> tuple[date, int]:
+    """The first date and the number of calendar days from the earliest to the
+    latest gas date: the one definition of the series' index-to-date mapping."""
+    start = min(gas)
+    return start, (max(gas) - start).days + 1
+
+
 def _calendar(
     mapping: Mapping[date, float], start: date, length: int
 ) -> list[float | None]:
@@ -135,8 +142,7 @@ def moving_baseload(
     pull the baseload down."""
     if not gas:
         return {}
-    start, end = min(gas), max(gas)
-    length = (end - start).days + 1
+    start, length = _calendar_span(gas)
     series = _baseload_series(
         _calendar(gas, start, length), _calendar(effective, start, length), threshold
     )
@@ -310,8 +316,7 @@ def _calendar_inputs(
     daily_means: Mapping[date, float],
     weights: Sequence[float],
 ) -> tuple[list[float | None], dict[float, list[float | None]]]:
-    start = min(gas)
-    length = (max(gas) - start).days + 1
+    start, length = _calendar_span(gas)
     return _calendar(gas, start, length), {
         weight: _calendar(effective_temperatures(daily_means, weight), start, length)
         for weight in weights
@@ -392,7 +397,7 @@ def fit_heating_model(
     }
     if not gas:
         return _unusable(UnusableReason.TOO_FEW_DAYS, frozenset())
-    start = min(gas)
+    start, _ = _calendar_span(gas)
     gas_list, effective_by_weight = _calendar_inputs(gas, daily_means, weights)
     problem = _Problem(
         start=start,
