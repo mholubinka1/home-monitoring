@@ -125,7 +125,11 @@ def moving_baseload(
     excluded: AbstractSet[date] = frozenset(),
 ) -> dict[date, BaselinePoint]:
     """The non-heating gas use of every calendar day from the earliest to the
-    latest gas date: the mean gas of the warm days in the trailing window."""
+    latest gas date: the mean gas of the warm days in the trailing window.
+
+    `gas` must already hold only usable days (see gas_day.is_usable): a zero
+    total is missing data, and passed in here it would count as a warm day and
+    pull the baseload down."""
     if not gas:
         return {}
     start, end = min(gas), max(gas)
@@ -365,7 +369,13 @@ def fit_heating_model(
     the blended effective temperature, over the FIT_WINDOW_DAYS ending as_of.
 
     Days under AWAY_FRACTION of their baseload are away days: they are dropped
-    from the baseload and the fit, and the model is fitted a second time.
+    from the baseload and the fit, and the model is fitted a second time. They
+    are looked for across all the history supplied, not only the fit window, so
+    `away_days` can hold dates before the window.
+
+    The window ends at `as_of`, not at the newest gas day: a caller should pass
+    the latest complete gas day, or the window holds fewer than
+    FIT_WINDOW_DAYS days of data.
 
     Raises ValueError when a weight is outside 0..WEIGHT_MAX."""
     if not all(0 <= weight <= WEIGHT_MAX for weight in weights):
