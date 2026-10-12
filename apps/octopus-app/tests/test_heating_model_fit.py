@@ -10,6 +10,7 @@ import pytest
 
 from common import local_day
 from octopus_app.data.heating_model import (
+    THRESHOLDS,
     WEIGHT_MAX,
     WEIGHTS,
     BaselineKind,
@@ -690,3 +691,12 @@ def test_a_day_with_a_nan_mean_temperature_is_the_same_as_the_day_being_absent()
     without = fit_heating_model(rows, absent, data.days[-1], **grids)
 
     assert with_nan == without
+
+
+def test_the_default_search_grids_are_8_to_18_by_tenths_and_0_to_point_8_by_twentieths() -> (
+    None
+):
+    assert THRESHOLDS == tuple(round(8.0 + 0.1 * i, 1) for i in range(101))
+    assert (THRESHOLDS[0], THRESHOLDS[-1], len(THRESHOLDS)) == (8.0, 18.0, 101)
+    assert WEIGHTS == tuple(round(0.05 * i, 2) for i in range(17))
+    assert (WEIGHTS[0], WEIGHTS[-1], len(WEIGHTS)) == (0.0, 0.8, 17)

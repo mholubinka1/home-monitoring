@@ -14,9 +14,18 @@ BASELOAD_WINDOW_DAYS = 120  # trailing window (ending on the day) for the baselo
 MIN_WARM_DAYS = 8  # warm days a window needs for a measured baseload
 WARM_MARGIN = 1.0  # a warm day is at least this far above the threshold (C)
 FIT_WINDOW_DAYS = 365  # days ending as_of that the fit uses
-THRESHOLDS = tuple(round(8.0 + 0.1 * i, 1) for i in range(101))  # 8.0..18.0
+THRESHOLD_MIN = 8.0  # search grid for the threshold (C)
+THRESHOLD_MAX = 18.0
+THRESHOLD_STEP = 0.1
+THRESHOLDS = tuple(
+    round(THRESHOLD_MIN + THRESHOLD_STEP * i, 1)
+    for i in range(round((THRESHOLD_MAX - THRESHOLD_MIN) / THRESHOLD_STEP) + 1)
+)
 WEIGHT_MAX = 0.8  # the blend weight of yesterday never exceeds this
-WEIGHTS = tuple(round(0.05 * i, 2) for i in range(round(WEIGHT_MAX / 0.05) + 1))
+WEIGHT_STEP = 0.05
+WEIGHTS = tuple(
+    round(WEIGHT_STEP * i, 2) for i in range(round(WEIGHT_MAX / WEIGHT_STEP) + 1)
+)
 AWAY_FRACTION = 1 / 3  # a day under this share of the baseload is an away day
 MIN_USABLE_DAYS = 150  # fewer usable days than this: the fit is unusable
 MIN_DAYS_EACH_SIDE = 30  # days needed below and at/above the threshold

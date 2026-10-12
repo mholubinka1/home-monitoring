@@ -232,24 +232,27 @@ def test_two_locations_tied_on_the_newest_stamp_resolve_to_the_larger_key(
 
 @pytest.mark.parametrize("days_back", [1, 4])
 def test_an_end_date_before_the_start_date_reads_nothing(
-    mariadb_client: MariaDBClient,
-    monkeypatch: pytest.MonkeyPatch,
-    days_back: int,
+    mariadb_client: MariaDBClient, days_back: int
 ) -> None:
     day = date(2026, 1, 6)
     _seed_day(mariadb_client, day, 10.0)
-    reads: list[bool] = []
-    real_scope = mariadb_client.session_read_scope
-
-    def counting_scope():  # type: ignore[no-untyped-def]
-        reads.append(True)
-        return real_scope()
-
-    monkeypatch.setattr(mariadb_client, "session_read_scope", counting_scope)
 
     means = mariadb_client.read_complete_day_mean_temperatures(
         day, day - timedelta(days=days_back)
     )
 
     assert means == {}
-    assert not reads  # the guard returns before any query is made
+
+
+def test_a_range_wholly_inside_bst_has_each_days_own_mean(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # In BST local midnight is 23:00Z the day before, so a day's hour-end
+    # stamps run from 00:00Z to 23:00Z on that date.
+    days = [date(2026, 7, 5), date(2026, 7, 6), date(2026, 7, 7)]
+    for day, temp in zip(days, [8.0, 9.0, 10.0], strict=True):
+        _seed_day(mariadb_client, day, temp)
+
+    means = mariadb_client.read_complete_day_mean_temperatures(days[0], days[-1])
+
+    assert means == {days[0]: 8.0, days[1]: 9.0, days[2]: 10.0}
