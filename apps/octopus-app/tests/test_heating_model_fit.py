@@ -409,6 +409,14 @@ def test_only_unusable_rows_is_unusable_for_too_few_days() -> None:
     _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
 
 
+def test_gas_days_with_no_temperatures_at_all_are_too_few_days() -> None:
+    rows = _flat_summaries(200)
+
+    fit = fit_heating_model(rows, {}, FIRST_DAY + timedelta(days=199))
+
+    _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
+
+
 def test_a_year_warmer_than_every_threshold_has_no_fit() -> None:
     fit = _fit_flat(365, mean=30.0)
 

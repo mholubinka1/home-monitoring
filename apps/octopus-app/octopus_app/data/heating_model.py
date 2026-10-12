@@ -337,7 +337,7 @@ class _Problem:
         )
 
 
-def _without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit:
+def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit:
     """Mark away days from the first fit, drop them and fit a second time."""
     away = _away_indices(problem.gas, first)
     away_days = frozenset(problem.start + timedelta(days=i) for i in away)
@@ -408,8 +408,14 @@ def fit_heating_model(
     )
     first = problem.best(gas_list)
     if first is not None:
-        return _without_away_days(problem, first)
-    window = gas_list[problem.window_start :]
-    too_few = sum(g is not None for g in window) < MIN_USABLE_DAYS
+        return _refit_without_away_days(problem, first)
+    # Count the window days the fit could use: gas AND an effective temperature
+    # (which exists for every weight alike, so any weight's list will do).
+    temperatures = list(effective_by_weight.values())
+    usable_days = sum(
+        gas_list[i] is not None and any(t[i] is not None for t in temperatures)
+        for i in range(problem.window_start, len(gas_list))
+    )
+    too_few = usable_days < MIN_USABLE_DAYS
     reason = UnusableReason.TOO_FEW_DAYS if too_few else UnusableReason.NO_FIT
     return _unusable(reason, frozenset())
