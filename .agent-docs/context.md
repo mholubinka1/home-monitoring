@@ -225,7 +225,7 @@ The learned description of how the household's gas use depends on the weather: o
 _Avoid_: regression (the older fixed-threshold method), prediction (it also explains past days)
 
 **Baseload**:
-The gas used on a day with no heating (hot water and cooking). It moves: it is measured from warm days as a 120-day moving average (at least 8 warm days), joined by a labelled straight line across winter gaps and held at the last value for the newest days ([ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)). **Away days** (gas below about a third of baseload, e.g. a holiday) are excluded from the fit and shown neutral.
+The gas used on a day with no heating (hot water and cooking). It moves: it is measured from warm days as a trailing 120-day moving average (at least 8 warm days), joined by a labelled straight line across winter gaps and held at the last measured value for the newest days (and at the first measured value for any days before it) ([ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)). **Away days** (gas below about a third of baseload, e.g. a holiday) are excluded from the fit and shown neutral.
 
 **Heating Threshold**:
 The effective temperature below which the **Heating Model** says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C the repo first assumed). Days inside the threshold's uncertainty range count as needed.
