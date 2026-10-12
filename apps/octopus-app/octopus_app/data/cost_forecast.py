@@ -7,8 +7,8 @@ from itertools import groupby, pairwise
 from logging import Logger, getLogger
 from typing import NamedTuple, Protocol
 
+from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.model import (
     ConsumptionSummary,
     CostForecast,
@@ -885,7 +885,7 @@ class CostForecastRetriever:
         self, as_of: datetime
     ) -> GasWeatherRegression | None:
         # Trailing 7-day window ending the day *before* as_of's local date
-        # (ADR-0010, Europe/London not UTC) -- as_of's own local day is
+        # (ADR-0010, local day, not UTC) -- as_of's own local day is
         # excluded since that day's consumption is still arriving/partial,
         # not a settled historical data point to train on.
         as_of_local_date = local_day.to_local_date(as_of)

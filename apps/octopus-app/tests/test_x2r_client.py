@@ -5,6 +5,7 @@ import pytest
 import requests
 import responses
 
+from common.local_day import set_local_timezone
 from octopus_app.common.exceptions import APIError
 from octopus_app.data.octopus.x2r import X2rClient
 
@@ -85,6 +86,18 @@ def test_naive_dates_are_interpreted_as_london_local_time_not_utc() -> None:
 
     assert readings[0].period_from == datetime(2026, 7, 22, 0, 0, tzinfo=UTC)
     assert readings[0].period_from.tzinfo is UTC
+
+
+@responses.activate
+def test_naive_dates_are_london_local_time_whatever_zone_is_configured() -> None:
+    # x2r.uk publishes Europe/London wall-clock time regardless of where the
+    # deployment's own local day is.
+    set_local_timezone("America/New_York")
+    _mock_forecast([{"date": "2026-07-22T01:00:00", "price": "21.19"}])
+
+    readings = X2rClient().get_forecast(REGION)
+
+    assert readings[0].period_from == datetime(2026, 7, 22, 0, 0, tzinfo=UTC)
 
 
 @responses.activate

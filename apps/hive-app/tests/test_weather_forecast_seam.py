@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 import responses
 
+from common.local_day import set_local_timezone
 from hive_app.common.config import LocationSettings
 from hive_app.data.model import WeatherForecastDay
 from hive_app.data.mysql import model
@@ -32,11 +33,11 @@ def test_an_open_meteo_forecast_is_persisted_and_queryable(
 
     forecast = client.get_forecast()
 
-    # ADR-0010: this repo buckets "day" as Europe/London local time for
-    # consumption/cost data -- the forecast request must ask Open-Meteo to
-    # bucket its daily aggregation the same way, not UTC, or target_date
-    # would drift from daily_consumption_summary's day boundaries around a
-    # BST transition (relevant once #511 joins the two).
+    # ADR-0010: this repo buckets "day" as local time (here the default,
+    # Europe/London) for consumption/cost data -- the forecast request must
+    # ask Open-Meteo to bucket its daily aggregation the same way, not UTC, or
+    # target_date would drift from daily_consumption_summary's day boundaries
+    # around a clock change (relevant once #511 joins the two).
     assert len(responses.calls) == 1
     assert "timezone=Europe%2FLondon" in responses.calls[0].request.url
 
@@ -107,3 +108,23 @@ def test_a_mismatched_length_forecast_response_is_rejected_rather_than_mispaired
 
     with pytest.raises(ValueError, match="mismatched array lengths"):
         client.get_forecast()
+
+
+@responses.activate
+def test_the_forecast_request_asks_for_days_in_the_configured_timezone() -> None:
+    responses.add(
+        responses.GET,
+        OPEN_METEO_ENDPOINT,
+        json={
+            "daily": {
+                "time": ["2026-09-26"],
+                "temperature_2m_max": [14.5],
+            }
+        },
+        status=200,
+    )
+    set_local_timezone("America/New_York")
+
+    OpenMeteoClient(LocationSettings(latitude=40.7, longitude=-74.0)).get_forecast()
+
+    assert "timezone=America%2FNew_York" in responses.calls[0].request.url

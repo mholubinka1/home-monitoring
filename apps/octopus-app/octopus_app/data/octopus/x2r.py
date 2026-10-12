@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import requests
 from pydantic import BaseModel
@@ -7,9 +8,11 @@ from pydantic import BaseModel
 from octopus_app.common.decorator import retry
 from octopus_app.common.exceptions import APIError
 from octopus_app.common.http import raise_for_http_error
-from octopus_app.data.local_day import LONDON
 from octopus_app.data.octopus.model import AgileForecastReading
 
+# x2r.uk publishes Europe/London wall-clock time whatever zone is configured
+# for this deployment, so this is deliberately not the local-day module's zone.
+X2R_TIMEZONE = ZoneInfo("Europe/London")
 REQUEST_TIMEOUT_SECONDS = 30
 HALF_HOUR = timedelta(minutes=30)
 
@@ -19,14 +22,14 @@ def _to_utc(value: datetime) -> datetime:
     # agilepredict.com's UTC-offset timestamps, a naive value here means
     # local wall-clock time, so it must be interpreted as London before
     # converting, not defaulted to UTC (that would be off by the BST
-    # offset). Mirrors local_day.to_local_date's naive-handling shape.
+    # offset).
     # One inherent gap: a naive value during the UK's autumn DST "fall
     # back" hour is genuinely ambiguous (that local time occurs twice) --
     # ZoneInfo defaults to the first (BST) occurrence, since x2r.uk's
     # response carries no fold/disambiguation data to resolve it correctly.
     # At most one 30-minute forecast slot a year; not fixable client-side.
     if value.tzinfo is None:
-        value = value.replace(tzinfo=LONDON)
+        value = value.replace(tzinfo=X2R_TIMEZONE)
     return value.astimezone(UTC)
 
 

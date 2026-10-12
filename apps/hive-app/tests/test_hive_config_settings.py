@@ -126,3 +126,34 @@ def test_an_unparseable_config_logs_where_it_broke_but_not_the_line(
     logged_text = " ".join(logged_messages)
     assert leaked_marker not in logged_text
     assert "line 3" in logged_text
+
+
+def test_no_timezone_setting_defaults_to_europe_london() -> None:
+    settings = HiveApplicationSettings.model_validate(VALID_CONFIG)
+
+    assert settings.timezone == "Europe/London"
+
+
+def test_a_configured_timezone_is_kept() -> None:
+    settings = HiveApplicationSettings.model_validate(
+        {**VALID_CONFIG, "timezone": "America/New_York"}
+    )
+
+    assert settings.timezone == "America/New_York"
+
+
+def test_an_unknown_timezone_fails_at_load_naming_the_timezone_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump({**VALID_CONFIG, "timezone": "Not/AZone"}))
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "hive_app.common.config.logger.critical", logged_messages.append
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        get_settings(str(config_file))
+
+    assert exit_info.value.code == 1
+    assert "invalid or missing field(s): timezone" in " ".join(logged_messages)

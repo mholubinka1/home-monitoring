@@ -5,7 +5,7 @@ import responses
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from octopus_app.data.local_day import start_of_local_day
+from common.local_day import start_of_local_day
 from octopus_app.data.mysql import model
 
 GRAPHQL_ENDPOINT = "https://api.octopus.energy/v1/graphql/"

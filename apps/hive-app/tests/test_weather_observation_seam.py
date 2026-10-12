@@ -40,7 +40,7 @@ def test_an_open_meteo_observation_is_persisted_and_queryable(
 
     observations = _client().get_recent_observations()
 
-    # Unlike get_forecast() (which requests Europe/London for ADR-0010 day
+    # Unlike get_forecast() (which requests the configured local zone for ADR-0010 day
     # bucketing), this request must stay UTC -- observed_at is a point-in-
     # time instant, not a calendar day, so forcing UTC just avoids guessing
     # an offset on the naive timestamp Open-Meteo returns.

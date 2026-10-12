@@ -75,6 +75,40 @@ template section is commented with what uses it. Run the first Hive login, and a
 re-authentication, with `python -m hive_app.login` as described in
 [the re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md).
 
+### Local-day timezone
+
+Every day figure (consumption and cost summaries, the weather completeness report,
+Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "local day"
+([ADR-0010](.agent-docs/adr/0010-local-day-bucketing-python-vs-sql.md)). It defaults to
+`Europe/London`, so a deployment that sets nothing behaves as before. To change it:
+
+- Set the top-level `timezone` key (an IANA name such as `America/New_York`) in **both**
+  apps' `config.yml`. The apps read separate files, so the two values must match. An
+  unknown name stops the app at startup, naming `timezone`.
+- Set the dashboard's `timezone` variable to the same zone (Dashboard settings, Variables).
+  The dashboard is imported from `data/grafana/dashboard.json`, so also set that
+  variable's `query` and `current` values in the JSON, or a re-import puts the old zone
+  back.
+- On a database that already holds data, `daily_consumption_summary` days keep the zone
+  they were written in. The days with a reading count were built from raw readings
+  Octopus still serves, so they can be rebuilt: stop octopus-app, set its `timezone`, run
+  `DELETE FROM daily_consumption_summary WHERE half_hour_count IS NOT NULL;` and start
+  it again, and its startup backfill refills them in the new zone (stopping first keeps
+  its daily job from rewriting recent days in the old zone in between). Days without a
+  count (before Octopus's first available day) cannot be rebuilt and stay in the old
+  zone, so do not clear the whole table: those days would be lost. Afterwards check
+  `job_run` for a `yearly_comparison_backfill` success, and restart again if it failed.
+  The backfill only reaches back 1096 days, so this procedure holds while every counted
+  day is that recent (until about October 2027, as Octopus's first day is 2024-10-09).
+
+The one fixed zone is x2r.uk's: its Agile forecast timestamps are always read as
+`Europe/London`, because that is the zone x2r documents.
+
+One limit: hive-app's weather completeness report expects hourly stamps on the UTC hour,
+so in a zone whose offset from UTC is not a whole number of hours (for example
+`Asia/Kolkata`, +05:30) it lists every day as incomplete. The stored weather and every
+other figure are unaffected.
+
 ### Docker Compose
 
 Create `.env` from `.env.template`, providing `MARIADB_USER`/`MARIADB_PASSWORD` — the

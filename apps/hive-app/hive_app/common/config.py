@@ -3,9 +3,10 @@ import sys
 from logging import Logger, getLogger
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from common.config import MariaDBSettings
+from common.local_day import DEFAULT_TIMEZONE, validate_timezone
 from hive_app.common.logging import APP_LOGGER_NAME, config
 
 logging.config.dictConfig(config)
@@ -39,6 +40,14 @@ class HiveApplicationSettings(BaseModel):
     # from a removed provider) are ignored, not rejected.
     ntfy: NtfySettings | None = None
     location: LocationSettings | None = None
+    # The IANA zone that defines a "local day"; must match octopus-app's.
+    timezone: str = DEFAULT_TIMEZONE
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_must_be_a_known_zone(cls, value: str) -> str:
+        validate_timezone(value)
+        return value
 
 
 def get_settings(

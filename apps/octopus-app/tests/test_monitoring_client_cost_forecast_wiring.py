@@ -11,6 +11,7 @@ from tests.weather_fixtures import (
 from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
 from tests.weather_fixtures import seed_weather_observation as _seed_weather_observation
 
+from common.local_day import start_of_local_day
 from octopus_app.common.config import (
     ApplicationSettings,
     MariaDBSettings,
@@ -19,7 +20,6 @@ from octopus_app.common.config import (
 )
 from octopus_app.data.base import MonitoringClient
 from octopus_app.data.cost_forecast import CostForecastRetriever
-from octopus_app.data.local_day import start_of_local_day
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 

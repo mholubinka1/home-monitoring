@@ -4,8 +4,8 @@ from decimal import Decimal
 from logging import Logger, getLogger
 from typing import Protocol
 
+from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import local_day
 from octopus_app.data.consumption import ConsumptionFetchSource
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql.client import MariaDBClient
@@ -26,7 +26,7 @@ class ConsumptionSummaryRetriever:
 
     def refresh(self, as_of: datetime | None = None) -> None:
         # The window is made of local days, so "today" is the local date, which
-        # between 00:00 and 01:00 BST is a day ahead of the UTC date.
+        # can be a day ahead of the UTC date (e.g. 00:00-01:00 BST in London).
         if as_of is None:
             as_of = datetime.now(UTC)
         today = local_day.to_local_date(as_of)
@@ -50,7 +50,7 @@ class ConsumptionSummaryBackfill:
     def run(self, as_of: datetime | None = None) -> None:
         if as_of is None:
             as_of = datetime.now(UTC)
-        # Anchored to the start of the cutoff date's London day, not as_of's
+        # Anchored to the start of the cutoff date's local day, not as_of's
         # exact time-of-day nor UTC midnight (an hour late during BST) --
         # otherwise Octopus omits intervals at the start of the oldest
         # backfilled day, storing it as a partial total and short count.

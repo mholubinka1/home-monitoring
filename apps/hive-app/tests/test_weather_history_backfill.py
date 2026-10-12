@@ -9,6 +9,7 @@ import responses
 from sqlalchemy import text
 from weather_hourly_payloads import hourly_payload
 
+from common.local_day import set_local_timezone
 from hive_app.data.model import ResolvedLocation, WeatherObservation
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
@@ -422,10 +423,10 @@ def test_the_command_with_an_unreadable_config_fails_naming_the_file(
     assert f"Could not load config from {missing}" in capsys.readouterr().err
 
 
-def _write_config(tmp_path: Path) -> Path:
+def _write_config(tmp_path: Path, extra: str = "") -> Path:
     config_file = tmp_path / "config.yml"
     config_file.write_text(
-        "hive:\n"
+        extra + "hive:\n"
         "  username: user@example.com\n"
         "  password: hunter2\n"
         f"  auth_state_path: {tmp_path / 'state.json'}\n"
@@ -499,6 +500,84 @@ def test_an_autumn_day_with_25_hours_and_a_normal_day_with_24_are_complete(
 
     assert report.complete_days == 2
     assert not report.incomplete_days
+
+
+def test_a_new_york_spring_forward_day_has_23_stamps(
+    mariadb_client: MariaDBClient,
+) -> None:
+    set_local_timezone("America/New_York")
+    # 2026-03-08 in New York runs from 05:00Z (EST) to 04:00Z on the 9th (EDT):
+    # its hour-ends are 06:00Z on the 8th to 04:00Z on the 9th.
+    mariadb_client.write_weather_observations(
+        _hour_rows(
+            "open-meteo-archive",
+            "40.70,-74.00",
+            datetime(2026, 3, 8, 6, tzinfo=UTC),
+            23,
+        )
+    )
+
+    report = completeness_report(
+        mariadb_client, "40.70,-74.00", date(2026, 3, 8), date(2026, 3, 8)
+    )
+
+    assert report.complete_days == 1
+    assert not report.incomplete_days
+
+
+def test_a_new_york_fall_back_day_has_25_stamps_and_a_normal_day_24(
+    mariadb_client: MariaDBClient,
+) -> None:
+    set_local_timezone("America/New_York")
+    # 2026-11-01 runs from 04:00Z (EDT) to 05:00Z on the 2nd (EST): its
+    # hour-ends are 05:00Z on the 1st to 05:00Z on the 2nd (25), then the 2nd's
+    # are 06:00Z on the 2nd to 05:00Z on the 3rd (24).
+    mariadb_client.write_weather_observations(
+        _hour_rows(
+            "open-meteo-archive",
+            "40.70,-74.00",
+            datetime(2026, 11, 1, 5, tzinfo=UTC),
+            25 + 24,
+        )
+    )
+
+    report = completeness_report(
+        mariadb_client, "40.70,-74.00", date(2026, 11, 1), date(2026, 11, 2)
+    )
+
+    assert report.complete_days == 2
+    assert not report.incomplete_days
+
+
+@responses.activate
+def test_the_command_reports_days_in_the_timezone_from_its_config(
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mariadb_client.write_weather_location(ResolvedLocation(40.7, -74.0, "postcode"))
+    # 23:30Z is 19:30 EDT on 2026-10-10 but already 00:30 BST on the 11th, so
+    # only the configured zone makes yesterday the 9th. The stamps 05:00Z and
+    # 06:00Z hold the hours ending 01:00 and 02:00 EDT that day, i.e. the 00:00
+    # and 01:00 local hours.
+    late_evening_in_new_york = datetime(2026, 10, 10, 23, 30, tzinfo=UTC)
+    yesterday = date(2026, 10, 9)
+    responses.add(
+        responses.GET,
+        ARCHIVE_ENDPOINT,
+        json=hourly_payload([f"{yesterday}T05:00", f"{yesterday}T06:00"]),
+    )
+    config_file = _write_config(tmp_path, extra="timezone: America/New_York\n")
+
+    exit_code = main(
+        ["--config-file", str(config_file), "--start", str(yesterday)],
+        clock=lambda: late_evening_in_new_york,
+    )
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"Completeness up to {yesterday}" in out
+    assert f"incomplete: {yesterday}, 22 hours missing (02:00, 03:00," in out
 
 
 def test_a_day_missing_an_hour_is_incomplete_and_a_day_with_no_rows_misses_them_all(

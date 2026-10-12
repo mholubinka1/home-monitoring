@@ -4,11 +4,12 @@ One SQL block per panel, documenting the live dashboard. Reconciled directly aga
 
 **Status**: `agile_forecast` and `cost_forecast` are confirmed live and in use (no longer spec-only) — `cost_forecast` backs both the Billing Period Progress panel and the `billing_period_start`/`billing_period_end` dashboard variables; `agile_forecast` backs Agile Prices and the Cheapest Time Window table. The tariff-comparison feature these queries originally assumed was dropped entirely and never came back. The Gas row and Health row documented in earlier revisions of this file are **no longer part of the dashboard** — see the callout at the bottom of this file before assuming that was intentional.
 
-Four Grafana dashboard variables are defined (`templating.list` in the JSON):
+Five Grafana dashboard variables are defined (`templating.list` in the JSON):
 
 - `${region}` — the account's GSP region code (see **Region Code / GSP** in `.agent-docs/context.md`). Query: `SELECT DISTINCT region FROM product_rate;`
 - `${billing_period_start}` / `${billing_period_end}` — pulled live from the most recent `cost_forecast` row for `energy = 'E'` (`ORDER BY computed_at DESC LIMIT 1`), formatted `YYYY-MM-DD`. The `energy` filter was added alongside the octopus-app gas cost forecast change (issue #507) — before that, `cost_forecast` held only electricity rows, so an unfiltered `ORDER BY computed_at DESC LIMIT 1` was implicitly electricity-only; once a gas row can be written in the same refresh, the same query without the filter would nondeterministically pick either energy's billing period. Not consumed by any panel query — they're interpolated directly into the **Billing Period Progress** panel's title so the billing window is visible without a separate table panel. All three variables now refresh On Time Range Change (`refresh: 2`) — `${region}` previously refreshed On Dashboard Load only, but was switched to match the other two at some point after `version: 19`. Since the dashboard's time range is relative (`now-3h` to `now+120h`), every 30-minute auto-refresh tick counts as a time range change, so all three variables now resync on the same cadence as the panels' own value queries instead of only on page load.
 - `${rates_estimated_note}` — hidden (`hide: 2`). Empty string unless the latest `cost_forecast` row for `energy = 'E'` has `rates_estimated` set, in which case it reads `⚠ estimated rates: <comma-separated dates>` (issue #594, ADR-0026). Interpolated into the **Billing Period Progress** panel's title, so nothing extra shows when the forecast is not estimated. Refreshes On Time Range Change (`refresh: 2`) like the others.
+- `${timezone}` — hidden constant (`hide: 2`, `type: constant`), default `Europe/London`. The IANA zone that defines a local day; every `CONVERT_TZ` in this file and in the dashboard takes it as its zone argument (see the **Local-time convention** paragraph below). It must be set to the same value as the apps' `timezone` setting. It is a constant, so it is edited in Dashboard settings, Variables, or in the `query` and `current` fields of the JSON; edits made only in the Grafana UI are lost when the dashboard is re-imported from the JSON.
 
 **Query target database**: every panel and annotation target carries `"dataset": "home_monitoring"` (was `"octopus"` until the database rename, ADR-0022; the old `octopus` database has since been dropped, so the stale value made every panel return a 500, issue #584). The literal `octopus` in `schema="octopus"` in the app models is a different thing, a fixed placeholder (ADR-0025).
 
@@ -57,7 +58,7 @@ instead of the `valid_from`/`valid_to` range-predicate join. This doesn't apply 
 
 **Row 2 lookback windows are capped at the retention window (45 days), not 90 days or 12 weeks.** No pruning job actually deletes old `consumption` rows yet (see **Retention Window** in `.agent-docs/context.md`) — the real reason the table is short-lived is that `retention_days` (45) bounds the Startup Backfill's lookback, so the app never fetches more than 45 days of history from Octopus at once. Any query with a longer lookback than that silently returns less data than it appears to ask for, not an error. Panels below that read raw `consumption` are written with a 45-day window for this reason. Monthly Total Consumption and the Year-on-Year panel read `daily_consumption_summary` instead (exempt from this cap) since they only need daily kWh totals.
 
-**Local-time convention — group and label by Europe/London, not raw UTC.** `period_from` is stored as true UTC. Any query that groups or labels by calendar day (`DATE(...)`) or hour-of-day (`HOUR(...)`, `DAYNAME(...)`) must first convert to local time: `CONVERT_TZ(period_from, 'UTC', 'Europe/London')`. During BST this shifts the effective day/hour boundary back by an hour from raw UTC. `CONVERT_TZ` requires MariaDB's named-timezone tables to be loaded (confirmed present on the production instance); queries that don't group or label by day/hour don't need it, since every other timestamp comparison in this file is a plain UTC-to-UTC instant comparison.
+**Local-time convention — group and label by the local day (the `timezone` dashboard variable), not raw UTC.** `period_from` is stored as true UTC. Any query that groups or labels by calendar day (`DATE(...)`) or hour-of-day (`HOUR(...)`, `DAYNAME(...)`) must first convert to local time: `CONVERT_TZ(period_from, 'UTC', '${timezone}')`. `timezone` is a constant dashboard variable (Dashboard settings, Variables) defaulting to Europe/London; set it to the same zone as the apps' `timezone` setting (see [ADR-0010](../../../.agent-docs/adr/0010-local-day-bucketing-python-vs-sql.md)), and never write the zone name into a query. During BST in the default zone this shifts the effective day/hour boundary back by an hour from raw UTC. `CONVERT_TZ` requires MariaDB's named-timezone tables to be loaded (confirmed present on the production instance); queries that don't group or label by day/hour don't need it, since every other timestamp comparison in this file is a plain UTC-to-UTC instant comparison.
 
 **Field-formatting convention.** Set Grafana's field unit per column, per category, rather than leaving raw numbers unformatted:
 
@@ -80,7 +81,7 @@ The `product_rate` join fix from earlier (correlated subquery instead of the ran
 
 ```sql
 SELECT
-  DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London')) AS time,
+  DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) AS time,
   ROUND((SUM(c.est_kwh * pr.unit_rate) + MAX(pr.standing_charge)) / 100, 2) AS cost_gbp
 FROM consumption c
 JOIN agreement a
@@ -99,10 +100,10 @@ JOIN product_rate pr
 WHERE c.energy = 'E'
   AND c.period_from >= CURDATE() - INTERVAL 45 DAY
   AND c.period_from < CURDATE()
-GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London'))
+GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))
 HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-  CONVERT_TZ(CAST(time AS DATETIME), 'Europe/London', 'UTC'),
-  CONVERT_TZ(CAST(time + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+  CONVERT_TZ(CAST(time AS DATETIME), '${timezone}', 'UTC'),
+  CONVERT_TZ(CAST(time + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
 ) / 30
 ORDER BY time;
 ```
@@ -208,7 +209,7 @@ Replaces the two-line "p/kWh Efficiency vs Day's Avg Rate" panel from earlier dr
 
 ```sql
 SELECT
-  DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London')) AS time,
+  DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) AS time,
   ROUND(
     (AVG(pr.unit_rate) - (SUM(c.est_kwh * pr.unit_rate) / NULLIF(SUM(c.est_kwh), 0)))
       / NULLIF(AVG(pr.unit_rate), 0) * 100,
@@ -230,10 +231,10 @@ JOIN product_rate pr
   )
 WHERE c.energy = 'E'
   AND c.period_from >= NOW() - INTERVAL 45 DAY
-GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London'))
+GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))
 HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-  CONVERT_TZ(CAST(time AS DATETIME), 'Europe/London', 'UTC'),
-  CONVERT_TZ(CAST(time + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+  CONVERT_TZ(CAST(time AS DATETIME), '${timezone}', 'UTC'),
+  CONVERT_TZ(CAST(time + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
 ) / 30
 ORDER BY time;
 ```
@@ -247,14 +248,14 @@ SELECT
   DAYNAME(d) AS day_of_week,
   ROUND(AVG(daily_kwh), 3) AS avg_kwh
 FROM (
-  SELECT DATE(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) AS d, SUM(est_kwh) AS daily_kwh
+  SELECT DATE(CONVERT_TZ(period_from, 'UTC', '${timezone}')) AS d, SUM(est_kwh) AS daily_kwh
   FROM consumption
   WHERE energy = 'E'
     AND period_from >= NOW() - INTERVAL 45 DAY
-  GROUP BY DATE(CONVERT_TZ(period_from, 'UTC', 'Europe/London'))
+  GROUP BY DATE(CONVERT_TZ(period_from, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-    CONVERT_TZ(CAST(d AS DATETIME), 'Europe/London', 'UTC'),
-    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+    CONVERT_TZ(CAST(d AS DATETIME), '${timezone}', 'UTC'),
+    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   ) / 30
 ) daily
 GROUP BY DAYNAME(d)
@@ -309,17 +310,17 @@ SELECT
   '1h' AS window_size,
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `24hrs`,
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `3days`,
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `5days`
 
@@ -329,17 +330,17 @@ SELECT
   '2h',
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_2h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_2h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_2h ASC LIMIT 1)
 
@@ -349,17 +350,17 @@ SELECT
   '3h',
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_3h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_3h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_3h ASC LIMIT 1)
 
@@ -369,17 +370,17 @@ SELECT
   '4h',
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_4h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_4h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
-     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', 'Europe/London'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
+     ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
    ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_4h ASC LIMIT 1)
 
@@ -394,18 +395,18 @@ Title restored — the earlier accidental reset to Grafana's "Panel Title" place
 
 ```sql
 SELECT
-  TIMESTAMP(CURDATE()) + INTERVAL HOUR(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) HOUR AS time,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Monday'    THEN est_kwh END), 4) AS `Monday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Tuesday'   THEN est_kwh END), 4) AS `Tuesday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Wednesday' THEN est_kwh END), 4) AS `Wednesday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Thursday'  THEN est_kwh END), 4) AS `Thursday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Friday'    THEN est_kwh END), 4) AS `Friday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Saturday'  THEN est_kwh END), 4) AS `Saturday`,
-  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) = 'Sunday'    THEN est_kwh END), 4) AS `Sunday`
+  TIMESTAMP(CURDATE()) + INTERVAL HOUR(CONVERT_TZ(period_from, 'UTC', '${timezone}')) HOUR AS time,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Monday'    THEN est_kwh END), 4) AS `Monday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Tuesday'   THEN est_kwh END), 4) AS `Tuesday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Wednesday' THEN est_kwh END), 4) AS `Wednesday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Thursday'  THEN est_kwh END), 4) AS `Thursday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Friday'    THEN est_kwh END), 4) AS `Friday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Saturday'  THEN est_kwh END), 4) AS `Saturday`,
+  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(period_from, 'UTC', '${timezone}')) = 'Sunday'    THEN est_kwh END), 4) AS `Sunday`
 FROM consumption
 WHERE energy = 'E'
   AND period_from >= NOW() - INTERVAL 45 DAY
-GROUP BY HOUR(CONVERT_TZ(period_from, 'UTC', 'Europe/London'))
+GROUP BY HOUR(CONVERT_TZ(period_from, 'UTC', '${timezone}'))
 ORDER BY time;
 ```
 
@@ -421,7 +422,7 @@ SELECT
   ROUND(AVG(daily_unit_price) OVER (ORDER BY d ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) AS rolling_avg_unit_price_p
 FROM (
   SELECT
-    DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London')) AS d,
+    DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) AS d,
     SUM(c.est_kwh * pr.unit_rate) / SUM(c.est_kwh) AS daily_unit_price
   FROM consumption c
   JOIN agreement a
@@ -439,10 +440,10 @@ FROM (
     )
   WHERE c.energy = 'E'
     AND c.period_from >= NOW() - INTERVAL 45 DAY
-  GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London'))
+  GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-    CONVERT_TZ(CAST(d AS DATETIME), 'Europe/London', 'UTC'),
-    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+    CONVERT_TZ(CAST(d AS DATETIME), '${timezone}', 'UTC'),
+    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   ) / 30
 ) daily
 ORDER BY d;
@@ -458,7 +459,7 @@ SELECT
   ROUND(AVG(daily_cost) OVER (ORDER BY d ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) AS rolling_avg_cost_gbp
 FROM (
   SELECT
-    DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London')) AS d,
+    DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) AS d,
     (SUM(c.est_kwh * pr.unit_rate) + MAX(pr.standing_charge)) / 100 AS daily_cost
   FROM consumption c
   JOIN agreement a
@@ -476,10 +477,10 @@ FROM (
     )
   WHERE c.energy = 'E'
     AND c.period_from >= NOW() - INTERVAL 45 DAY
-  GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', 'Europe/London'))
+  GROUP BY DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-    CONVERT_TZ(CAST(d AS DATETIME), 'Europe/London', 'UTC'),
-    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+    CONVERT_TZ(CAST(d AS DATETIME), '${timezone}', 'UTC'),
+    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   ) / 30
 ) daily
 ORDER BY d;
@@ -494,14 +495,14 @@ SELECT
   d AS time,
   ROUND(AVG(daily_kwh) OVER (ORDER BY d ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 3) AS rolling_avg_kwh
 FROM (
-  SELECT DATE(CONVERT_TZ(period_from, 'UTC', 'Europe/London')) AS d, SUM(est_kwh) AS daily_kwh
+  SELECT DATE(CONVERT_TZ(period_from, 'UTC', '${timezone}')) AS d, SUM(est_kwh) AS daily_kwh
   FROM consumption
   WHERE energy = 'E'
     AND period_from >= NOW() - INTERVAL 45 DAY
-  GROUP BY DATE(CONVERT_TZ(period_from, 'UTC', 'Europe/London'))
+  GROUP BY DATE(CONVERT_TZ(period_from, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(MINUTE,
-    CONVERT_TZ(CAST(d AS DATETIME), 'Europe/London', 'UTC'),
-    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), 'Europe/London', 'UTC')
+    CONVERT_TZ(CAST(d AS DATETIME), '${timezone}', 'UTC'),
+    CONVERT_TZ(CAST(d + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   ) / 30
 ) daily
 ORDER BY d;

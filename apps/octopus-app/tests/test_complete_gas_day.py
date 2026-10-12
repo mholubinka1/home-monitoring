@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from octopus_app.data import local_day
+from common import local_day
 from octopus_app.data.consumption_summary import ConsumptionSummaryRetriever
 from octopus_app.data.gas_day import GasDayStatus, gas_day_status, is_usable
 from octopus_app.data.model import Consumption, ConsumptionSummary, Energy, Unit

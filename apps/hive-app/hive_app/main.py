@@ -9,6 +9,7 @@ from logging import Logger, getLogger
 
 from schedule import Job, Scheduler, default_scheduler
 
+from common.local_day import set_local_timezone
 from hive_app.common.config import (
     LocationSettings,
     get_settings,
@@ -265,6 +266,8 @@ def main() -> None:
         parser.add_argument("--config-file")
         args = parser.parse_args()
         settings = get_settings(config_file_path=args.config_file)
+        # Once, before any client, job or backfill reads the local day.
+        set_local_timezone(settings.timezone)
         logger.info("Startup complete.")
     except Exception as e:
         logger.critical(f"Error loading startup configurations: {e}.")
