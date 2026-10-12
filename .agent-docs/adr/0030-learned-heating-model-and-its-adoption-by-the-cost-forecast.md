@@ -39,3 +39,5 @@ The model job also writes a fourth small table, `heating_week` (one row per week
 ## Update 2026-10-12: details settled while building the baseload
 
 The 120-day baseload window is **trailing** (the 120 days ending on that day), consistent with the held-out tests above that trained only on earlier data. Days before the first measured estimate are held at that first measured value, just as the newest days are held at the last, and the series covers every calendar day from the earliest to the latest gas day, gaps included, so every day has a baseload and a label (measured, interpolated or held).
+
+The fallback to the flat-average projection applies to **any** unusable result, not only the five conditions listed under Adoption above: the fit also reports "no fit" (unusable) when no combination of threshold and weight can be scored (no day below any threshold, or no baseload can be measured), or too few days instead when fewer than about 150 days have both gas and an effective temperature.
