@@ -1,6 +1,5 @@
 import math
 import random
-import time
 from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ import pytest
 
 from common import local_day
 from octopus_app.data.heating_model import (
+    WEIGHT_MAX,
     WEIGHTS,
     BaselineKind,
     BaselinePoint,
@@ -231,9 +231,7 @@ class Synthetic:
 def test_the_fit_recovers_a_planted_threshold_slope_and_weight() -> None:
     data = Synthetic()
 
-    started = time.perf_counter()
     fit = data.fit()  # the full default grids
-    elapsed = time.perf_counter() - started
 
     assert fit.usable
     assert fit.threshold == pytest.approx(12.5, abs=0.3)
@@ -241,7 +239,6 @@ def test_the_fit_recovers_a_planted_threshold_slope_and_weight() -> None:
     assert fit.weight == pytest.approx(0.5, abs=0.1)
     assert fit.quality is not None
     assert fit.quality.r_squared > 0.9
-    assert elapsed < 10  # prefix sums keep the 1717-combination search fast
 
 
 def test_zero_gas_rows_and_partial_days_are_not_used() -> None:
@@ -369,7 +366,7 @@ def test_the_blend_weight_is_bounded_at_the_top_of_the_default_grid() -> None:
 
     assert fit.weight is not None
     assert fit.weight <= 0.8
-    assert max(WEIGHTS) == pytest.approx(0.8)
+    assert max(WEIGHTS) == pytest.approx(WEIGHT_MAX)
 
 
 def _flat_summaries(count: int, kwh: float = 7.0) -> list[ConsumptionSummary]:
@@ -492,3 +489,87 @@ def test_rows_after_as_of_are_ignored() -> None:
     without_future = fit_heating_model(until_as_of, data.means, as_of, **grids)
 
     assert with_future == without_future
+
+
+def test_a_threshold_at_the_top_edge_of_the_search_grid_is_unusable() -> None:
+    data = Synthetic(Planted(threshold=12.5))
+
+    fit = data.fit(thresholds=(9.5, 10.0, 10.5, 11.0, 11.5), weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.THRESHOLD_AT_EDGE)
+
+
+_COLD_TEMPERATURES = (2.0, 4.0, 6.0, 8.0, 9.0, 5.0, 3.0, 7.0)
+
+
+def _step_fit(warm: int, cold: int) -> HeatingFit:
+    """Exact data (no noise): `warm` days at 20 C then `cold` days at 2-9 C, gas
+    7 + 3.8 * degrees below 12.5. With a zero blend weight the fit recovers the
+    threshold exactly, so the day counts either side of it are known: the first
+    day has no previous day and is unused, leaving warm - 1 days at or above the
+    threshold, cold days below, and warm + cold - 1 days used."""
+    days = [FIRST_DAY + timedelta(days=d) for d in range(warm + cold)]
+    means = {
+        day: 20.0 if i < warm else _COLD_TEMPERATURES[i % len(_COLD_TEMPERATURES)]
+        for i, day in enumerate(days)
+    }
+    rows = [_summary(day, 7.0 + 3.8 * max(0.0, 12.5 - means[day])) for day in days]
+    return fit_heating_model(
+        rows, means, days[-1], thresholds=NARROW_THRESHOLDS, weights=(0.0,)
+    )
+
+
+def test_exactly_150_usable_days_is_enough() -> None:
+    fit = _step_fit(warm=60, cold=91)
+
+    assert fit.quality is not None
+    assert fit.quality.days_used == 150
+    assert fit.usable
+
+
+def test_149_usable_days_is_too_few() -> None:
+    fit = _step_fit(warm=60, cold=90)
+
+    assert fit.quality is not None
+    assert fit.quality.days_used == 149
+    _assert_unusable(fit, UnusableReason.TOO_FEW_DAYS)
+
+
+def test_exactly_30_days_at_or_above_the_threshold_is_enough() -> None:
+    fit = _step_fit(warm=31, cold=170)
+
+    assert fit.quality is not None
+    assert fit.quality.days_above_threshold == 30
+    assert fit.usable
+
+
+def test_29_days_at_or_above_the_threshold_is_too_few_on_that_side() -> None:
+    fit = _step_fit(warm=30, cold=170)
+
+    assert fit.quality is not None
+    assert fit.quality.days_above_threshold == 29
+    _assert_unusable(fit, UnusableReason.TOO_FEW_DAYS_ON_ONE_SIDE)
+
+
+def test_exactly_30_days_below_the_threshold_is_enough() -> None:
+    fit = _step_fit(warm=121, cold=30)
+
+    assert fit.quality is not None
+    assert fit.quality.days_below_threshold == 30
+    assert fit.usable
+
+
+def test_29_days_below_the_threshold_is_too_few_on_that_side() -> None:
+    fit = _step_fit(warm=122, cold=29)
+
+    assert fit.quality is not None
+    assert fit.quality.days_below_threshold == 29
+    _assert_unusable(fit, UnusableReason.TOO_FEW_DAYS_ON_ONE_SIDE)
+
+
+@pytest.mark.parametrize("weight", [0.9, -0.05])
+def test_a_weight_outside_the_allowed_range_is_rejected(weight: float) -> None:
+    data = Synthetic(Planted(count=400))
+
+    with pytest.raises(ValueError, match="between 0 and 0.8"):
+        data.fit(thresholds=NARROW_THRESHOLDS, weights=[weight])

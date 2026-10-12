@@ -16,7 +16,8 @@ MIN_WARM_DAYS = 8  # warm days a window needs for a measured baseload
 WARM_MARGIN = 1.0  # a warm day is at least this far above the threshold (C)
 FIT_WINDOW_DAYS = 365  # days ending as_of that the fit uses
 THRESHOLDS = tuple(round(8.0 + 0.1 * i, 1) for i in range(101))  # 8.0..18.0
-WEIGHTS = tuple(round(0.05 * i, 2) for i in range(17))  # 0.0..0.8
+WEIGHT_MAX = 0.8  # the blend weight of yesterday never exceeds this
+WEIGHTS = tuple(round(0.05 * i, 2) for i in range(round(WEIGHT_MAX / 0.05) + 1))
 AWAY_FRACTION = 1 / 3  # a day under this share of the baseload is an away day
 MIN_USABLE_DAYS = 150  # fewer usable days than this: the fit is unusable
 MIN_DAYS_EACH_SIDE = 30  # days needed below and at/above the threshold
@@ -364,7 +365,11 @@ def fit_heating_model(
     the blended effective temperature, over the FIT_WINDOW_DAYS ending as_of.
 
     Days under AWAY_FRACTION of their baseload are away days: they are dropped
-    from the baseload and the fit, and the model is fitted a second time."""
+    from the baseload and the fit, and the model is fitted a second time.
+
+    Raises ValueError when a weight is outside 0..WEIGHT_MAX."""
+    if not all(0 <= weight <= WEIGHT_MAX for weight in weights):
+        raise ValueError(f"weights must each be between 0 and {WEIGHT_MAX}")
     gas = {
         s.date: float(s.total_kwh)
         for s in summaries

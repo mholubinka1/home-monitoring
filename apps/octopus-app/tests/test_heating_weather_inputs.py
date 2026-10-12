@@ -200,3 +200,17 @@ def test_missing_weather_tables_give_no_days(
         client.read_complete_day_mean_temperatures(date(2026, 1, 5), date(2026, 1, 6))
         == {}
     )
+
+
+@pytest.mark.parametrize("bad", [None, float("nan"), float("inf")])
+def test_an_hour_whose_live_reading_is_unusable_falls_back_to_the_archive(
+    mariadb_client: MariaDBClient, bad: float | None
+) -> None:
+    day = date(2026, 1, 6)
+    stamps = local_day.hour_end_stamps(day)
+    _seed_hours(mariadb_client, HOME, stamps[0], [10.0] * 23 + [bad])
+    _seed_hours(mariadb_client, HOME, stamps[-1], [10.0], source="open-meteo-archive")
+
+    means = mariadb_client.read_complete_day_mean_temperatures(day, day)
+
+    assert means == {day: 10.0}
