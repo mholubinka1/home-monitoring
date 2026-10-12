@@ -199,9 +199,10 @@ class _Candidate:
 _Day = tuple[int, float, float]  # calendar index, gas, effective temperature
 
 
-def _fit_window_days(
+def _scoreable_days(
     gas: Sequence[float | None], effective: Sequence[float | None], window_start: int
 ) -> list[_Day]:
+    """The window days that have both gas and an effective temperature."""
     return [
         (i, g, t)
         for i in range(window_start, len(gas))
@@ -239,7 +240,7 @@ def _best_candidate(
     (e.g. a cold-only history where no window reaches MIN_WARM_DAYS warm days)."""
     best: _Candidate | None = None
     for weight, effective in effective_by_weight.items():
-        days = _fit_window_days(gas, effective, window_start)
+        days = _scoreable_days(gas, effective, window_start)
         for threshold in thresholds:
             series = _baseload_series(gas, effective, threshold)
             error, slope = (
@@ -345,7 +346,7 @@ def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit
     final = problem.best(kept)
     if final is None:
         return _unusable(UnusableReason.NO_FIT, away_days)
-    used = _fit_window_days(
+    used = _scoreable_days(
         kept, problem.effective_by_weight[final.weight], problem.window_start
     )
     quality = _quality(final, used)
@@ -410,12 +411,9 @@ def fit_heating_model(
     if first is not None:
         return _refit_without_away_days(problem, first)
     # Count the window days the fit could use: gas AND an effective temperature
-    # (which exists for every weight alike, so any weight's list will do).
-    temperatures = list(effective_by_weight.values())
-    usable_days = sum(
-        gas_list[i] is not None and any(t[i] is not None for t in temperatures)
-        for i in range(problem.window_start, len(gas_list))
-    )
+    # (which exists for every weight alike, so the first weight's list will do).
+    temperatures = next(iter(effective_by_weight.values()), [None] * len(gas_list))
+    usable_days = len(_scoreable_days(gas_list, temperatures, problem.window_start))
     too_few = usable_days < MIN_USABLE_DAYS
     reason = UnusableReason.TOO_FEW_DAYS if too_few else UnusableReason.NO_FIT
     return _unusable(reason, frozenset())

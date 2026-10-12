@@ -500,9 +500,12 @@ class MariaDBClient(MariaDBClientBase):
             with self.session_read_scope() as session:
                 # The current location is the one on the newest observation;
                 # rows stored under an earlier location are not this home's.
+                # Two locations can share the newest stamp (both polled in the
+                # hour an override changed), so break the tie by key to make
+                # the choice deterministic rather than whichever row comes first.
                 newest = (
                     session.query(wo.c.location)
-                    .order_by(wo.c.observed_at.desc())
+                    .order_by(wo.c.observed_at.desc(), wo.c.location.desc())
                     .first()
                 )
                 if newest is None:

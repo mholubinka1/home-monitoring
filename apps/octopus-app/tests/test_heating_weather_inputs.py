@@ -214,3 +214,42 @@ def test_an_hour_whose_live_reading_is_unusable_falls_back_to_the_archive(
     means = mariadb_client.read_complete_day_mean_temperatures(day, day)
 
     assert means == {day: 10.0}
+
+
+def test_two_locations_tied_on_the_newest_stamp_resolve_to_the_larger_key(
+    mariadb_client: MariaDBClient,
+) -> None:
+    day = date(2026, 1, 6)
+    newest = local_day.hour_end_stamps(day)[-1]
+    # The old location is inserted first, so an unordered tie-break would pick it.
+    _seed_hours(mariadb_client, "55.00,-1.00", newest, [3.0])
+    _seed_day(mariadb_client, day, 10.0, location="60.00,-2.00")
+
+    means = mariadb_client.read_complete_day_mean_temperatures(day, day)
+
+    assert means == {day: 10.0}
+
+
+@pytest.mark.parametrize("days_back", [1, 4])
+def test_an_end_date_before_the_start_date_reads_nothing(
+    mariadb_client: MariaDBClient,
+    monkeypatch: pytest.MonkeyPatch,
+    days_back: int,
+) -> None:
+    day = date(2026, 1, 6)
+    _seed_day(mariadb_client, day, 10.0)
+    reads: list[bool] = []
+    real_scope = mariadb_client.session_read_scope
+
+    def counting_scope():  # type: ignore[no-untyped-def]
+        reads.append(True)
+        return real_scope()
+
+    monkeypatch.setattr(mariadb_client, "session_read_scope", counting_scope)
+
+    means = mariadb_client.read_complete_day_mean_temperatures(
+        day, day - timedelta(days=days_back)
+    )
+
+    assert means == {}
+    assert not reads  # the guard returns before any query is made
