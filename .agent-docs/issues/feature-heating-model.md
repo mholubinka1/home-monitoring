@@ -8,7 +8,7 @@
 
 ### What to build
 
-octopus-app can read, for each local day (the Europe/London time-zone calendar day, at the current Weather Location, which is the postcode's location), the mean outdoor temperature taken only when every hour of that day is present (23, 24 or 25 on daylight-saving days), preferring live over archive per hour, and can combine today's and yesterday's mean into the effective temperature for a given weight. Incomplete days are absent, never partial.
+octopus-app can read, for each local day (the Europe/London time-zone calendar day, at the current Weather Location, taken from the location key on the newest stored observation: the postcode's location unless an explicit `location` config is set), the mean outdoor temperature taken only when every hour of that day is present (23, 24 or 25 on daylight-saving days), preferring live over archive per hour, and can combine today's and yesterday's mean into the effective temperature for a given weight. Incomplete days are absent, never partial.
 
 ### Acceptance criteria
 
