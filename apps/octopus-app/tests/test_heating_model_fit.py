@@ -1,0 +1,371 @@
+import math
+import random
+import time
+from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal
+
+import pytest
+
+from common import local_day
+from octopus_app.data.heating_model import (
+    WEIGHTS,
+    BaselineKind,
+    BaselinePoint,
+    HeatingFit,
+    UnusableReason,
+    effective_temperature,
+    fit_heating_model,
+    moving_baseload,
+)
+from octopus_app.data.model import ConsumptionSummary, Energy
+
+THRESHOLD = 12.0
+
+
+def _days(start: date, count: int) -> list[date]:
+    return [start + timedelta(days=d) for d in range(count)]
+
+
+def test_a_steady_warm_baseload_is_measured_and_covers_every_day() -> None:
+    days = [date(2026, 5, 1) + timedelta(days=d) for d in range(150)]
+    gas = {day: 7.0 for day in days}
+    # Every day is well above the threshold + 1 C, so every day is a warm day.
+    effective = {day: 20.0 for day in days}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert set(series) == set(days)
+    newest = series[days[-1]]
+    assert isinstance(newest, BaselinePoint)
+    assert newest.kwh == pytest.approx(7.0)
+    assert newest.kind is BaselineKind.MEASURED
+
+
+def test_a_window_with_only_seven_warm_days_has_no_measured_value() -> None:
+    days = _days(date(2026, 1, 1), 30)
+    # Cold except the first 7 days.
+    effective = {day: 20.0 if i < 7 else 0.0 for i, day in enumerate(days)}
+    gas = {day: 7.0 for day in days}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert BaselineKind.MEASURED not in {point.kind for point in series.values()}
+
+
+def test_a_window_with_eight_warm_days_is_measured() -> None:
+    days = _days(date(2026, 1, 1), 30)
+    effective = {day: 20.0 if i < 8 else 0.0 for i, day in enumerate(days)}
+    gas = {day: 7.0 for day in days}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert series[days[7]].kind is BaselineKind.MEASURED
+    assert series[days[7]].kwh == pytest.approx(7.0)
+
+
+def test_a_winter_gap_is_interpolated_on_a_straight_line_between_measured_values() -> (
+    None
+):
+    days = _days(date(2025, 1, 1), 500)
+    # Warm for days 0-99 (gas 6) and 400-499 (gas 8), cold (gas 30) between.
+    warm = [i < 100 or i >= 400 for i in range(500)]
+    effective = {day: 20.0 if warm[i] else 2.0 for i, day in enumerate(days)}
+    gas = {
+        day: (30.0 if not warm[i] else 6.0 if i < 100 else 8.0)
+        for i, day in enumerate(days)
+    }
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    # Windows stay measured while 8 warm days remain in the trailing 120 days:
+    # the last measured day of the first summer is 99 + 119 - 7 = 211. The next
+    # measured day is 407 (8 warm days since day 400, all gas 8.0).
+    assert series[days[211]].kind is BaselineKind.MEASURED
+    assert series[days[212]].kind is BaselineKind.INTERPOLATED
+    assert series[days[406]].kind is BaselineKind.INTERPOLATED
+    assert series[days[407]].kind is BaselineKind.MEASURED
+    assert series[days[407]].kwh == pytest.approx(8.0)
+    midpoint = series[days[309]]  # halfway between days 211 and 407
+    assert midpoint.kind is BaselineKind.INTERPOLATED
+    assert midpoint.kwh == pytest.approx((series[days[211]].kwh + 8.0) / 2)
+
+
+def test_days_after_the_last_measured_day_are_held_at_that_value() -> None:
+    days = _days(date(2025, 1, 1), 300)
+    effective = {day: 20.0 if i < 100 else 2.0 for i, day in enumerate(days)}
+    gas = {day: 6.0 if i < 100 else 30.0 for i, day in enumerate(days)}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert series[days[-1]].kind is BaselineKind.HELD
+    assert series[days[-1]].kwh == pytest.approx(6.0)
+
+
+def test_days_before_the_first_measured_day_are_held_at_the_first_value() -> None:
+    days = _days(date(2025, 1, 1), 300)
+    effective = {day: 2.0 if i < 100 else 20.0 for i, day in enumerate(days)}
+    gas = {day: 30.0 if i < 100 else 6.0 for i, day in enumerate(days)}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert series[days[0]].kind is BaselineKind.HELD
+    assert series[days[0]].kwh == pytest.approx(6.0)
+    assert series[days[107]].kind is BaselineKind.MEASURED
+
+
+def test_measured_points_follow_a_drifting_seasonal_baseload_within_lag() -> None:
+    days = _days(date(2024, 1, 1), 800)
+
+    def planted(t: int) -> float:
+        return 6 + 0.01 * t + 1.5 * math.sin(2 * math.pi * t / 365)
+
+    # Warm (summer) stretches only: days 120..250 of each year.
+    effective = {
+        day: 20.0 if 120 <= i % 365 <= 250 else 3.0 for i, day in enumerate(days)
+    }
+    gas = {day: planted(i) for i, day in enumerate(days)}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    measured = [
+        (i, series[day].kwh)
+        for i, day in enumerate(days)
+        if series[day].kind is BaselineKind.MEASURED
+    ]
+    assert measured
+    # A trailing window averages the past, so a measured value lags the planted
+    # one: at most the drift over the window (0.01 * 130 = 1.3) plus the
+    # seasonal swing across it (<= 1.5 * 2 = 3.0). The tolerance 2.5 covers it.
+    for i, kwh in measured:
+        assert abs(kwh - planted(i)) <= 2.5
+
+
+def test_the_series_covers_every_calendar_day_including_gap_days() -> None:
+    days = _days(date(2026, 5, 1), 150)
+    present = [day for i, day in enumerate(days) if i % 10 != 5]  # gap days
+    gas = {day: 7.0 for day in present}
+    effective = {day: 20.0 for day in days}
+
+    series = moving_baseload(gas, effective, THRESHOLD)
+
+    assert set(series) == set(
+        _days(min(present), (max(present) - min(present)).days + 1)
+    )
+    assert days[5] in series
+
+
+NARROW_THRESHOLDS = (11.5, 12.0, 12.5, 13.0, 13.5)
+NARROW_WEIGHTS = (0.4, 0.5, 0.6)
+FIRST_DAY = date(2024, 10, 1)
+
+
+def _summary(day: date, kwh: float, count: int | None = -1) -> ConsumptionSummary:
+    if count == -1:
+        count = local_day.expected_half_hour_count(day)
+    return ConsumptionSummary(
+        energy=Energy.gas,
+        date=day,
+        total_kwh=Decimal(str(round(kwh, 5))),
+        half_hour_count=count,
+    )
+
+
+@dataclass(frozen=True)
+class Planted:
+    count: int = 730
+    threshold: float = 12.5
+    slope: float = 3.8
+    weight: float = 0.5
+    gas_noise: float = 0.4
+    temperature_offset: float = 0.0
+
+
+class Synthetic:
+    """Days of planted heating behaviour: gas = a drifting seasonal baseload +
+    slope * degree-days below the threshold of the blended effective temperature,
+    plus a little seeded noise."""
+
+    def __init__(self, planted: Planted | None = None) -> None:
+        planted = planted or Planted()
+        count, threshold, slope = planted.count, planted.threshold, planted.slope
+        weight, gas_noise = planted.weight, planted.gas_noise
+        temperature_offset = planted.temperature_offset
+        rng = random.Random(7)
+        self.days = [FIRST_DAY + timedelta(days=d) for d in range(count)]
+        self.means = {
+            day: 10
+            + temperature_offset
+            + 8 * math.sin(2 * math.pi * (t - 200) / 365)
+            + rng.gauss(0, 2.0)
+            for t, day in enumerate(self.days)
+        }
+        self.gas: dict[date, float] = {}
+        for t, day in enumerate(self.days):
+            previous = self.means.get(day - timedelta(days=1))
+            effective = effective_temperature(self.means[day], previous, weight)
+            baseload = 6 + 0.01 * t + 1.0 * math.sin(2 * math.pi * (t - 200) / 365)
+            degree_days = max(0.0, threshold - effective) if effective else 0.0
+            self.gas[day] = baseload + slope * degree_days + rng.gauss(0, gas_noise)
+
+    def summaries(
+        self, omit: AbstractSet[date] = frozenset()
+    ) -> list[ConsumptionSummary]:
+        return [_summary(d, g) for d, g in self.gas.items() if d not in omit]
+
+    def fit(
+        self,
+        summaries: list[ConsumptionSummary] | None = None,
+        **grids: Sequence[float],
+    ) -> HeatingFit:
+        return fit_heating_model(
+            self.summaries() if summaries is None else summaries,
+            self.means,
+            self.days[-1],
+            **grids,
+        )
+
+
+def test_the_fit_recovers_a_planted_threshold_slope_and_weight() -> None:
+    data = Synthetic()
+
+    started = time.perf_counter()
+    fit = data.fit()  # the full default grids
+    elapsed = time.perf_counter() - started
+
+    assert fit.usable
+    assert fit.threshold == pytest.approx(12.5, abs=0.3)
+    assert fit.slope == pytest.approx(3.8, rel=0.05)
+    assert fit.weight == pytest.approx(0.5, abs=0.1)
+    assert fit.quality is not None
+    assert fit.quality.r_squared > 0.9
+    assert elapsed < 10  # prefix sums keep the 1717-combination search fast
+
+
+def test_zero_gas_rows_and_partial_days_are_not_used() -> None:
+    data = Synthetic(Planted(count=400))
+    bad_zero = data.days[200:203]
+    bad_partial = data.days[250:253]
+    absent = data.fit(
+        data.summaries(omit=set(bad_zero) | set(bad_partial)),
+        thresholds=NARROW_THRESHOLDS,
+        weights=NARROW_WEIGHTS,
+    )
+    with_bad_rows = [
+        (
+            _summary(s.date, 0.0)
+            if s.date in bad_zero
+            else (
+                _summary(s.date, float(s.total_kwh), 20) if s.date in bad_partial else s
+            )
+        )
+        for s in data.summaries()
+    ]
+
+    present = data.fit(
+        with_bad_rows, thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS
+    )
+
+    assert present == absent
+
+
+def test_a_row_with_an_unknown_half_hour_count_is_used() -> None:
+    data = Synthetic(Planted(count=400))
+    unknown = [_summary(s.date, float(s.total_kwh), None) for s in data.summaries()]
+
+    with_unknown = data.fit(
+        unknown, thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS
+    )
+    known = data.fit(thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    assert with_unknown == known
+    assert known.quality is not None and known.quality.days_used > 300
+
+
+def _with_away_stretch(
+    data: Synthetic, stretch: list[date]
+) -> list[ConsumptionSummary]:
+    return [_summary(d, 0.5 if d in stretch else g) for d, g in data.gas.items()]
+
+
+def test_an_away_stretch_is_reported_and_excluded_without_lowering_the_baseload() -> (
+    None
+):
+    data = Synthetic()
+    stretch = data.days[640:649]  # nine warm-weather days of almost no gas
+    grids = {"thresholds": NARROW_THRESHOLDS, "weights": NARROW_WEIGHTS}
+
+    without = data.fit(data.summaries(omit=set(stretch)), **grids)
+    with_stretch = data.fit(_with_away_stretch(data, stretch), **grids)
+
+    assert with_stretch.away_days == frozenset(stretch)
+    assert with_stretch.quality == without.quality
+    for day in data.days[650:700]:
+        assert with_stretch.baseload[day].kwh == pytest.approx(
+            without.baseload[day].kwh, abs=0.05
+        )
+
+
+def _assert_unusable(fit: HeatingFit, reason: UnusableReason) -> None:
+    assert not fit.usable
+    assert fit.reason is reason
+
+
+def test_too_few_usable_days_is_unusable() -> None:
+    data = Synthetic(Planted(count=730))
+    recent = [s for s in data.summaries() if s.date >= data.days[-100]]
+
+    fit = data.fit(recent, thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.TOO_FEW_DAYS)
+
+
+def test_all_days_on_one_side_of_the_threshold_is_unusable() -> None:
+    # A cold year with a few warm days: under 30 at or above the threshold.
+    data = Synthetic(Planted(count=365, temperature_offset=-12.0))
+    warm_days = data.days[100:125]
+    for day in warm_days:
+        data.means[day] = 20.0
+        data.gas[day] = 7.0
+
+    fit = data.fit(thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.TOO_FEW_DAYS_ON_ONE_SIDE)
+
+
+def test_noisy_gas_that_the_model_explains_poorly_is_unusable() -> None:
+    data = Synthetic(Planted(gas_noise=25.0))
+
+    fit = data.fit(thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    assert fit.quality is not None
+    _assert_unusable(fit, UnusableReason.POOR_FIT)
+
+
+def test_a_threshold_at_the_edge_of_the_search_grid_is_unusable() -> None:
+    data = Synthetic(Planted(threshold=12.5))
+
+    fit = data.fit(thresholds=(13.5, 14.0, 14.5, 15.0, 15.5), weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.THRESHOLD_AT_EDGE)
+
+
+def test_gas_that_falls_as_it_gets_colder_has_a_non_positive_slope_and_is_unusable() -> (
+    None
+):
+    data = Synthetic(Planted(slope=-1.0))
+
+    fit = data.fit(thresholds=NARROW_THRESHOLDS, weights=NARROW_WEIGHTS)
+
+    _assert_unusable(fit, UnusableReason.NON_POSITIVE_SLOPE)
+
+
+def test_the_blend_weight_is_bounded_at_the_top_of_the_default_grid() -> None:
+    data = Synthetic(Planted(weight=0.95))
+
+    fit = data.fit(thresholds=NARROW_THRESHOLDS)
+
+    assert fit.weight <= 0.8
+    assert max(WEIGHTS) == pytest.approx(0.8)
