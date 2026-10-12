@@ -1,5 +1,7 @@
 # Issues: feature-heating-model
 
+> Wave A complete — MOD-1 and MOD-2 in PR #672, ready to merge. MOD-3 to MOD-8 follow in waves B (MOD-3, MOD-4, MOD-7) and C (MOD-5, MOD-6, MOD-8).
+
 ## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
 **Blocked by**: #620, #623
@@ -12,12 +14,12 @@ octopus-app can read, for each local day (the Europe/London time-zone calendar d
 
 ### Acceptance criteria
 
-- [ ] Given 24 hourly readings for a local day at the current location, then its mean is returned; given one missing hour, then the day is absent.
-- [ ] Given readings stored under a different location key, then they are ignored (a changed postcode or override never mixes places).
-- [ ] Given a spring-forward day (23 hours) and an autumn day (25), then each counts as complete with the right number of hours.
-- [ ] Given live and archive rows for the same hour, then the live value is used.
-- [ ] Given a weight, then the effective temperature equals the stated blend of today's and yesterday's means, and is absent if either is.
-- [ ] The reader tolerates the weather tables not existing yet (as the existing one does).
+- [x] Given 24 hourly readings for a local day at the current location, then its mean is returned; given one missing hour, then the day is absent.
+- [x] Given readings stored under a different location key, then they are ignored (a changed postcode or override never mixes places).
+- [x] Given a spring-forward day (23 hours) and an autumn day (25), then each counts as complete with the right number of hours.
+- [x] Given live and archive rows for the same hour, then the live value is used.
+- [x] Given a weight, then the effective temperature equals the stated blend of today's and yesterday's means, and is absent if either is.
+- [x] The reader tolerates the weather tables not existing yet (as the existing one does).
 
 ---
 
@@ -33,14 +35,14 @@ Pure functions that, from daily gas and effective temperatures, compute a **movi
 
 ### Acceptance criteria
 
-- [ ] Given synthetic days with a planted slope and threshold and a baseload that drifts and swings with the seasons, then the fit recovers the slope and threshold, and the moving baseload follows the planted baseload where it can be measured.
-- [ ] Given a window with fewer than 8 warm days, then the baseload there is interpolated (labelled) between the nearest measured estimates, and the newest days hold the last measured value.
-- [ ] Given days before the first measured estimate, then they hold that first measured value (labelled held).
-- [ ] The baseload series covers every day with data, not only the rolling window.
-- [ ] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
-- [ ] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.
-- [ ] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason; given no combination that can be scored (no day below any threshold, or no measurable baseload), then the reason is "no fit", or too few days when fewer than about 150 window days have both gas and an effective temperature.
-- [ ] The blend weight is bounded (0 to 0.8).
+- [x] Given synthetic days with a planted slope and threshold and a baseload that drifts and swings with the seasons, then the fit recovers the slope and threshold, and the moving baseload follows the planted baseload where it can be measured.
+- [x] Given a window with fewer than 8 warm days, then the baseload there is interpolated (labelled) between the nearest measured estimates, and the newest days hold the last measured value.
+- [x] Given days before the first measured estimate, then they hold that first measured value (labelled held).
+- [x] The baseload series covers every day with data, not only the rolling window.
+- [x] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
+- [x] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.
+- [x] Given too few days, too few on either side of the threshold, R-squared below 0.5, a threshold at the edge of the search, or a non-positive slope, then the result is unusable with the matching reason; given no combination that can be scored (no day below any threshold, or no measurable baseload), then the reason is "no fit", or too few days when fewer than about 150 window days have both gas and an effective temperature.
+- [x] The blend weight is bounded (0 to 0.8).
 
 ---
 
