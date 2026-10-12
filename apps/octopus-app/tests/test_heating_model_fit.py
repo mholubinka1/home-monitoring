@@ -573,3 +573,39 @@ def test_a_weight_outside_the_allowed_range_is_rejected(weight: float) -> None:
 
     with pytest.raises(ValueError, match="between 0 and 0.8"):
         data.fit(thresholds=NARROW_THRESHOLDS, weights=[weight])
+
+
+def test_a_day_exactly_one_margin_above_the_threshold_is_warm() -> None:
+    days = _days(date(2026, 1, 1), 8)
+    gas = {day: 7.0 for day in days}
+
+    on_the_margin = moving_baseload(gas, {day: 13.0 for day in days}, 12.0)
+    just_under = moving_baseload(gas, {day: 12.9 for day in days}, 12.0)
+
+    assert on_the_margin[days[-1]].kind is BaselineKind.MEASURED
+    assert BaselineKind.MEASURED not in {p.kind for p in just_under.values()}
+
+
+def test_away_days_are_those_under_a_third_of_the_baseload() -> None:
+    # Exact data: 60 warm days of 6 kWh (so the baseload is exactly 6), then 100
+    # cold days. Three cold days are made low: 0.30, exactly 1/3 and 0.36 of the
+    # baseload. Cold days are never warm days, so the baseload stays 6.
+    warm, cold = 60, 100
+    days = [FIRST_DAY + timedelta(days=d) for d in range(warm + cold)]
+    means = {
+        day: 20.0 if i < warm else _COLD_TEMPERATURES[i % len(_COLD_TEMPERATURES)]
+        for i, day in enumerate(days)
+    }
+    gas = {day: 6.0 + 3.8 * max(0.0, 12.5 - means[day]) for day in days}
+    below, exactly, above = days[70], days[80], days[90]
+    gas[below], gas[exactly], gas[above] = 6.0 * 0.30, 6.0 / 3, 6.0 * 0.36
+
+    fit = fit_heating_model(
+        [_summary(day, kwh) for day, kwh in gas.items()],
+        means,
+        days[-1],
+        thresholds=NARROW_THRESHOLDS,
+        weights=(0.0,),
+    )
+
+    assert fit.away_days == frozenset({below})
