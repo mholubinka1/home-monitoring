@@ -29,12 +29,13 @@ octopus-app can read, for each local day (the Europe/London time-zone calendar d
 
 ### What to build
 
-Pure functions that, from daily gas and effective temperatures, compute a **moving baseload** (the mean of warm-day gas over a 120-day window, at least 8 warm days to count as measured, joined by a straight line across winter gaps and held at the last measured value for the newest days, each point labelled measured, interpolated or held) and fit slope and threshold by searching a grid of thresholds and blend weights, with the slope from least squares through the origin on the gas above baseload, treats zero-gas rows as missing, excludes away days (gas below about a third of baseload) and refits once, and reports whether the fit is usable and why not.
+Pure functions that, from daily gas and effective temperatures, compute a **moving baseload** (the mean of warm-day gas over a trailing 120-day window (the 120 days ending on that day), at least 8 warm days to count as measured, joined by a straight line across winter gaps and held at the last measured value for the newest days and at the first measured value for any days before it, each point labelled measured, interpolated or held) and fit slope and threshold by searching a grid of thresholds and blend weights, with the slope from least squares through the origin on the gas above baseload, treats zero-gas rows as missing, excludes away days (gas below about a third of baseload) and refits once, and reports whether the fit is usable and why not.
 
 ### Acceptance criteria
 
 - [ ] Given synthetic days with a planted slope and threshold and a baseload that drifts and swings with the seasons, then the fit recovers the slope and threshold, and the moving baseload follows the planted baseload where it can be measured.
 - [ ] Given a window with fewer than 8 warm days, then the baseload there is interpolated (labelled) between the nearest measured estimates, and the newest days hold the last measured value.
+- [ ] Given days before the first measured estimate, then they hold that first measured value (labelled held).
 - [ ] The baseload series covers every day with data, not only the rolling window.
 - [ ] Given zero-gas rows, then they are treated as missing; given a partial day (fewer half-hours than expected), then it is excluded.
 - [ ] Given a stretch of very low-use days, then they are excluded, shown as away, and the baseload is not pulled down.

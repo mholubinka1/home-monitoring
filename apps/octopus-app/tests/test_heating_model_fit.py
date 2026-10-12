@@ -207,7 +207,9 @@ class Synthetic:
             previous = self.means.get(day - timedelta(days=1))
             effective = effective_temperature(self.means[day], previous, weight)
             baseload = 6 + 0.01 * t + 1.0 * math.sin(2 * math.pi * (t - 200) / 365)
-            degree_days = max(0.0, threshold - effective) if effective else 0.0
+            degree_days = (
+                max(0.0, threshold - effective) if effective is not None else 0.0
+            )
             self.gas[day] = baseload + slope * degree_days + rng.gauss(0, gas_noise)
 
     def summaries(
