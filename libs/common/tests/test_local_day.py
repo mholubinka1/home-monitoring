@@ -7,6 +7,7 @@ from common.local_day import (
     DEFAULT_TIMEZONE,
     expected_half_hour_count,
     get_local_timezone,
+    hour_end_stamps,
     set_local_timezone,
     start_of_local_day,
     to_local_date,
@@ -123,3 +124,30 @@ def test_an_unknown_timezone_is_rejected_naming_it_and_leaves_the_zone_unchanged
 def test_the_default_zone_is_europe_london() -> None:
     assert DEFAULT_TIMEZONE == "Europe/London"
     assert get_local_timezone() == ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def test_an_ordinary_day_has_twenty_four_hour_end_stamps_from_01_to_next_midnight() -> (
+    None
+):
+    stamps = hour_end_stamps(date(2026, 1, 6))
+
+    assert len(stamps) == 24
+    assert stamps[0] == datetime(2026, 1, 6, 1, tzinfo=UTC)
+    assert stamps[-1] == datetime(2026, 1, 7, 0, tzinfo=UTC)
+
+
+def test_the_uk_spring_forward_day_has_twenty_three_hour_end_stamps() -> None:
+    assert len(hour_end_stamps(date(2026, 3, 29))) == 23
+
+
+def test_the_uk_fall_back_day_has_twenty_five_hour_end_stamps() -> None:
+    assert len(hour_end_stamps(date(2026, 10, 25))) == 25
+
+
+def test_with_new_york_configured_the_us_clock_change_days_have_23_and_25_stamps() -> (
+    None
+):
+    set_local_timezone("America/New_York")
+
+    assert len(hour_end_stamps(date(2026, 3, 8))) == 23
+    assert len(hour_end_stamps(date(2026, 11, 1))) == 25

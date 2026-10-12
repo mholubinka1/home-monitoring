@@ -10,7 +10,9 @@ from logging import getLogger
 import requests
 
 from common.local_day import (
+    ONE_HOUR,
     get_local_timezone,
+    hour_end_stamps,
     set_local_timezone,
     start_of_local_day,
     to_local_date,
@@ -23,8 +25,6 @@ from hive_app.data.open_meteo_client import ARCHIVE_SOURCE, OpenMeteoClient
 from hive_app.data.weather_types import location_key
 
 logger = getLogger(APP_LOGGER_NAME)
-
-ONE_HOUR = timedelta(hours=1)
 
 # The first daily gas day: weather before it has nothing to be compared with.
 DEFAULT_START = date(2024, 7, 24)
@@ -94,18 +94,6 @@ class CompletenessReport:
         return self.complete_days + len(self.incomplete_days)
 
 
-def _hour_stamps(day: date) -> list[datetime]:
-    # A stamp H holds the hour ending at H (ADR-0029), so a local day's stamps
-    # run from its 01:00 to the next 00:00: 23, 24 or 25 on a clock-change day.
-    stamp = start_of_local_day(day) + ONE_HOUR
-    last = start_of_local_day(day + timedelta(days=1))
-    stamps = []
-    while stamp <= last:
-        stamps.append(stamp)
-        stamp += ONE_HOUR
-    return stamps
-
-
 def _local_hour_start(stamp: datetime) -> datetime:
     """The local start of the hour a stamp holds; its date is the stamp's day."""
     return (stamp - ONE_HOUR).astimezone(get_local_timezone())
@@ -133,7 +121,7 @@ def completeness_report(
         day = start + timedelta(days=offset)
         missing = [
             _local_hour_start(stamp).strftime("%H:%M")
-            for stamp in _hour_stamps(day)
+            for stamp in hour_end_stamps(day)
             if stamp not in present
         ]
         if missing:
@@ -234,7 +222,7 @@ def _local_yesterday(now: datetime) -> date:
 def history_start() -> datetime:
     """The first hour-ending stamp of DEFAULT_START: stored weather reaching back
     this far holds the whole history the backfill would fetch."""
-    return _hour_stamps(DEFAULT_START)[0]
+    return hour_end_stamps(DEFAULT_START)[0]
 
 
 def backfill_and_log(mariadb: MariaDBClient, clock: Callable[[], datetime]) -> None:

@@ -92,6 +92,11 @@ weather_forecast_table = Table(
 )
 
 
+# hive-app's source value for live hourly observations (archive rows carry
+# 'open-meteo-archive'); a live reading wins over an archive one for an hour.
+LIVE_WEATHER_SOURCE = "open-meteo"
+
+
 def _is_missing_table_error(error: Exception) -> bool:
     # hive-app owns weather_observation/weather_forecast and creates them
     # via its own Schema Sync -- if hive-app has never run, these tables
@@ -476,6 +481,70 @@ class MariaDBClient(MariaDBClientBase):
             ):
                 daily_max[day] = temp
         return daily_max
+
+    def read_complete_day_mean_temperatures(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        # Mean of a local day's hourly temperatures, only for days whose every
+        # hour is present -- a partial day is absent, never a skewed mean. A
+        # stamp H holds the hour ending at H (ADR-0029), so a day's hours are
+        # exactly local_day.hour_end_stamps(day): 23, 24 or 25 of them.
+        # weather_observation is hive-app's table, read cross-app (see the
+        # module-level comment on weather_observation_table).
+        # Only days inside [start_date, end_date] are returned. An effective
+        # temperature also needs the previous day's mean, so a caller wanting
+        # one for start_date should ask from the day before.
+        wo = weather_observation_table
+        window_start = local_day.hour_end_stamps(start_date)[0]
+        window_end = local_day.hour_end_stamps(end_date)[-1]
+        try:
+            with self.session_read_scope() as session:
+                # The current location is the one on the newest observation;
+                # rows stored under an earlier location are not this home's.
+                # Two locations can share the newest stamp (both polled in the
+                # hour an override changed), so break the tie by key to make
+                # the choice deterministic rather than whichever row comes first.
+                newest = (
+                    session.query(wo.c.location)
+                    .order_by(wo.c.observed_at.desc(), wo.c.location.desc())
+                    .first()
+                )
+                if newest is None:
+                    return {}
+                rows = (
+                    session.query(wo.c.source, wo.c.observed_at, wo.c.temp)
+                    .filter(
+                        wo.c.location == newest.location,
+                        wo.c.observed_at >= window_start,
+                        wo.c.observed_at <= window_end,
+                    )
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return {}
+
+        # One temperature per hour: the live reading when there is one, else
+        # the archive's. temp is external, cross-app input, so NULL and
+        # NaN/Infinity count as "no reading" (as in
+        # read_weather_observation_daily_max_temps above).
+        live: dict[datetime, float] = {}
+        archive: dict[datetime, float] = {}
+        for source, observed_at, temp in rows:
+            if temp is None or not math.isfinite(temp):
+                continue
+            stamp = observed_at.replace(tzinfo=UTC)  # the DB returns naive UTC
+            (live if source == LIVE_WEATHER_SOURCE else archive)[stamp] = temp
+        by_hour = archive | live
+
+        means: dict[date, float] = {}
+        for offset in range((end_date - start_date).days + 1):
+            day = start_date + timedelta(days=offset)
+            stamps = local_day.hour_end_stamps(day)
+            if all(stamp in by_hour for stamp in stamps):
+                means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
+        return means
 
     def read_weather_forecast_max_temps(
         self, start_date: date, end_date: date
