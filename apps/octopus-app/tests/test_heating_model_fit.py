@@ -464,6 +464,30 @@ def test_dropping_away_days_that_leave_nothing_below_a_threshold_has_no_fit() ->
     assert fit.threshold is None
 
 
+def test_a_short_history_whose_refit_has_nothing_to_score_is_too_few_days() -> None:
+    # As above but only 120 days (60 warm, 60 cold-away): fewer than 150 days
+    # were scoreable to begin with, so the refit's empty result is TOO_FEW_DAYS.
+    count = 120
+    rows = [
+        _summary(FIRST_DAY + timedelta(days=d), 7.0 if d < 60 else 0.5)
+        for d in range(count)
+    ]
+    means = {
+        FIRST_DAY + timedelta(days=d): 20.0 if d < 60 else 0.0 for d in range(count)
+    }
+
+    fit = fit_heating_model(
+        rows,
+        means,
+        FIRST_DAY + timedelta(days=count - 1),
+        thresholds=NARROW_THRESHOLDS,
+        weights=NARROW_WEIGHTS,
+    )
+
+    _assert_no_fit_was_made(fit, UnusableReason.TOO_FEW_DAYS)
+    assert len(fit.away_days) == 60
+
+
 def test_a_guard_failure_after_a_real_fit_keeps_the_fitted_numbers() -> None:
     data = Synthetic(Planted(gas_noise=25.0))
 

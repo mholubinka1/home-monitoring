@@ -349,6 +349,21 @@ class _Problem:
         )
 
 
+def _no_fit_reason(problem: _Problem) -> UnusableReason:
+    """Why nothing could be scored: TOO_FEW_DAYS when fewer than MIN_USABLE_DAYS
+    window days have both gas and an effective temperature (counted on the
+    original gas, before any away-day removal), otherwise NO_FIT."""
+    # An effective temperature exists for every weight alike, so the first
+    # weight's list will do.
+    temperatures = next(
+        iter(problem.effective_by_weight.values()), [None] * len(problem.gas)
+    )
+    usable_days = len(_scoreable_days(problem.gas, temperatures, problem.window_start))
+    if usable_days < MIN_USABLE_DAYS:
+        return UnusableReason.TOO_FEW_DAYS
+    return UnusableReason.NO_FIT
+
+
 def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit:
     """Mark away days from the first fit, drop them and fit a second time."""
     away = _away_indices(problem.gas, first)
@@ -356,7 +371,7 @@ def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit
     kept = [None if i in away else g for i, g in enumerate(problem.gas)]
     final = problem.best(kept)
     if final is None:
-        return _unusable(UnusableReason.NO_FIT, away_days)
+        return _unusable(_no_fit_reason(problem), away_days)
     used = _scoreable_days(
         kept, problem.effective_by_weight[final.weight], problem.window_start
     )
@@ -421,10 +436,4 @@ def fit_heating_model(
     first = problem.best(gas_list)
     if first is not None:
         return _refit_without_away_days(problem, first)
-    # Count the window days the fit could use: gas AND an effective temperature
-    # (which exists for every weight alike, so the first weight's list will do).
-    temperatures = next(iter(effective_by_weight.values()), [None] * len(gas_list))
-    usable_days = len(_scoreable_days(gas_list, temperatures, problem.window_start))
-    too_few = usable_days < MIN_USABLE_DAYS
-    reason = UnusableReason.TOO_FEW_DAYS if too_few else UnusableReason.NO_FIT
-    return _unusable(reason, frozenset())
+    return _unusable(_no_fit_reason(problem), frozenset())
