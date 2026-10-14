@@ -64,7 +64,7 @@ The temperatures themselves come from a weather service that publishes an hourly
 
 ## 7. Judging a day
 
-Once the line is drawn, each day is described by four things:
+Once the line is drawn, each day is judged using four ideas (the baseload from section 3 completes the picture):
 
 1. **Expected gas**: the baseload plus the slope times the degree-days. Where the line says that day's dot should be.
 2. **Normal wobble**: how far a dot can stray from the line on an ordinary day without anything being wrong. People are not machines, and the difference between the line and the dot (called the [residual](https://en.wikipedia.org/wiki/Errors_and_residuals)) is never zero.
