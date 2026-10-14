@@ -38,7 +38,7 @@ In the depths of winter there are not eight warm days in a 120-day window, so th
 
 ## 4. The threshold
 
-The **threshold** is the outdoor temperature below which the heating starts to be needed. Above it, extra cold makes no difference to gas; below it, every degree matters.
+The **threshold** is the outdoor temperature below which the heating starts to be needed. Above it, a warmer or colder day makes no difference to gas; below it, every degree matters.
 
 The model finds it by trying every value from 8 to 18 °C in steps of a tenth of a degree and keeping the one whose line fits our dots best. On our latest data the answer is **13.0 °C**.
 
@@ -122,7 +122,7 @@ So when a total says "at least 150 kWh avoidable", believe that as a minimum, no
 
 On a holiday the heating is off and the hot water and cooking stop too. Gas for those days falls far below the baseload. If the model treated them as ordinary warm days it would pull its idea of the baseload down, and then every normal day afterwards would look wasteful.
 
-So after a first fit, any day with gas below about a third of its baseload is marked **away**. It is dropped, and the fit is done a second time without it. Away days are shown as neutral in the verdicts: neither a saving nor waste. In our data 33 days are marked away, 27 of them in one stretch of July and August 2025.
+So after a first fit, any day with gas below about a third of its baseload is marked **away**. It is dropped, and the fit is done a second time without it. Away days are shown as neutral in the verdicts: neither a saving nor waste. Across all the history we hold, 33 days are marked away, 27 of them in one stretch of July and August 2025; six fall in the last 12 months and show as hollow dots in the chart.
 
 A day with a gas reading of exactly zero is a different thing again. It is a missing reading (the meter data did not arrive), and is treated as missing, not as a day of no use.
 
