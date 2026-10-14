@@ -69,7 +69,7 @@ Once the line is drawn, each day gets four numbers:
 
 The wobble is measured as a [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation): a yardstick for how far a typical day strays. "Possible" is between one and two yardsticks above the line; "clear" is beyond two. The first yardstick of overshoot is always counted as normal wobble.
 
-The yardstick **grows with the cold**. On a warm day the yardstick is about 3 kWh. On a bitterly cold day it is 15 to 20 kWh, so a dot can sit that far from the line and still be ordinary, because there is far more heating going on to vary. Statisticians call this unequal spread [heteroscedasticity](https://en.wikipedia.org/wiki/Heteroscedasticity); in practice it means the model is lenient on cold days and strict on warm ones, as it should be.
+The yardstick **grows with the cold**. On a warm day the yardstick is about 3 to 3.5 kWh. On a bitterly cold day it is 15 to 20 kWh, so a dot can sit that far from the line and still be ordinary, because there is far more heating going on to vary. Statisticians call this unequal spread [heteroscedasticity](https://en.wikipedia.org/wiki/Heteroscedasticity); in practice it means the model is lenient on cold days and strict on warm ones, as it should be.
 
 Every day's gas splits exactly into five slices that add up to the day's actual gas: **baseload**, **expected heating**, **normal wobble**, **possible**, **clear**. A day that used less than expected has a negative wobble slice, and its possible and clear slices are zero.
 
@@ -126,14 +126,14 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 The model learns its threshold from gas. There is a second, independent clue: the thermostat itself. Hive records when the heating is calling for heat. If the days on which the thermostat asked for heat for at least half an hour (boost presses do not count) were the colder days, and the other days the warmer ones, with the dividing line at about the same temperature, then two unrelated sources agree and the number is probably real.
 
-A model is labelled **confirmed** when the thermostat's threshold is within about 1.5 °C of the gas-based one, with about 15 heating days and 15 non-heating days to judge it on. Otherwise it is labelled **estimated**. Today the label is **estimated**, because the thermostat history is still short. The label does not change how the model works; it tells you how far to trust the threshold.
+A model is labelled **confirmed** when the thermostat's threshold is within about 1.5 °C of the gas-based one, with about 15 heating days and 15 non-heating days to judge it on. Otherwise it is labelled **estimated**. Until there is enough thermostat history the label will be **estimated**, and at the moment that history is short. The label does not change how the model works; it tells you how far to trust the threshold.
 
 ## 10b. Why some days and weeks are left out
 
 You will see days and weeks missing from some charts. That could look like removing the awkward ones. It is not, and here is why:
 
 - **The rules are about whether a number can be measured, not about what it says.** A week with mostly missing gas readings, a week too mild to have any heating to measure, and a week where the heating was off (so the ratio divides by almost nothing) all give meaningless numbers. The rules look at how complete and how cold the week was, never at whether it flatters the answer.
-- **They apply the same to every week and every year.** The week rules are: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas above baseload.
+- **They apply the same to every week and every year.** The week rules are: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas above baseload (in both years, when two years are being compared).
 - **The same goes for single days.** A day with missing or partial gas, a day with a gap in its hourly weather, and an away day are left out because they cannot be measured or would distort the line, whichever way they would have pointed.
 - **The answer survives changing the rules.** When the year-on-year comparison was tried with seven different sets of rules, from none at all to the strictest, the direction of the result never changed.
 - **Nothing is hidden.** Left-out weeks will show as gaps, and the chart will say how many were shown and why the others were left out.
@@ -161,6 +161,8 @@ These are the panels the model will feed. They are still being built, so this se
 
 ## 13. Glossary and further reading
 
+**Avoidable.** Gas beyond the normal wobble on a day that did not need heating.
+
 **Away day.** A day with gas under about a third of the baseload, treated as a holiday and left out.
 
 **Baseload.** Gas used whatever the weather: hot water and cooking. Measured from warm days over the last 120 days.
@@ -173,13 +175,19 @@ These are the panels the model will feed. They are still being built, so this se
 
 **Estimated, confirmed.** How far to trust the threshold: confirmed only when the thermostat's own behaviour agrees.
 
+**Excess.** Gas beyond the normal wobble on a day that did need heating.
+
 **Expected gas.** The baseload plus the slope times the degree-days.
+
+**Floor.** A total that is at least this much and probably more, because every choice in the model leans towards counting less waste.
 
 **Needed, not needed.** Whether the weather justified heating that day.
 
 **Normal wobble.** Up to one yardstick of difference from expected, counted as ordinary.
 
 **Possible.** Gas between one and two yardsticks above expected.
+
+**Residual.** The difference between a day's actual gas and its expected gas.
 
 **Slope.** The extra gas each degree-day costs, in kWh.
 
