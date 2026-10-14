@@ -41,3 +41,12 @@ The model job also writes a fourth small table, `heating_week` (one row per week
 The 120-day baseload window is **trailing** (the 120 days ending on that day), consistent with the held-out tests above that trained only on earlier data. Days before the first measured estimate are held at that first measured value, just as the newest days are held at the last, and the series covers every calendar day from the earliest to the latest gas day, gaps included, so every day has a baseload and a label (measured, interpolated or held).
 
 The fallback to the flat-average projection applies to **any** unusable result, not only the five conditions listed under Adoption above: the fit also reports "no fit" (unusable) when no combination of threshold and weight can be scored (no day below any threshold, or no baseload can be measured), or too few days instead when fewer than about 150 days have both gas and an effective temperature.
+
+## Update 2026-10-14: details settled while building the verdict and the thermostat check
+
+The **noise margin** is a standard deviation that grows with the heating need: the absolute daily residuals are regressed on degree-days (least squares) and scaled by sqrt(pi/2) (for normal noise the mean absolute residual is sigma x sqrt(2/pi)), with a floor of 1 kWh so a margin is never tighter than that. A day under-using its expected gas puts its negative residual in "normal variation", which keeps the slices summing exactly to the day's gas; away days are neutral (possible and clear both zero). The upper end of the threshold's uncertainty range is an input to the verdict, supplied by the bootstrap in the daily job.
+
+A **heating day** is a day with at least 15 two-minute readings (30 minutes) of `state = 'ON'` that are not boost, in any mode, and at least 648 readings (90% of 720). The thermostat-side threshold is the cut-off with the fewest misclassified days (ties take the midpoint of the tied cut-offs); with every day at one temperature there is no cut-off, so no check and the label stays "estimated". "About 15 days of evidence on each side" means at least 15 heating days and at least 15 non-heating days.
+
+First run on the live data (12 October 2026, 333 days in the window): usable, threshold 13.0 C, slope 3.76 kWh per degree-day, blend weight 0.8 (the cap), R-squared 0.69, fitted in 0.6 s. The weight landing on its cap is worth watching: the prototype had 0.55 to 0.75.
+
