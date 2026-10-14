@@ -67,7 +67,7 @@ class DayVerdict:
 class JudgingModel:
     """What every day is judged against: the fitted threshold and slope, the
     upper end of the threshold's uncertainty range (never below the threshold),
-    and the noise."""
+    and the noise. A usable fit always has a positive slope."""
 
     threshold: float
     slope: float
@@ -81,6 +81,8 @@ class JudgingModel:
             self.slope,
             self.threshold_upper,
         )
+        if self.slope <= 0:
+            raise ValueError(f"slope must be above zero, not {self.slope}")
         if self.threshold_upper < self.threshold:
             raise ValueError(
                 f"threshold_upper {self.threshold_upper} is below "
@@ -108,29 +110,26 @@ def judge_day(
     residual = gas - expected_gas
     if away:
         # Nothing to blame: the whole residual is normal variation.
-        return DayVerdict(
-            status=DayStatus.AWAY,
-            expected_gas=expected_gas,
-            margin=margin,
-            baseload=baseload,
-            expected_heating=expected_heating,
-            normal_variation=residual,
-            possible=0.0,
-            clear=0.0,
-        )
-    return DayVerdict(
-        status=(
+        status = DayStatus.AWAY
+        normal_variation, possible, clear = residual, 0.0, 0.0
+    else:
+        status = (
             DayStatus.NEEDED
             if effective < model.threshold_upper
             else DayStatus.NOT_NEEDED
-        ),
+        )
+        normal_variation = min(residual, margin)
+        possible = min(max(residual - margin, 0.0), margin)
+        clear = max(0.0, residual - 2 * margin)
+    return DayVerdict(
+        status=status,
         expected_gas=expected_gas,
         margin=margin,
         baseload=baseload,
         expected_heating=expected_heating,
-        normal_variation=min(residual, margin),
-        possible=min(max(residual - margin, 0.0), margin),
-        clear=max(0.0, residual - 2 * margin),
+        normal_variation=normal_variation,
+        possible=possible,
+        clear=clear,
     )
 
 

@@ -80,6 +80,17 @@ def test_a_judging_model_with_a_non_finite_field_is_rejected(bad: float) -> None
         )
 
 
+@pytest.mark.parametrize("slope", [0.0, -1.0])
+def test_a_judging_model_needs_a_positive_slope(slope: float) -> None:
+    with pytest.raises(ValueError, match="slope"):
+        JudgingModel(
+            threshold=THRESHOLD,
+            slope=slope,
+            threshold_upper=THRESHOLD_UPPER,
+            noise=FLAT_NOISE,
+        )
+
+
 @pytest.mark.parametrize("floor", [0.0, -1.0, math.nan])
 def test_a_noise_floor_must_be_above_zero(floor: float) -> None:
     with pytest.raises(ValueError, match="floor"):

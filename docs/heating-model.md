@@ -32,7 +32,7 @@ The **baseload** is the gas we use on a day warm enough that the heating is off:
 
 The model measures it from the warm days themselves. It averages the gas on warm days over the last 120 days. A "warm day" here means at least a degree above the threshold, and it needs at least eight such days in the window before it will trust the answer.
 
-The baseload is **not a fixed number**, and that matters. In our data it was about 6.1 kWh a day in mid-June 2025 and about 9.2 kWh a day in mid-June 2026. Something in the household changed between the two summers (more hot water, a different routine), and a fixed baseload would have blamed the heating for it.
+The baseload is **not a fixed number**, and that matters. In our data it was about 6.1 kWh a day in mid-June 2025 and about 9.2 kWh a day in mid-June 2026. Something in the household changed between the two summers (perhaps more hot water, or a different routine), and a fixed baseload would have blamed the heating for it.
 
 In the depths of winter there are not eight warm days in a 120-day window, so the model cannot measure the baseload then. It joins the last measured value to the next one with a straight line (labelled "interpolated") and, for the newest days, holds the last measured value (labelled "held"). Days before the first measured value hold that first value. Every day therefore has a baseload, and every baseload says how it was obtained: measured, interpolated or held.
 
@@ -114,7 +114,7 @@ When the dashboard adds up "possible" and "clear" gas over a month or a year, it
 - Only the part **beyond** the wobble counts. The wobble itself, which includes real overuse that happens to look normal, is never counted as waste.
 - Borderline days are treated as needed, so none of their overshoot counts as avoidable.
 - The yardstick is the household's **typical** days, not its best. A house that is always a little wasteful has that waste baked into the line, so it does not show up as a verdict.
-- Away days (next section) and days with missing gas are left out entirely, not counted as savings or waste.
+- Away days (next section) are shown as neutral, and days with missing gas are left out. Neither is counted as savings or waste.
 
 So when a total says "at least 150 kWh avoidable", believe that as a minimum, not as an estimate of the true amount.
 

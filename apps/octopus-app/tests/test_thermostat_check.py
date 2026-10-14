@@ -35,6 +35,10 @@ def test_boost_only_demand_does_not_make_a_day_a_heating_day() -> None:
     assert classify_days(readings) == {DAY: False}
 
 
+def test_no_readings_classify_no_days() -> None:
+    assert classify_days([]) == {}
+
+
 def test_a_day_with_too_few_readings_is_not_classified() -> None:
     readings = _readings(DAY, count=100, on_count=60, boost=False)
 
