@@ -1,6 +1,6 @@
 # Issues: feature-heating-model
 
-> Wave A complete — MOD-1 and MOD-2 in PR #672, ready to merge. MOD-3 to MOD-8 follow in waves B (MOD-3, MOD-4, MOD-7) and C (MOD-5, MOD-6, MOD-8).
+> Wave A complete (MOD-1, MOD-2: #672, merged). Wave B complete — MOD-3, MOD-4 and MOD-7 in one PR, ready to merge. MOD-5, MOD-6 and MOD-8 follow in wave C.
 
 ## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
@@ -58,12 +58,12 @@ Pure functions that give each day an expected gas, a scaled noise margin (growin
 
 ### Acceptance criteria
 
-- [ ] Given any day, then its slices sum exactly to its actual gas.
-- [ ] Given an overshoot of 1.4 margins, then only the part beyond 1 margin is "possible" and none is "clear".
-- [ ] Given a day inside the threshold's uncertainty range, then it is judged needed (any overshoot is excess, not avoidable).
-- [ ] Given a clearly warm day with gas above baseload by more than the margin, then the overshoot is avoidable.
-- [ ] Given an away day, then it is neutral.
-- [ ] Given a 1 C lower setpoint over a period, then the saving equals the slope times the needed days.
+- [x] Given any day, then its slices sum exactly to its actual gas.
+- [x] Given an overshoot of 1.4 margins, then only the part beyond 1 margin is "possible" and none is "clear".
+- [x] Given a day inside the threshold's uncertainty range, then it is judged needed (any overshoot is excess, not avoidable).
+- [x] Given a clearly warm day with gas above baseload by more than the margin, then the overshoot is avoidable.
+- [x] Given an away day, then it is neutral.
+- [x] Given a 1 C lower setpoint over a period, then the saving equals the slope times the needed days.
 
 ---
 
@@ -79,11 +79,11 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ### Acceptance criteria
 
-- [ ] Given boost-only demand on a warm day, then it does not make that day a heating day.
-- [ ] Given a day with too few readings, then it is not classified.
-- [ ] Given clearly separated heating and non-heating days, then the thermostat-side threshold lies between them.
-- [ ] Given agreement within the tolerance and enough evidence on both sides, then the label is "confirmed"; otherwise "estimated".
-- [ ] With little heating history (as now), the label is "estimated".
+- [x] Given boost-only demand on a warm day, then it does not make that day a heating day.
+- [x] Given a day with too few readings, then it is not classified.
+- [x] Given clearly separated heating and non-heating days, then the thermostat-side threshold lies between them.
+- [x] Given agreement within the tolerance and enough evidence on both sides, then the label is "confirmed"; otherwise "estimated".
+- [x] With little heating history (as now), the label is "estimated".
 
 ---
 
@@ -139,11 +139,11 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 
 ### Acceptance criteria
 
-- [ ] Every item in the spec's outline is present, in plain words, with at most one formula, explained in words.
-- [ ] Each technical idea has a "learn more" link from the spec's verified list (or a better verified one).
-- [ ] The worked example matches the implemented model's behaviour.
-- [ ] A reader who is not a data scientist can answer: why is my threshold what it is, what does "possible" mean, and why is the total a floor.
-- [ ] The repository's Markdown link check passes.
+- [x] Every item in the spec's outline is present, in plain words, with at most one formula, explained in words.
+- [x] Each technical idea has a "learn more" link from the spec's verified list (or a better verified one).
+- [x] The worked example matches the implemented model's behaviour.
+- [x] A reader who is not a data scientist can answer: why is my threshold what it is, what does "possible" mean, and why is the total a floor.
+- [x] The repository's Markdown link check passes.
 
 ---
 
