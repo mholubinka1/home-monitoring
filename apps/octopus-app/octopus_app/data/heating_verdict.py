@@ -135,7 +135,11 @@ def fit_noise_model(
 ) -> NoiseModel:
     """Fit how the size of daily residuals grows with degree-days, from
     (degree_days, residual) pairs, as a standard deviation. With fewer than two
-    points or no spread in degree-days the noise is flat at the mean size."""
+    points or no spread in degree-days the noise is flat at the mean size.
+
+    Raises ValueError when a degree-day or residual is not a finite number."""
+    if not all(math.isfinite(value) for pair in residuals for value in pair):
+        raise ValueError("degree-days and residuals must be finite")
     if not residuals:
         return NoiseModel(base=0.0, per_degree_day=0.0, floor=floor)
     count = len(residuals)

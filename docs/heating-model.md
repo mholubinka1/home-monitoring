@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
+> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
 
 ## 1. What this is for, and the picture
 
@@ -101,7 +101,7 @@ No heating was needed, and gas was 9.00 kWh over baseload. After setting aside t
 
 A day is **needed** if its effective temperature is below the top of the threshold's range, and **not needed** otherwise. The top of the range is used rather than the best-fit threshold on purpose: a day sitting right at the threshold is a borderline call, and the model gives the benefit of the doubt. Any overshoot on a needed day is called excess; on a not-needed day it is called avoidable.
 
-Over the 12 months to 12 October 2026, 58 of the 333 days judged (away days are not judged, so they are not in the 333) had some gas beyond the normal wobble: 43 whose worst level was "possible" and 15 that reached "clear" (about 17% in all). The "clear" level is set at two yardsticks, but because our gas runs high more often than it runs low (the technical word is [skewed](https://en.wikipedia.org/wiki/Skewness)), it flags more days than the 2% a textbook bell curve would. If "clear" feels too common, that is the setting to raise.
+Over the 12 months to 12 October 2026, 58 of the 333 days judged (away days are not judged, so they are not in the 333) had some gas beyond the normal wobble: 43 whose worst level was "possible" and 15 that reached "clear" (about 17% in all). The "clear" level is set at two yardsticks. A textbook bell curve would put only about 2% of days that far over, but our gas runs high more often than it runs low (the technical word is [skewed](https://en.wikipedia.org/wiki/Skewness)), and 15 of the 333 days (4.5%) reached "clear". If "clear" feels too common, that is the setting to raise.
 
 ## 8. Why the totals are a floor
 
@@ -124,7 +124,7 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 ## 10. Estimated, or confirmed
 
-The model learns its threshold from gas. There is a second, independent clue: the thermostat itself. Hive records when the heating is calling for heat. If, on the days the thermostat actually asked for heat for at least half an hour (boost presses do not count), the effective temperature was below about the same threshold, then two unrelated sources agree and the number is probably real.
+The model learns its threshold from gas. There is a second, independent clue: the thermostat itself. Hive records when the heating is calling for heat. If the days on which the thermostat asked for heat for at least half an hour (boost presses do not count) were the colder days, and the other days the warmer ones, with the dividing line at about the same temperature, then two unrelated sources agree and the number is probably real.
 
 A model is labelled **confirmed** when the thermostat's threshold is within about 1.5 °C of the gas-based one, with about 15 heating days and 15 non-heating days to judge it on. Otherwise it is labelled **estimated**. Today the label is **estimated**, because the thermostat history is still short. The label does not change how the model works; it tells you how far to trust the threshold.
 

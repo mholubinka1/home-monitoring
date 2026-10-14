@@ -64,10 +64,11 @@ def thermostat_threshold(
 ) -> ThermostatCheck | None:
     """The effective temperature that best separates heating days (expected
     below the cut-off) from non-heating days (at/above it), over the days in
-    both mappings (a non-finite temperature is skipped). Candidate cuts are midpoints between consecutive distinct
-    temperatures; the fewest misclassified days wins, and equally good cuts
-    give the midpoint between the smallest and largest. None when either kind
-    of day is missing, or all the days share one temperature."""
+    both mappings; a day with a non-finite temperature is skipped. Candidate
+    cuts are midpoints between consecutive distinct temperatures; the fewest
+    misclassified days wins, and equally good cuts give the midpoint between
+    the smallest and largest. None when either kind of day is missing, or all
+    the days share one temperature."""
     days = [
         day for day in day_flags if day in effective and math.isfinite(effective[day])
     ]

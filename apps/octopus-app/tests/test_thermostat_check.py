@@ -94,9 +94,7 @@ def _day(n: int) -> date:
     return DAY + timedelta(days=n)
 
 
-def test_the_threshold_lies_between_clearly_separated_heating_and_non_heating_days() -> (
-    None
-):
+def test_the_threshold_lies_between_separated_heating_and_non_heating_days() -> None:
     flags = {_day(0): True, _day(1): True, _day(2): False, _day(3): False}
     effective = {_day(0): 4.0, _day(1): 8.0, _day(2): 14.0, _day(3): 18.0}
 

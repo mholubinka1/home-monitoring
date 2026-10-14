@@ -178,6 +178,14 @@ def test_the_noise_model_recovers_noise_that_grows_with_degree_days() -> None:
     assert noise.per_degree_day == pytest.approx(0.4)
 
 
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_a_non_finite_residual_is_rejected_by_name(bad: float) -> None:
+    with pytest.raises(ValueError, match="residuals"):
+        fit_noise_model([(1.0, 2.0), (2.0, bad)])
+    with pytest.raises(ValueError, match="residuals"):
+        fit_noise_model([(bad, 2.0), (2.0, 1.0)])
+
+
 def test_the_noise_margin_never_drops_below_the_floor() -> None:
     noise = fit_noise_model(_planted_residuals(base=0.1, per_degree_day=0.0), floor=0.7)
 
