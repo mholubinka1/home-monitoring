@@ -141,15 +141,32 @@ def test_only_days_with_both_a_classification_and_an_effective_temperature_count
     )
 
 
-def test_equally_good_cuts_take_the_midpoint_between_the_first_and_last() -> None:
-    # Cuts 4 and 16 each misclassify one day, cut 9 two: the midpoint of 4..16.
+def test_two_equally_good_cuts_resolve_to_the_colder_one() -> None:
+    # Cuts 4 and 16 each misclassify one day, cut 9 two. The midpoint of 4..16
+    # (10) would misclassify two days, so the result is a real best cut: 4.
     flags = {_day(0): True, _day(1): True, _day(2): False, _day(3): False}
     effective = {_day(0): 2.0, _day(1): 12.0, _day(2): 6.0, _day(3): 20.0}
 
     check = thermostat_threshold(flags, effective)
 
     assert check is not None
-    assert check.threshold == 10.0
+    assert check.threshold == 4.0
+
+
+def test_among_several_equally_good_cuts_the_one_nearest_their_middle_wins() -> None:
+    # Cuts 4, 12 and 20 each misclassify two days (8 and 16 three): 12 is the
+    # best cut nearest the middle of 4..20.
+    heating = {2.0, 10.0, 18.0}
+    effective = dict(enumerate([2.0, 6.0, 10.0, 14.0, 18.0, 22.0]))
+    flags = {i: t in heating for i, t in effective.items()}
+
+    check = thermostat_threshold(
+        {_day(i): flag for i, flag in flags.items()},
+        {_day(i): t for i, t in effective.items()},
+    )
+
+    assert check is not None
+    assert check.threshold == 12.0
 
 
 def test_overlapping_days_take_the_cut_with_the_fewest_misclassified_days() -> None:

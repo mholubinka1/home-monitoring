@@ -135,7 +135,12 @@ def judge_day(
 
 def setpoint_saving(slope: float, verdicts: Iterable[DayVerdict]) -> float:
     """Gas (kWh) saved over the period by a 1 C lower setpoint: the slope for
-    each needed day. Away and not-needed days use no heating to save."""
+    each needed day. Away and not-needed days use no heating to save.
+
+    Raises ValueError unless the slope is a finite number above zero."""
+    _require_finite("slope", slope)
+    if slope <= 0:
+        raise ValueError(f"slope must be above zero, not {slope}")
     return slope * sum(1 for v in verdicts if v.status is DayStatus.NEEDED)
 
 

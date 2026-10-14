@@ -169,6 +169,12 @@ def test_an_away_day_is_neutral() -> None:
     assert _slices_total(verdict) == pytest.approx(30.0)
 
 
+@pytest.mark.parametrize("slope", [0.0, -3.0, math.nan, math.inf])
+def test_a_setpoint_saving_needs_a_finite_positive_slope(slope: float) -> None:
+    with pytest.raises(ValueError, match="slope"):
+        setpoint_saving(slope, [_judge(gas=20.0, effective=8.0)])
+
+
 def test_a_lower_setpoint_saves_the_slope_for_each_needed_day() -> None:
     away = judge_day(
         gas=0.0,

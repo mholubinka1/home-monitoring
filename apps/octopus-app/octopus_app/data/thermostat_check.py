@@ -66,8 +66,9 @@ def thermostat_threshold(
     below the cut-off) from non-heating days (at/above it), over the days in
     both mappings; a day with a non-finite temperature is skipped. Candidate
     cuts are midpoints between consecutive distinct temperatures; the fewest
-    misclassified days wins, and equally good cuts give the midpoint between
-    the smallest and largest. None when either kind of day is missing, or all
+    misclassified days wins; among equally good cuts, the one nearest the
+    middle of the smallest and largest (the colder, on a tie), so the result is
+    always itself a best cut. None when either kind of day is missing, or all
     the days share one temperature."""
     days = [
         day for day in day_flags if day in effective and math.isfinite(effective[day])
@@ -87,8 +88,9 @@ def thermostat_threshold(
     scored = [(errors(cut), cut) for cut in cuts]
     fewest = min(count for count, _ in scored)
     best = [cut for count, cut in scored if count == fewest]
+    middle = (min(best) + max(best)) / 2
     return ThermostatCheck(
-        threshold=(min(best) + max(best)) / 2,
+        threshold=min(best, key=lambda cut: (abs(cut - middle), cut)),
         heating_days=len(heating),
         non_heating_days=len(non_heating),
     )
