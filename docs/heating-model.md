@@ -130,7 +130,7 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 The model learns its threshold from gas. There is a second, independent clue: the thermostat itself. Hive records when the heating is calling for heat. If the days on which the thermostat asked for heat for at least half an hour (boost presses do not count) were the colder days, and the other days the warmer ones, with the dividing line at about the same temperature, then two unrelated sources agree and the number is probably real.
 
-A model is labelled **confirmed** when the thermostat's threshold is within about 1.5 °C of the gas-based one, with about 15 heating days and 15 non-heating days to judge it on. Otherwise it is labelled **estimated**. Until there is enough thermostat history the label will be **estimated**, and at the moment that history is short. The label does not change how the model works; it tells you how far to trust the threshold.
+A day only counts if the thermostat reported on at least about 90% of it (the readings arrive every two minutes, so about 650 of 720); a day with a long gap in the readings is not classified at all. A model is labelled **confirmed** when the thermostat's threshold is within about 1.5 °C of the gas-based one, with about 15 heating days and 15 non-heating days to judge it on. Otherwise it is labelled **estimated**. Until there is enough thermostat history the label will be **estimated**, and at the moment that history is short. The label does not change how the model works; it tells you how far to trust the threshold.
 
 ## 10b. Why some days and weeks are left out
 
@@ -138,7 +138,7 @@ You will see days and weeks missing from some charts. That could look like remov
 
 - **The rules are about whether a number can be measured, not about what it says.** A week with mostly missing gas readings, a week too mild to have any heating to measure, and a week where the heating was off (so the ratio divides by almost nothing) all give meaningless numbers. The rules look at how complete and how cold the week was, never at whether it flatters the answer.
 - **They apply the same to every week and every year.** The week rules are: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas above baseload (in both years, when two years are being compared).
-- **The same goes for single days.** A day with missing or partial gas, a day with a gap in its hourly weather, and an away day are left out because they cannot be measured or would distort the line, whichever way they would have pointed.
+- **The same goes for single days.** A day with missing or partial gas, a day with a gap in its hourly weather, a day with too few thermostat readings, and an away day are left out because they cannot be measured or would distort the line, whichever way they would have pointed.
 - **The answer survives changing the rules.** When the year-on-year comparison was tried with seven different sets of rules, from none at all to the strictest, the direction of the result never changed.
 - **Nothing is hidden.** Left-out weeks will show as gaps, and the chart will say how many were shown and why the others were left out.
 
