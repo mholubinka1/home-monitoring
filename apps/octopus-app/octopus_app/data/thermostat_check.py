@@ -20,7 +20,7 @@ MIN_HEATING_MINUTES = 30  # demand needed to make a heating day
 DEMAND_STATE = "ON"  # heating_status.state is exactly "ON" or "OFF" (hive-app)
 LABEL_TOLERANCE = 1.5  # thermostat and gas thresholds may differ by this (C)
 MIN_DAYS_EACH_CLASS = 15  # heating and non-heating days needed to confirm
-GAP_DECIMALS = 6  # float noise in a threshold gap (16.1 - 14.6) is far below this
+GAP_DECIMALS = 6  # float noise in a temperature gap (16.1 - 14.6) is far below this
 
 
 @dataclass(frozen=True)
@@ -90,7 +90,9 @@ def thermostat_threshold(
     best = [cut for count, cut in scored if count == fewest]
     middle = (min(best) + max(best)) / 2
     return ThermostatCheck(
-        threshold=min(best, key=lambda cut: (abs(cut - middle), cut)),
+        threshold=min(
+            best, key=lambda cut: (round(abs(cut - middle), GAP_DECIMALS), cut)
+        ),
         heating_days=len(heating),
         non_heating_days=len(non_heating),
     )

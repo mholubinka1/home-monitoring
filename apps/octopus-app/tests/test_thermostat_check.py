@@ -153,6 +153,23 @@ def test_two_equally_good_cuts_resolve_to_the_colder_one() -> None:
     assert check.threshold == 4.0
 
 
+def test_an_exact_tie_in_distance_goes_to_the_colder_cut_despite_float_rounding() -> (
+    None
+):
+    # Cuts 13.4 and 17.8 both misclassify four days and sit exactly 2.2 either
+    # side of their middle (15.6); in floating point the distances differ.
+    temperatures = [19.5, 5.2, 8.2, 9.9, 11.5, 3.2, 15.3, 16.1, 0.9]
+    heating = [True, True, False, True, True, True, False, True, False]
+
+    check = thermostat_threshold(
+        {_day(i): flag for i, flag in enumerate(heating)},
+        {_day(i): t for i, t in enumerate(temperatures)},
+    )
+
+    assert check is not None
+    assert check.threshold == 13.4
+
+
 def test_among_several_equally_good_cuts_the_one_nearest_their_middle_wins() -> None:
     # Cuts 4, 12 and 20 each misclassify two days (8 and 16 three): 12 is the
     # best cut nearest the middle of 4..20.
