@@ -62,6 +62,23 @@ def test_a_days_slices_always_add_up_to_its_actual_gas(
     assert _slices_total(verdict) == pytest.approx(gas)
 
 
+def test_an_upper_threshold_below_the_threshold_is_rejected() -> None:
+    with pytest.raises(ValueError, match="threshold_upper"):
+        JudgingModel(
+            threshold=THRESHOLD, slope=SLOPE, threshold_upper=11.0, noise=FLAT_NOISE
+        )
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_a_day_with_a_non_finite_reading_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        _judge(gas=bad, effective=5.0)
+    with pytest.raises(ValueError, match="finite"):
+        _judge(gas=20.0, effective=bad)
+    with pytest.raises(ValueError, match="finite"):
+        judge_day(gas=20.0, effective=5.0, baseload=bad, model=MODEL)
+
+
 def test_only_the_part_of_an_overshoot_beyond_one_margin_is_possible() -> None:
     # Cold day: expected gas is 7 + 3 * 7 = 28 kWh. 1.4 margins over is 30.8.
     verdict = _judge(gas=28.0 + 1.4 * 2.0, effective=5.0)

@@ -19,6 +19,7 @@ MIN_HEATING_MINUTES = 30  # demand needed to make a heating day
 DEMAND_STATE = "ON"
 LABEL_TOLERANCE = 1.5  # thermostat and gas thresholds may differ by this (C)
 MIN_DAYS_EACH_CLASS = 15  # heating and non-heating days needed to confirm
+GAP_DECIMALS = 6  # float noise in a threshold gap (16.1 - 14.6) is far below this
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,7 @@ def label_model(
     if (
         check is not None
         and gas_threshold is not None
-        and abs(check.threshold - gas_threshold) <= LABEL_TOLERANCE
+        and round(abs(check.threshold - gas_threshold), GAP_DECIMALS) <= LABEL_TOLERANCE
         and check.heating_days >= MIN_DAYS_EACH_CLASS
         and check.non_heating_days >= MIN_DAYS_EACH_CLASS
     ):

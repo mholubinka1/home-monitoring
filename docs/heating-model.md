@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built and tested. The daily job that runs it, and the dashboard panels that show it, are still being built, so a few things below (the range around the threshold, the panels in section 12) do not appear anywhere yet.
+> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
 
 ## 1. What this is for, and the picture
 
@@ -30,7 +30,7 @@ The model measures it from the warm days themselves. It averages the gas on warm
 
 The baseload is **not a fixed number**, and that matters. In our data it was about 6.1 kWh a day in mid-June 2025 and about 9.2 kWh a day in mid-June 2026. Something in the household changed between the two summers (more hot water, a different routine), and a fixed baseload would have blamed the heating for it.
 
-In the depths of winter there are not eight warm days in a 120-day window, so the model cannot measure the baseload then. It joins the last measured value to the next one with a straight line (labelled "interpolated") and, for the newest days, holds the last measured value (labelled "held"). Every day therefore has a baseload, and every baseload says how it was obtained: measured, interpolated or held.
+In the depths of winter there are not eight warm days in a 120-day window, so the model cannot measure the baseload then. It joins the last measured value to the next one with a straight line (labelled "interpolated") and, for the newest days, holds the last measured value (labelled "held"). Days before the first measured value hold that first value. Every day therefore has a baseload, and every baseload says how it was obtained: measured, interpolated or held.
 
 ## 4. The threshold
 
@@ -40,7 +40,7 @@ The model finds it by trying every value from 8 to 18 °C in steps of a tenth of
 
 That is higher than many people expect (heating is often said to start around 15.5 °C). It is the number our own house tells us, which is the point: you can use it for a rule such as "no heating on days warmer than 13".
 
-Because it is found from noisy data, the model also works out a range around it, by re-running the fit many times on randomly reshuffled copies of our days. A threshold of 13.0 with a range of a degree either way is a very different claim from 13.0 with a range of five degrees. See [bootstrapping](https://en.wikipedia.org/wiki/Bootstrapping_%28statistics%29) and [confidence interval](https://en.wikipedia.org/wiki/Confidence_interval) for the idea.
+Because it is found from noisy data, the model will also work out a range around it, by re-running the fit many times on randomly reshuffled copies of our days. A threshold of 13.0 with a range of a degree either way is a very different claim from 13.0 with a range of five degrees. See [bootstrapping](https://en.wikipedia.org/wiki/Bootstrapping_%28statistics%29) and [confidence interval](https://en.wikipedia.org/wiki/Confidence_interval) for the idea.
 
 The measure of "degrees colder than the threshold" has a name: [heating degree days](https://en.wikipedia.org/wiki/Heating_degree_day). A day that averages 3 °C against a 13 °C threshold is 10 degree-days.
 
@@ -56,7 +56,7 @@ A house is a big lump of brick that heats up and cools down slowly (this is call
 
 How much of yesterday goes into the blend is itself learned from the data, within a limit of 80%. On our latest data the best blend is at that limit: about four-fifths yesterday, one-fifth today. That is worth keeping an eye on. If the best answer keeps landing on the limit, it is telling us the house has a longer memory than a two-day blend can express.
 
-The temperatures themselves come from a weather service that publishes an hourly reading for our area ([reanalysis data](https://en.wikipedia.org/wiki/Reanalysis), which blends measurements and models into a complete record). A day's average is only used when all of its hours are present. A day with a gap is left out, never averaged from what is left.
+The temperatures themselves come from a weather service that publishes an hourly reading for our area: live readings where we have them, and otherwise its archive, which is [reanalysis data](https://en.wikipedia.org/wiki/Reanalysis) (measurements and models blended into a complete record). A day's average is only used when all of its hours are present. A day with a gap is left out, never averaged from what is left.
 
 ## 7. Judging a day
 
@@ -77,14 +77,14 @@ Every day's gas splits exactly into five slices that add up to the day's actual 
 
 Friday 9 January 2026, with the model as fitted in October 2026.
 
-- Outdoor average that day: **3.3 °C**, and 3.9 °C the day before. The effective temperature is 3.8 °C.
-- That is 9.2 degrees under the 13.0 °C threshold.
-- Expected heating: 9.2 degree-days × 3.76 kWh = **34.5 kWh**. The baseload that day was **6.9 kWh**. So the model expected about **41.4 kWh**.
-- The wobble yardstick at 9.2 degree-days is **14.9 kWh**.
-- Actual gas: **65.7 kWh**. That is 24.3 kWh over expected.
-- Slices: 6.9 baseload + 34.5 expected heating + 14.9 normal wobble + **9.5 possible** + 0 clear = 65.8 (the 0.1 is rounding).
+- Outdoor average that day: **3.32 °C**, and 3.94 °C the day before. With about four-fifths of the blend from yesterday, the effective temperature is **3.82 °C**.
+- That is 9.18 degrees under the 13.0 °C threshold.
+- Expected heating: 9.18 degree-days × 3.76 kWh = **34.52 kWh**. The baseload that day was **6.89 kWh**. So the model expected **41.41 kWh**.
+- The wobble yardstick at 9.18 degree-days is **14.86 kWh**.
+- Actual gas: **65.73 kWh**. That is 24.32 kWh over expected.
+- Slices: 6.89 baseload + 34.52 expected heating + 14.86 normal wobble + **9.46 possible** + 0 clear = 65.73.
 
-So the first 14.9 kWh of overshoot is written off as normal wobble. The next 9.5 kWh is flagged as "possible". It was not enough to count as "clear" (that would need more than 29.7 kWh over). It was a cold day, so the heating was needed. The 9.5 kWh is **excess** on a needed day, not an avoidable one.
+So the first 14.86 kWh of overshoot is written off as normal wobble. The next 9.46 kWh is flagged as "possible". It was not enough to count as "clear" (that would need more than 29.72 kWh over expected). It was a cold day, so the heating was needed. The 9.46 kWh is **excess** on a needed day, not an avoidable one.
 
 ### A worked example: a warm day
 
@@ -101,7 +101,7 @@ No heating was needed, and gas was 9 kWh over baseload. After setting aside the 
 
 A day is **needed** if its effective temperature is below the top of the threshold's range, and **not needed** otherwise. The top of the range is used rather than the best-fit threshold on purpose: a day sitting right at the threshold is a borderline call, and the model gives the benefit of the doubt. Any overshoot on a needed day is called excess; on a not-needed day it is called avoidable.
 
-Over the 12 months to 12 October 2026, 58 of the 333 days judged (about 17%) had some gas beyond the normal wobble: 43 "possible" and 15 "clear". The "clear" level is set at two yardsticks, but because our gas runs high more often than it runs low (the technical word is [skewed](https://en.wikipedia.org/wiki/Skewness)), it flags more days than the 2% a textbook bell curve would. If "clear" feels too common, that is the setting to raise.
+Over the 12 months to 12 October 2026, 58 of the 333 days judged (away days are not judged, so they are not in the 333) had some gas beyond the normal wobble: 43 whose worst level was "possible" and 15 that reached "clear" (about 17% in all). The "clear" level is set at two yardsticks, but because our gas runs high more often than it runs low (the technical word is [skewed](https://en.wikipedia.org/wiki/Skewness)), it flags more days than the 2% a textbook bell curve would. If "clear" feels too common, that is the setting to raise.
 
 ## 8. Why the totals are a floor
 
@@ -134,10 +134,11 @@ You will see days and weeks missing from some charts. That could look like remov
 
 - **The rules are about whether a number can be measured, not about what it says.** A week with mostly missing gas readings, a week too mild to have any heating to measure, and a week where the heating was off (so the ratio divides by almost nothing) all give meaningless numbers. The rules look at how complete and how cold the week was, never at whether it flatters the answer.
 - **They apply the same to every week and every year.** The week rules are: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas above baseload.
+- **The same goes for single days.** A day with missing or partial gas, a day with a gap in its hourly weather, and an away day are left out because they cannot be measured or would distort the line, whichever way they would have pointed.
 - **The answer survives changing the rules.** When the year-on-year comparison was tried with seven different sets of rules, from none at all to the strictest, the direction of the result never changed.
-- **Nothing is hidden.** Left-out weeks show as gaps, and the chart says how many were shown and why the others were left out.
+- **Nothing is hidden.** Left-out weeks will show as gaps, and the chart will say how many were shown and why the others were left out.
 
-There is an honest caveat: the exact numbers 1.5 and 0.5 were chosen after looking at one winter's data. Another winter, with the rules unchanged, is the fair test. The full argument is in the [week rules note](../.agent-docs/research/year-on-year-week-rules.md).
+There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after looking at one winter's data, and another winter, with the rules unchanged, is the fair test. And the evidence from the weekly comparison on its own is weak: the rules kept 14 of that winter's 28 weeks, and the honest summary of what they showed was "probably somewhat worse than last year, not proven". Guards stop noise being mistaken for a finding; they cannot make weak evidence strong. The full argument is in the [week rules note](../.agent-docs/research/year-on-year-week-rules.md).
 
 ## 11. What the model cannot tell you
 
@@ -145,7 +146,7 @@ There is an honest caveat: the exact numbers 1.5 and 0.5 were chosen after looki
 - **Heating versus hot water.** It separates them statistically, using warm days to learn the hot-water level. It does not measure either one directly.
 - **Weather it does not see.** Wind, sunshine and rain affect a real house, and the model sees only temperature. Cloudy-and-still and sunny-and-gusty days with the same average look identical to it. This is part of the 31% R-squared leaves unexplained.
 - **Your house, exactly.** The temperatures are area-wide values for our location, not a thermometer on the wall.
-- **The future with certainty.** It projects the next seven days from the weather forecast. A forecast that is two degrees out moves the projection by about 7 to 8 kWh a day on a cold day.
+- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves the projection by about 7 to 8 kWh a day on a cold day.
 - **That two years are alike.** Our last two years differ in baseload and in threshold. The model fits the latest 12 months, so it follows the house as it is now, but a sudden change takes weeks to show.
 
 ## 12. Reading the dashboard panels
@@ -155,7 +156,7 @@ These are the panels the model will feed. They are still being built, so this se
 - **Gas against outdoor temperature, with the fitted bend.** Each dot is a day. The flat part on the right is the baseload; the climbing part on the left is the heating. The legend gives the baseload, the threshold, the slope and the estimated/confirmed label. Dots high above the line are the days to look at.
 - **Where the gas went.** A stacked bar for each day, in the five slices from section 7: baseload, expected heating, normal wobble, possible and clear. The bar is the real total, so it always adds up. Look for tall "possible" and "clear" caps on warm days.
 - **Heating efficiency by week.** The gas the heating used (above baseload) for every degree-day of cold, this winter against last. Lower is better. A week left out for the reasons in section 10b appears as a gap.
-- **Saving from a setpoint 1 °C lower.** The slope multiplied by the number of days heating was needed. With a slope of 3.8 kWh and about 200 needed days a year, that is roughly **750 kWh** a year. It is an estimate from the model, not a promise.
+- **Saving from a setpoint 1 °C lower.** The slope multiplied by the number of days heating was needed. With a slope of 3.8 kWh, and roughly 200 days a year that need heating (196 in the last 12 months), that is about **750 kWh** a year. It is an estimate from the model, not a promise.
 - **The next seven days.** Expected gas for each day from the forecast temperature, using the same line.
 
 ## 13. Glossary and further reading

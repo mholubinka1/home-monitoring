@@ -47,12 +47,20 @@ class DayVerdict:
 @dataclass(frozen=True)
 class JudgingModel:
     """What every day is judged against: the fitted threshold and slope, the
-    upper end of the threshold's uncertainty range, and the noise."""
+    upper end of the threshold's uncertainty range (never below the threshold),
+    and the noise."""
 
     threshold: float
     slope: float
     threshold_upper: float
     noise: NoiseModel
+
+    def __post_init__(self) -> None:
+        if self.threshold_upper < self.threshold:
+            raise ValueError(
+                f"threshold_upper {self.threshold_upper} is below "
+                f"threshold {self.threshold}"
+            )
 
 
 def judge_day(
@@ -63,29 +71,42 @@ def judge_day(
     model: JudgingModel,
     away: bool = False,
 ) -> DayVerdict:
-    """Split a day's gas into slices that add up exactly to it."""
+    """Split a day's gas into slices that add up exactly to it.
+
+    Raises ValueError when gas, effective temperature or baseload is not a
+    finite number: a NaN would break the sum without any other sign."""
+    if not all(math.isfinite(value) for value in (gas, effective, baseload)):
+        raise ValueError("gas, effective temperature and baseload must be finite")
     degree_days = max(0.0, model.threshold - effective)
     expected_heating = model.slope * degree_days
     expected_gas = baseload + expected_heating
     margin = model.noise.margin(degree_days)
     residual = gas - expected_gas
     if away:
-        status = DayStatus.AWAY
-    elif effective < model.threshold_upper:
-        status = DayStatus.NEEDED
-    else:
-        status = DayStatus.NOT_NEEDED
-    # An away day's whole residual is normal variation: nothing to blame.
-    judged = status is not DayStatus.AWAY
+        # Nothing to blame: the whole residual is normal variation.
+        return DayVerdict(
+            status=DayStatus.AWAY,
+            expected_gas=expected_gas,
+            margin=margin,
+            baseload=baseload,
+            expected_heating=expected_heating,
+            normal_variation=residual,
+            possible=0.0,
+            clear=0.0,
+        )
     return DayVerdict(
-        status=status,
+        status=(
+            DayStatus.NEEDED
+            if effective < model.threshold_upper
+            else DayStatus.NOT_NEEDED
+        ),
         expected_gas=expected_gas,
         margin=margin,
         baseload=baseload,
         expected_heating=expected_heating,
-        normal_variation=min(residual, margin) if judged else residual,
-        possible=min(max(residual - margin, 0.0), margin) if judged else 0.0,
-        clear=max(0.0, residual - 2 * margin) if judged else 0.0,
+        normal_variation=min(residual, margin),
+        possible=min(max(residual - margin, 0.0), margin),
+        clear=max(0.0, residual - 2 * margin),
     )
 
 

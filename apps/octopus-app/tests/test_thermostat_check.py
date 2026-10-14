@@ -74,6 +74,22 @@ def test_readings_over_two_local_days_classify_per_day() -> None:
     assert classify_days(readings) == {DAY: True, next_day: False}
 
 
+def test_summer_demand_just_after_local_midnight_belongs_to_that_local_day() -> None:
+    # London is UTC+1 in summer: 23:00 UTC on 14 July is 00:00 on 15 July. The
+    # only demand is in that first local hour, which is still 14 July in UTC.
+    start = datetime(2026, 7, 14, 23, 0, tzinfo=UTC)
+    readings = [
+        HeatingReading(
+            polled_at=start + i * POLL,
+            state="ON" if i < 30 else "OFF",
+            boost_active=False,
+        )
+        for i in range(720)
+    ]
+
+    assert classify_days(readings) == {date(2026, 7, 15): True}
+
+
 def _day(n: int) -> date:
     return DAY + timedelta(days=n)
 
@@ -162,6 +178,11 @@ def _check(
 def test_agreement_within_the_tolerance_with_enough_days_is_confirmed() -> None:
     assert label_model(12.0, _check(13.5)) == ModelLabel.CONFIRMED
     assert label_model(12.0, _check(10.5)) == ModelLabel.CONFIRMED
+
+
+def test_a_gap_of_exactly_the_tolerance_is_confirmed_despite_float_rounding() -> None:
+    # 16.1 - 14.6 computes as 1.5000000000000018 in floating point.
+    assert label_model(14.6, _check(16.1)) == ModelLabel.CONFIRMED
 
 
 def test_disagreement_beyond_the_tolerance_is_estimated() -> None:
