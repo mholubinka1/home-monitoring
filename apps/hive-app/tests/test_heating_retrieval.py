@@ -83,8 +83,8 @@ def test_refresh_stores_a_poll_whose_schedule_holds_datetimes(
             "value": {"target": 7},
             "start": 720,
             # apyhiveapi builds these naive
-            "Start_DateTime": datetime(2026, 10, 3, 12, 0),  # noqa: DTZ001
-            "End_DateTime": datetime(2026, 10, 3, 17, 30),  # noqa: DTZ001
+            "Start_DateTime": datetime(2026, 10, 3, 12, 0),
+            "End_DateTime": datetime(2026, 10, 3, 17, 30),
         },
     }
     source = _FakeHiveSource(mariadb_client, status)

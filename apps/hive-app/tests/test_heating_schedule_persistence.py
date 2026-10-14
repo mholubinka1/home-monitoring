@@ -6,7 +6,6 @@ now/next/later is a Hive API slot dict (`value`, `start`) with `Start_DateTime`
 and `End_DateTime` datetimes added by the library."""
 
 # apyhiveapi builds these datetimes naive, so the fixtures are deliberately naive.
-# ruff: noqa: DTZ001
 
 from datetime import UTC, date, datetime
 from typing import Any
