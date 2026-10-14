@@ -7,6 +7,9 @@ native MySQL data source.
 Cheapest-tariff comparison and cost forecasting are planned but not yet implemented —
 see `.agent-docs/specs/` for the roadmap.
 
+The learned heating model, which judges each day's gas against the weather, is
+explained in plain language in [docs/heating-model.md](docs/heating-model.md).
+
 ## Architecture
 
 - **`apps/octopus-app/`** — polls the Octopus API on a configurable interval and writes

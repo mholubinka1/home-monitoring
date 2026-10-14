@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
+> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the estimated/confirmed label in section 10, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
 
 ## 1. What this is for, and the picture
 
@@ -64,7 +64,7 @@ The temperatures themselves come from a weather service that publishes an hourly
 
 ## 7. Judging a day
 
-Once the line is drawn, each day gets four numbers:
+Once the line is drawn, each day is described by four things:
 
 1. **Expected gas**: the baseload plus the slope times the degree-days. Where the line says that day's dot should be.
 2. **Normal wobble**: how far a dot can stray from the line on an ordinary day without anything being wrong. People are not machines, and the difference between the line and the dot (called the [residual](https://en.wikipedia.org/wiki/Errors_and_residuals)) is never zero.
@@ -73,7 +73,7 @@ Once the line is drawn, each day gets four numbers:
 
 The wobble is measured as a [standard deviation](https://en.wikipedia.org/wiki/Standard_deviation): a yardstick for how far a typical day strays. "Possible" is between one and two yardsticks above the line; "clear" is beyond two. The first yardstick of overshoot is always counted as normal wobble.
 
-The yardstick **grows with the cold**. On a warm day the yardstick is about 3 to 3.5 kWh. On a bitterly cold day it is 15 to 20 kWh, so a dot can sit that far from the line and still be ordinary, because there is far more heating going on to vary. Statisticians call this unequal spread [heteroscedasticity](https://en.wikipedia.org/wiki/Heteroscedasticity); in practice it means the model is lenient on cold days and strict on warm ones, as it should be.
+The yardstick **grows with the cold**. On a warm day the yardstick is about 3 to 3.5 kWh. On a bitterly cold day it is 15 to 21 kWh, so a dot can sit that far from the line and still be ordinary, because there is far more heating going on to vary. Statisticians call this unequal spread [heteroscedasticity](https://en.wikipedia.org/wiki/Heteroscedasticity); in practice it means the model is lenient on cold days and strict on warm ones, as it should be.
 
 Every day's gas splits exactly into five slices that add up to the day's actual gas: **baseload**, **expected heating**, **normal wobble**, **possible**, **clear**. A day that used less than expected has a negative wobble slice, and its possible and clear slices are zero.
 
