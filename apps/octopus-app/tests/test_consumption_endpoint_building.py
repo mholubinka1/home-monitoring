@@ -74,7 +74,7 @@ def test_a_non_utc_period_is_normalized_to_utc_z_format_in_the_request() -> None
 
 
 def test_a_naive_period_is_rejected_rather_than_silently_using_local_time() -> None:
-    naive_period_from = datetime(2024, 1, 6)  # noqa: DTZ001 -- naive is the point
+    naive_period_from = datetime(2024, 1, 6)  # naive is the point
 
     with pytest.raises(ArgumentError, match="timezone-aware"):
         _octopus().get_consumption(_meter(), naive_period_from)

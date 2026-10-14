@@ -28,7 +28,7 @@ def test_a_naive_instant_from_a_database_row_is_treated_as_utc() -> None:
     # consumption.period_from comes back from MariaDB/SQLite as a naive
     # datetime representing a UTC instant -- the same BST-crossing instant
     # as above, but without tzinfo attached.
-    instant = datetime(2026, 7, 20, 23, 30)  # noqa: DTZ001 -- naive is the point
+    instant = datetime(2026, 7, 20, 23, 30)  # naive is the point
 
     assert to_local_date(instant) == date(2026, 7, 21)
 

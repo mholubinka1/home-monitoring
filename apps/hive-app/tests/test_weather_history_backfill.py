@@ -1,4 +1,3 @@
-# ruff: noqa: DTZ001
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
