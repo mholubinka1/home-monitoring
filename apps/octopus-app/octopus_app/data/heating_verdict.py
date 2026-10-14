@@ -10,6 +10,9 @@ NOISE_FLOOR_KWH = 1.0  # a day is never judged on a margin tighter than this (kW
 # For normal noise the mean absolute residual is sigma * sqrt(2 / pi), so
 # scaling by its inverse turns fitted mean sizes into standard deviations.
 MEAN_ABS_TO_SIGMA = math.sqrt(math.pi / 2)
+# Spread in degree-days (sum of squared deviations) below this is float rounding
+# noise on repeated values, not real variation to fit a slope to.
+MIN_DEGREE_DAY_SPREAD = 1e-9
 
 
 def _require_finite(names: str, *values: float) -> None:
@@ -156,7 +159,7 @@ def fit_noise_model(
     mean_dd = sum(dd for dd, _ in residuals) / count
     mean_size = sum(abs(r) for _, r in residuals) / count
     spread = sum((dd - mean_dd) ** 2 for dd, _ in residuals)
-    if spread == 0:
+    if spread < MIN_DEGREE_DAY_SPREAD:
         return NoiseModel(
             base=mean_size * MEAN_ABS_TO_SIGMA, per_degree_day=0.0, floor=floor
         )

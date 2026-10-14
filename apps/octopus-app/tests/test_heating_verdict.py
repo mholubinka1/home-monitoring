@@ -222,6 +222,16 @@ def test_noise_without_spread_in_degree_days_uses_the_mean_residual() -> None:
     assert noise.per_degree_day == 0.0
 
 
+def test_repeated_non_zero_degree_days_count_as_no_spread() -> None:
+    # Three days at 3.7 degree-days: the mean of identical floats is not exactly
+    # 3.7, so the spread is rounding noise (about 1e-31), not zero, and dividing
+    # by it would invent a slope.
+    noise = fit_noise_model([(3.7, -6.6), (3.7, 6.3), (3.7, 4.7)])
+
+    assert noise.base == pytest.approx((6.6 + 6.3 + 4.7) / 3 / MEAN_ABS_PER_SIGMA)
+    assert noise.per_degree_day == 0.0
+
+
 def test_a_single_residual_is_used_as_the_base_noise() -> None:
     noise = fit_noise_model([(4.0, -2.0)])
 
