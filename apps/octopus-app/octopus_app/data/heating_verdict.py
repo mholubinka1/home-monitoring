@@ -12,6 +12,12 @@ NOISE_FLOOR_KWH = 1.0  # a day is never judged on a margin tighter than this (kW
 MEAN_ABS_TO_SIGMA = math.sqrt(math.pi / 2)
 
 
+def _require_finite(names: str, *values: float) -> None:
+    """Raise ValueError naming `names` unless every value is a finite number."""
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError(f"{names} must be finite")
+
+
 @dataclass(frozen=True)
 class NoiseModel:
     """How far a day's gas normally strays from its expected value."""
@@ -21,11 +27,12 @@ class NoiseModel:
     floor: float
 
     def __post_init__(self) -> None:
-        if not all(
-            math.isfinite(value)
-            for value in (self.base, self.per_degree_day, self.floor)
-        ):
-            raise ValueError("noise base, per_degree_day and floor must be finite")
+        _require_finite(
+            "noise base, per_degree_day and floor",
+            self.base,
+            self.per_degree_day,
+            self.floor,
+        )
         if self.floor <= 0:
             raise ValueError(f"noise floor must be above zero, not {self.floor}")
 
@@ -65,11 +72,12 @@ class JudgingModel:
     noise: NoiseModel
 
     def __post_init__(self) -> None:
-        if not all(
-            math.isfinite(value)
-            for value in (self.threshold, self.slope, self.threshold_upper)
-        ):
-            raise ValueError("threshold, slope and threshold_upper must be finite")
+        _require_finite(
+            "threshold, slope and threshold_upper",
+            self.threshold,
+            self.slope,
+            self.threshold_upper,
+        )
         if self.threshold_upper < self.threshold:
             raise ValueError(
                 f"threshold_upper {self.threshold_upper} is below "
@@ -85,12 +93,11 @@ def judge_day(
     model: JudgingModel,
     away: bool = False,
 ) -> DayVerdict:
-    """Split a day's gas into slices that add up exactly to it.
+    """Split a day's gas into slices that sum to it (to within float rounding).
 
     Raises ValueError when gas, effective temperature or baseload is not a
     finite number: a NaN would break the sum without any other sign."""
-    if not all(math.isfinite(value) for value in (gas, effective, baseload)):
-        raise ValueError("gas, effective temperature and baseload must be finite")
+    _require_finite("gas, effective temperature and baseload", gas, effective, baseload)
     degree_days = max(0.0, model.threshold - effective)
     expected_heating = model.slope * degree_days
     expected_gas = baseload + expected_heating
@@ -135,11 +142,14 @@ def fit_noise_model(
 ) -> NoiseModel:
     """Fit how the size of daily residuals grows with degree-days, from
     (degree_days, residual) pairs, as a standard deviation. With fewer than two
-    points or no spread in degree-days the noise is flat at the mean size.
+    points or no spread in degree-days the noise is flat at the mean size; with
+    no points the base is zero and the floor decides. A fit that falls with the
+    cold is kept as fitted (the floor still bounds the margin).
 
     Raises ValueError when a degree-day or residual is not a finite number."""
-    if not all(math.isfinite(value) for pair in residuals for value in pair):
-        raise ValueError("degree-days and residuals must be finite")
+    _require_finite(
+        "degree-days and residuals", *(value for pair in residuals for value in pair)
+    )
     if not residuals:
         return NoiseModel(base=0.0, per_degree_day=0.0, floor=floor)
     count = len(residuals)

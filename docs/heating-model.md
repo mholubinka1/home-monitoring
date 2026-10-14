@@ -12,6 +12,10 @@ The question is simple: **on which days did we need the heating, and on which da
 
 Plot every day as a dot, with the outdoor temperature across the bottom and the gas used up the side, and the dots make a shape like a hockey stick. On warm days the dots sit on a flat line: the gas that is used whatever the weather (hot water and cooking). As the days get colder than a certain point, the dots climb steadily, because the heating is doing more work.
 
+![Scatter of daily gas against effective outdoor temperature: dots lie flat near 8 kWh above 13 degrees and climb steadily as it gets colder, with the fitted line in red](images/heating-model-gas-vs-temperature.svg)
+
+*Each dot is one day in the 12 months to 12 October 2026. The red line is the fitted model, drawn with the newest baseload; each real day had its own baseload, which is part of why the dots scatter. The hollow dots are away days, left out of the fit.*
+
 The model draws that hockey stick through our own dots, then asks of each day: is this dot where the weather says it should be, or well above?
 
 ## 2. The one-line idea
@@ -90,7 +94,7 @@ So the first 14.86 kWh of overshoot is written off as normal wobble. The next 9.
 
 Saturday 26 September 2026.
 
-- Outdoor average 16.03 °C, 18.00 °C the day before. The effective temperature is 17.60 °C, comfortably above the threshold. No heating was needed.
+- Outdoor average 16.03 °C, 18.00 °C the day before. The effective temperature is 17.60 °C (from the unrounded temperatures), comfortably above the threshold. No heating was needed.
 - Baseload 8.34 kWh, expected heating 0, wobble yardstick 3.42 kWh.
 - Actual gas: **17.34 kWh**.
 - Slices: 8.34 baseload + 0 heating + 3.42 normal wobble + **3.42 possible** + **2.16 clear** = 17.34.
@@ -146,7 +150,7 @@ There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after lookin
 - **Heating versus hot water.** It separates them statistically, using warm days to learn the hot-water level. It does not measure either one directly.
 - **Weather it does not see.** Wind, sunshine and rain affect a real house, and the model sees only temperature. Cloudy-and-still and sunny-and-gusty days with the same average look identical to it. This is part of the 31% R-squared leaves unexplained.
 - **Your house, exactly.** The temperatures are area-wide values for our location, not a thermometer on the wall.
-- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (because most of the blend is yesterday, which is already known), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
+- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (four-fifths of the blend is today, which is nearly over, so only a fifth rides on the forecast), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
 - **That two years are alike.** Our last two years differ in baseload and in threshold. The model fits the latest 12 months, so it follows the house as it is now, but a sudden change takes weeks to show.
 
 ## 12. Reading the dashboard panels
@@ -156,7 +160,7 @@ These are the panels the model will feed. They are still being built, so this se
 - **Gas against outdoor temperature, with the fitted bend.** Each dot is a day. The flat part on the right is the baseload; the climbing part on the left is the heating. The legend gives the baseload, the threshold, the slope and the estimated/confirmed label. Dots high above the line are the days to look at.
 - **Where the gas went.** A stacked bar for each day, in the five slices from section 7: baseload, expected heating, normal wobble, possible and clear. The bar is the real total, so it always adds up. Look for tall "possible" and "clear" caps on warm days.
 - **Heating efficiency by week.** The gas the heating used (above baseload) for every degree-day of cold, this winter against last. Lower is better. A week left out for the reasons in section 10b appears as a gap.
-- **Saving from a setpoint 1 °C lower.** The slope multiplied by the number of days heating was needed. With a slope of 3.8 kWh, and roughly 200 days a year that need heating (196 in the last 12 months), that is about **750 kWh** a year. It is an estimate from the model, not a promise.
+- **Saving from a setpoint 1 °C lower.** The slope multiplied by the number of days heating was needed. With a slope of 3.8 kWh, and roughly 200 days a year that need heating (196 in the last 12 months), that is about **740 kWh** a year. It is an estimate from the model, not a promise.
 - **The next seven days.** Expected gas for each day from the forecast temperature, using the same line.
 
 ## 13. Glossary and further reading
@@ -183,7 +187,7 @@ These are the panels the model will feed. They are still being built, so this se
 
 **Needed, not needed.** Whether the weather justified heating that day.
 
-**Normal wobble.** Up to one yardstick of difference from expected, counted as ordinary.
+**Normal wobble.** Up to one yardstick of difference from expected, counted as ordinary (negative on a day that used less than expected).
 
 **Possible.** Gas between one and two yardsticks above expected.
 

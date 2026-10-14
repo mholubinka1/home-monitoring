@@ -47,7 +47,8 @@ def _slices_total(verdict: DayVerdict) -> float:
     ("gas", "effective"),
     [
         (7.0, 20.0),  # warm day, exactly baseload
-        (30.0, 5.0),  # cold day, far over expected
+        (30.0, 5.0),  # cold day, one margin over expected (28)
+        (35.0, 5.0),  # cold day, 3.5 margins over expected (28)
         (10.0, 5.0),  # cold day, far under expected
         (9.5, 11.0),  # cool day, slightly over
         (12.3, 12.5),  # between threshold and its upper end
@@ -107,6 +108,22 @@ def test_only_the_part_of_an_overshoot_beyond_one_margin_is_possible() -> None:
 
     assert verdict.normal_variation == pytest.approx(2.0)
     assert verdict.possible == pytest.approx(0.8)
+    assert verdict.clear == 0.0
+
+
+def test_an_overshoot_beyond_two_margins_is_clear_and_possible_is_capped() -> None:
+    # Expected gas is 28 and the margin 2: 3.5 margins over is 35.
+    verdict = _judge(gas=28.0 + 3.5 * 2.0, effective=5.0)
+
+    assert verdict.normal_variation == pytest.approx(2.0)
+    assert verdict.possible == pytest.approx(2.0)
+    assert verdict.clear == pytest.approx(3.0)
+
+
+def test_an_overshoot_of_exactly_two_margins_is_not_yet_clear() -> None:
+    verdict = _judge(gas=28.0 + 2 * 2.0, effective=5.0)
+
+    assert verdict.possible == pytest.approx(2.0)
     assert verdict.clear == 0.0
 
 
