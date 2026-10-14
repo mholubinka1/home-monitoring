@@ -105,6 +105,15 @@ def test_the_threshold_lies_between_clearly_separated_heating_and_non_heating_da
     )
 
 
+def test_a_day_with_a_non_finite_temperature_is_skipped() -> None:
+    flags = {_day(0): True, _day(1): False, _day(2): False}
+    effective = {_day(0): 4.0, _day(1): 14.0, _day(2): float("nan")}
+
+    assert thermostat_threshold(flags, effective) == ThermostatCheck(
+        threshold=9.0, heating_days=1, non_heating_days=1
+    )
+
+
 def test_there_is_no_threshold_without_both_kinds_of_day() -> None:
     flags = {_day(0): True, _day(1): True}
     effective = {_day(0): 4.0, _day(1): 8.0}

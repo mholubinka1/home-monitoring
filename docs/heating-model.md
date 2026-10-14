@@ -18,7 +18,7 @@ The model draws that hockey stick through our own dots, then asks of each day: i
 
 On any day, gas used is roughly **a baseload that is always there, plus a slope's worth of extra for every degree the day was colder than a threshold**.
 
-That is the only formula in this guide. In words: take the temperature below which heating starts, see how far under it the day was, multiply by how much gas each of those degrees costs, and add the always-there gas on top. Everything else is detail on one of those four pieces (baseload, threshold, slope, "how cold the day was").
+That is the only formula in this guide (later sections repeat it in words). In words: take the temperature below which heating starts, see how far under it the day was, multiply by how much gas each of those degrees costs, and add the always-there gas on top. Everything else is detail on one of those four pieces (baseload, threshold, slope, "how cold the day was").
 
 This family of models is old and well tested. Building scientists have used it since the 1980s to read heating use from utility bills ([the original method, PRISM](https://www.aceee.org/wp-content/uploads/proceedings-1980-2020/1986/SS86_Panel9_Paper_04.pdf)). It is a kind of [segmented regression](https://en.wikipedia.org/wiki/Segmented_regression): a straight line fitted in pieces, with a bend where one piece meets the next. If "regression" is new to you, [linear regression](https://en.wikipedia.org/wiki/Linear_regression) is the gentlest place to start.
 
@@ -90,12 +90,12 @@ So the first 14.86 kWh of overshoot is written off as normal wobble. The next 9.
 
 Saturday 26 September 2026.
 
-- Outdoor average 16.0 °C, 18.0 °C the day before. The effective temperature is 17.6 °C, comfortably above the threshold. No heating was needed.
-- Baseload 8.3 kWh, expected heating 0, wobble yardstick 3.4 kWh.
-- Actual gas: **17.3 kWh**.
-- Slices: 8.3 baseload + 0 heating + 3.4 normal wobble + **3.4 possible** + **2.2 clear** = 17.3.
+- Outdoor average 16.03 °C, 18.00 °C the day before. The effective temperature is 17.60 °C, comfortably above the threshold. No heating was needed.
+- Baseload 8.34 kWh, expected heating 0, wobble yardstick 3.42 kWh.
+- Actual gas: **17.34 kWh**.
+- Slices: 8.34 baseload + 0 heating + 3.42 normal wobble + **3.42 possible** + **2.16 clear** = 17.34.
 
-No heating was needed, and gas was 9 kWh over baseload. After setting aside the first 3.4 kWh as wobble, the remaining 5.6 kWh is **avoidable** gas, with 2.2 kWh of it beyond two yardsticks, so "clear". The model cannot say why: the heating may have been on, or a lot of hot water used, on a warm Saturday.
+No heating was needed, and gas was 9.00 kWh over baseload. After setting aside the first 3.42 kWh as wobble, the remaining 5.58 kWh is **avoidable** gas, with 2.16 kWh of it beyond two yardsticks, so "clear". The model cannot say why: the heating may have been on, or a lot of hot water used, on a warm Saturday.
 
 ### Needed, and not needed
 
@@ -146,7 +146,7 @@ There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after lookin
 - **Heating versus hot water.** It separates them statistically, using warm days to learn the hot-water level. It does not measure either one directly.
 - **Weather it does not see.** Wind, sunshine and rain affect a real house, and the model sees only temperature. Cloudy-and-still and sunny-and-gusty days with the same average look identical to it. This is part of the 31% R-squared leaves unexplained.
 - **Your house, exactly.** The temperatures are area-wide values for our location, not a thermometer on the wall.
-- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves the projection by about 7 to 8 kWh a day on a cold day.
+- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (because most of the blend is yesterday, which is already known), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
 - **That two years are alike.** Our last two years differ in baseload and in threshold. The model fits the latest 12 months, so it follows the house as it is now, but a sudden change takes weeks to show.
 
 ## 12. Reading the dashboard panels

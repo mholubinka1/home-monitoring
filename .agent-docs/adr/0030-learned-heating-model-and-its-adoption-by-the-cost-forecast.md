@@ -48,5 +48,4 @@ The **noise margin** is a standard deviation that grows with the heating need: t
 
 A **heating day** is a day with at least 15 two-minute readings (30 minutes) of `state = 'ON'` that are not boost, in any mode, and at least 648 readings (90% of 720). The thermostat-side threshold is the cut-off with the fewest misclassified days (ties take the midpoint of the tied cut-offs); with every day at one temperature there is no cut-off, so no check and the label stays "estimated". "About 15 days of evidence on each side" means at least 15 heating days and at least 15 non-heating days.
 
-First run on the live data (12 October 2026, 333 days in the window): usable, threshold 13.0 C, slope 3.76 kWh per degree-day, blend weight 0.8 (the cap), R-squared 0.69, fitted in 0.6 s. The weight landing on its cap is worth watching: the prototype had 0.55 to 0.75.
-
+First run on the live data (12 October 2026, 333 usable days in the window, away days excluded): usable, threshold 13.0 C, slope 3.76 kWh per degree-day, blend weight 0.8 (the cap), R-squared 0.69, fitted in 0.6 s. The weight landing on its cap is worth watching: the prototype had 0.55 to 0.75.

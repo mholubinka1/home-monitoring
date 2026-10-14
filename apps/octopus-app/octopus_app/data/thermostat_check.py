@@ -1,6 +1,7 @@
 """Pure thermostat check: classify days from heating-status readings and
 cross-check the gas-derived threshold. No database access."""
 
+import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -63,11 +64,13 @@ def thermostat_threshold(
 ) -> ThermostatCheck | None:
     """The effective temperature that best separates heating days (expected
     below the cut-off) from non-heating days (at/above it), over the days in
-    both mappings. Candidate cuts are midpoints between consecutive distinct
+    both mappings (a non-finite temperature is skipped). Candidate cuts are midpoints between consecutive distinct
     temperatures; the fewest misclassified days wins, and equally good cuts
     give the midpoint between the smallest and largest. None when either kind
     of day is missing, or all the days share one temperature."""
-    days = [day for day in day_flags if day in effective]
+    days = [
+        day for day in day_flags if day in effective and math.isfinite(effective[day])
+    ]
     heating = sorted(effective[day] for day in days if day_flags[day])
     non_heating = sorted(effective[day] for day in days if not day_flags[day])
     if not heating or not non_heating:
@@ -80,8 +83,9 @@ def thermostat_threshold(
     def errors(cut: float) -> int:
         return sum(t >= cut for t in heating) + sum(t < cut for t in non_heating)
 
-    fewest = min(errors(cut) for cut in cuts)
-    best = [cut for cut in cuts if errors(cut) == fewest]
+    scored = [(errors(cut), cut) for cut in cuts]
+    fewest = min(count for count, _ in scored)
+    best = [cut for count, cut in scored if count == fewest]
     return ThermostatCheck(
         threshold=(min(best) + max(best)) / 2,
         heating_days=len(heating),

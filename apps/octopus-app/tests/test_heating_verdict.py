@@ -70,6 +70,28 @@ def test_an_upper_threshold_below_the_threshold_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_a_judging_model_with_a_non_finite_field_is_rejected(bad: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        JudgingModel(threshold=bad, slope=SLOPE, threshold_upper=bad, noise=FLAT_NOISE)
+    with pytest.raises(ValueError, match="finite"):
+        JudgingModel(
+            threshold=THRESHOLD, slope=bad, threshold_upper=13.0, noise=FLAT_NOISE
+        )
+
+
+@pytest.mark.parametrize("floor", [0.0, -1.0, math.nan])
+def test_a_noise_floor_must_be_above_zero(floor: float) -> None:
+    with pytest.raises(ValueError, match="floor"):
+        NoiseModel(base=2.0, per_degree_day=0.0, floor=floor)
+
+
+def test_a_day_exactly_at_the_upper_threshold_is_not_needed() -> None:
+    assert _judge(gas=BASELOAD, effective=THRESHOLD_UPPER).status is (
+        DayStatus.NOT_NEEDED
+    )
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
 def test_a_day_with_a_non_finite_reading_is_rejected(bad: float) -> None:
     with pytest.raises(ValueError, match="finite"):
         _judge(gas=bad, effective=5.0)

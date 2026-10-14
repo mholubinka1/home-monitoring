@@ -20,6 +20,15 @@ class NoiseModel:
     per_degree_day: float
     floor: float
 
+    def __post_init__(self) -> None:
+        if not all(
+            math.isfinite(value)
+            for value in (self.base, self.per_degree_day, self.floor)
+        ):
+            raise ValueError("noise base, per_degree_day and floor must be finite")
+        if self.floor <= 0:
+            raise ValueError(f"noise floor must be above zero, not {self.floor}")
+
     def margin(self, degree_days: float) -> float:
         """The normal variation (kWh) on a day needing this many degree-days,
         never below the floor."""
@@ -56,6 +65,11 @@ class JudgingModel:
     noise: NoiseModel
 
     def __post_init__(self) -> None:
+        if not all(
+            math.isfinite(value)
+            for value in (self.threshold, self.slope, self.threshold_upper)
+        ):
+            raise ValueError("threshold, slope and threshold_upper must be finite")
         if self.threshold_upper < self.threshold:
             raise ValueError(
                 f"threshold_upper {self.threshold_upper} is below "
