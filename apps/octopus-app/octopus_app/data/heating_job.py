@@ -36,10 +36,9 @@ REFIT_AFTER_DAYS = 7  # a model this old or older is refitted
 # summary backfill covers, so it holds the whole history.
 HISTORY_DAYS = 1500
 FORECAST_DAYS = 7
-LABEL_ESTIMATED = "estimated"
 
 
-def _need(value: float | None, name: str) -> float:
+def _require(value: float | None, name: str) -> float:
     if value is None:
         raise ValueError(f"a usable heating model is missing its {name}")
     return value
@@ -78,14 +77,14 @@ class _Params:
     @classmethod
     def from_record(cls, record: HeatingModelRecord) -> "_Params":
         return cls(
-            threshold=_need(record.threshold, "threshold"),
-            slope=_need(record.slope, "slope"),
-            weight=_need(record.weight, "weight"),
-            upper=_need(record.upper_threshold, "upper threshold"),
+            threshold=_require(record.threshold, "threshold"),
+            slope=_require(record.slope, "slope"),
+            weight=_require(record.weight, "weight"),
+            upper=_require(record.upper_threshold, "upper threshold"),
             noise=heating_verdict.NoiseModel(
-                _need(record.noise_base, "noise base"),
-                _need(record.noise_per_degree_day, "noise slope"),
-                _need(record.noise_floor, "noise floor"),
+                _require(record.noise_base, "noise base"),
+                _require(record.noise_per_degree_day, "noise slope"),
+                _require(record.noise_floor, "noise floor"),
             ),
         )
 
@@ -148,7 +147,7 @@ def _unusable_record(
         thermostat_threshold=None,
         heating_days=None,
         non_heating_days=None,
-        label=LABEL_ESTIMATED,
+        label=thermostat_check.ModelLabel.ESTIMATED.value,
     )
 
 
@@ -200,8 +199,8 @@ def _thermostat(
 def _noise_and_upper(
     inputs: _RunInputs, derived: _Derived, window: _Window, fit: HeatingFit
 ) -> tuple[heating_verdict.NoiseModel, float]:
-    threshold = _need(fit.threshold, "threshold")
-    slope = _need(fit.slope, "slope")
+    threshold = _require(fit.threshold, "threshold")
+    slope = _require(fit.slope, "slope")
     degree_days = {
         day: max(0.0, threshold - derived.effective[day]) for day in window.days
     }
@@ -219,8 +218,8 @@ def _usable_record(
     mariadb: MariaDBClient, inputs: _RunInputs, fit: HeatingFit, now: datetime
 ) -> HeatingModelRecord:
     quality = fit.quality
-    threshold = _need(fit.threshold, "threshold")
-    derived = _derive(inputs, _need(fit.weight, "weight"), threshold)
+    threshold = _require(fit.threshold, "threshold")
+    derived = _derive(inputs, _require(fit.weight, "weight"), threshold)
     if quality is None or inputs.as_of not in derived.baseload:
         raise ValueError("a usable fit has no quality or baseload")
     window = _fit_window(inputs, derived)
@@ -329,13 +328,13 @@ def _forecast_rows(
 def _judge_and_write(
     mariadb: MariaDBClient,
     inputs: _RunInputs,
-    stored: tuple[int, HeatingModelRecord],
+    stored: StoredHeatingModel,
     now: datetime,
 ) -> bool:
     """Rewrites the verdicts, weeks and forecast from the stored model; False
     when nothing could be judged."""
-    model_id, record = stored
-    params = _Params.from_record(record)
+    model_id = stored.id
+    params = _Params.from_record(stored.model)
     derived = _derive(inputs, params.weight, params.threshold)
     if not derived.baseload:
         logger.warning(
@@ -390,7 +389,7 @@ class HeatingModelJob:
         if inputs is None:
             logger.info("Heating model refresh: no usable gas days; nothing written.")
             return
-        usable = self._latest_usable()
+        usable = self._mariadb.read_latest_usable_heating_model()
         latest = self._mariadb.read_latest_heating_model()
         refit = usable is None or _is_stale(latest, now)
         refitted = self._refit(inputs, now) if refit else None
@@ -401,16 +400,10 @@ class HeatingModelJob:
         if _judge_and_write(self._mariadb, inputs, stored, now):
             logger.info(
                 f"Heating model refresh: {'refitted' if refitted else 'kept'} "
-                f"model {stored[0]}."
+                f"model {stored.id}."
             )
 
-    def _latest_usable(self) -> tuple[int, HeatingModelRecord] | None:
-        latest = self._mariadb.read_latest_usable_heating_model()
-        return (latest.id, latest.model) if latest else None
-
-    def _refit(
-        self, inputs: _RunInputs, now: datetime
-    ) -> tuple[int, HeatingModelRecord] | None:
+    def _refit(self, inputs: _RunInputs, now: datetime) -> StoredHeatingModel | None:
         fit = heating_model.fit_heating_model(
             inputs.summaries, inputs.means, inputs.as_of
         )
@@ -423,7 +416,7 @@ class HeatingModelJob:
             )
             return None
         record = _usable_record(self._mariadb, inputs, fit, now)
-        return self._mariadb.write_heating_model(record), record
+        return StoredHeatingModel(self._mariadb.write_heating_model(record), record)
 
     def ready_for_first_fit(self, now: datetime | None = None) -> bool:
         if self._mariadb.read_latest_heating_model() is not None:
