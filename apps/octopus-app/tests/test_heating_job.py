@@ -2,12 +2,14 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from common import local_day
 from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.heating_model import THRESHOLDS, WEIGHT_MAX, UnusableReason
 from octopus_app.data.heating_weeks import WeekStatus
 from octopus_app.data.model import HeatingModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.main import run_initial_heating_model_sync
 
 from .heating_history_fixtures import (
     PLANTED_BASELOAD,
@@ -343,6 +345,47 @@ def test_only_forecast_days_with_a_mean_get_a_row_and_use_yesterdays_observed_me
     assert forecast[TODAY].effective_temp == pytest.approx(
         (1 - weight) * 5.0 + weight * means[LAST_GAS_DAY]
     )
+
+
+def test_a_forecast_for_yesterday_stands_in_for_a_missing_observed_mean(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Weather was observed only to the 11th: yesterday (the 12th) has no observed
+    # mean, but the forecast table has one for it and for today.
+    seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY - timedelta(days=1), days=730
+    )
+    yesterday = TODAY - timedelta(days=1)
+    seed_forecast_means(mariadb_client, {yesterday: 4.0, TODAY: 6.0})
+
+    HeatingModelJob(mariadb_client).refresh(now=NOW)
+
+    stored = mariadb_client.read_latest_heating_model()
+    assert stored is not None
+    forecast = {row.date: row for _, row in mariadb_client.read_heating_forecast_days()}
+    assert set(forecast) == {TODAY}
+    weight = stored.model.weight
+    assert forecast[TODAY].effective_temp == pytest.approx(
+        (1 - weight) * 6.0 + weight * 4.0
+    )
+
+
+def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
+    mariadb_client: MariaDBClient,
+) -> None:
+    today = local_day.to_local_date(datetime.now(UTC))
+    seed_planted_history(mariadb_client, last_day=today - timedelta(days=1), days=730)
+
+    run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
+    run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
+
+    stored = mariadb_client.read_latest_heating_model()
+    assert stored is not None
+    assert stored.model.usable
+    assert _model_count(mariadb_client) == 1
+    verdicts = mariadb_client.read_heating_day_verdicts(date(2000, 1, 1), today)
+    assert {model_id for model_id, _ in verdicts} == {stored.id}
+    assert verdicts
 
 
 def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(

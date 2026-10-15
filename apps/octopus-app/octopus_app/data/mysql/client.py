@@ -751,6 +751,16 @@ class MariaDBClient(MariaDBClientBase):
     def read_weather_forecast_max_temps(
         self, start_date: date, end_date: date
     ) -> dict[date, float]:
+        return self._read_weather_forecast_column("max_temp", start_date, end_date)
+
+    def read_weather_forecast_mean_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        return self._read_weather_forecast_column("mean_temp", start_date, end_date)
+
+    def _read_weather_forecast_column(
+        self, column: str, start_date: date, end_date: date
+    ) -> dict[date, float]:
         # target_date is already a plain calendar date (one row per forecast
         # day, per hive-app's model) -- no local-day bucketing needed here,
         # unlike weather_observation above.
@@ -758,7 +768,7 @@ class MariaDBClient(MariaDBClientBase):
         try:
             with self.session_read_scope() as session:
                 rows = (
-                    session.query(wf.c.target_date, wf.c.max_temp)
+                    session.query(wf.c.target_date, wf.c[column])
                     .filter(
                         wf.c.target_date >= start_date,
                         wf.c.target_date <= end_date,
@@ -770,39 +780,14 @@ class MariaDBClient(MariaDBClientBase):
                 raise
             return {}
         # Same NaN/Infinity guard as read_weather_observation_daily_max_temps
-        # above -- max_temp is external, cross-app input (hive-app's
+        # above -- the temperature is external, cross-app input (hive-app's
         # weather_forecast), and a non-finite row must be treated as "no
         # forecast for that day" (the same as a missing row), not silently
-        # fed into the gas regression's prediction.
+        # fed into a prediction.
         return {
-            target_date: max_temp
-            for target_date, max_temp in rows
-            if max_temp is not None and math.isfinite(max_temp)
-        }
-
-    def read_weather_forecast_mean_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]:
-        wf = weather_forecast_table
-        try:
-            with self.session_read_scope() as session:
-                rows = (
-                    session.query(wf.c.target_date, wf.c.mean_temp)
-                    .filter(
-                        wf.c.target_date >= start_date,
-                        wf.c.target_date <= end_date,
-                    )
-                    .all()
-                )
-        except (OperationalError, ProgrammingError) as error:
-            if not _is_missing_table_error(error):
-                raise
-            return {}
-        # Cross-app input: NULL and NaN/Infinity count as "no forecast".
-        return {
-            target_date: mean_temp
-            for target_date, mean_temp in rows
-            if mean_temp is not None and math.isfinite(mean_temp)
+            target_date: value
+            for target_date, value in rows
+            if value is not None and math.isfinite(value)
         }
 
     def read_consumption_summarization_window(

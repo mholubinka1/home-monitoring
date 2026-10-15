@@ -301,8 +301,11 @@ def _verdict_rows(
 def _forecast_rows(
     mariadb: MariaDBClient, inputs: _RunInputs, derived: _Derived, params: _Params
 ) -> list[HeatingForecastRecord]:
+    # From yesterday: when yesterday's observed mean is missing, its forecast
+    # stands in for it.
     forecast_means = mariadb.read_weather_forecast_mean_temps(
-        inputs.today, inputs.today + timedelta(days=FORECAST_DAYS - 1)
+        inputs.today - timedelta(days=1),
+        inputs.today + timedelta(days=FORECAST_DAYS - 1),
     )
     model = heating_forecast.ForecastModel(
         params.threshold,
