@@ -83,7 +83,7 @@ The historical consumption retrieval run on every process start, bounded by `ret
 _Avoid_: initial sync, bootstrap, one-time sync
 
 **Consumption Backfill Job**:
-A daily job (`consumption_backfill`, `DAILY_JOB_TIME`) that re-runs the Startup Backfill's full-retention-window `ConsumptionRetriever.retrieve()` call, so a day that fell behind the Refresh Loop's cursor, or a permanent gap Octopus never backfills, self-heals on a fixed cadence rather than only at process restart. The consumption summary and then raw-data pruning follow it in the same run, in one thread. See [ADR-0011](adr/0011-periodic-consumption-backfill-full-window-reuse.md).
+A daily job (`consumption_backfill`, `DAILY_JOB_TIME`) that re-runs the Startup Backfill's full-retention-window `ConsumptionRetriever.retrieve()` call, so a day that fell behind the Refresh Loop's cursor, or a permanent gap Octopus never backfills, self-heals on a fixed cadence rather than only at process restart. The consumption summary, then the heating model refresh, then raw-data pruning follow it in the same run, in one thread. See [ADR-0011](adr/0011-periodic-consumption-backfill-full-window-reuse.md).
 _Avoid_: gap filler, consumption repair job
 
 **Refresh Loop**:
