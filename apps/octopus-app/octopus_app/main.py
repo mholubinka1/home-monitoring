@@ -93,9 +93,16 @@ def run_initial_consumption_summary_sync(
         logger.exception("Consumption summary sync failed at startup; continuing.")
 
 
-def run_initial_heating_model_sync(heating: HeatingModelJob) -> None:
+def run_initial_heating_model_sync(
+    heating: HeatingModelJob, backfill: threading.Thread | None = None
+) -> None:
+    """Fits the first model at startup when there is none and enough data. Not
+    while the history backfill is still running: a fit on a half-filled history
+    would stand for a week, so the first daily run fits it instead."""
     try:
-        if heating.ready_for_first_fit():
+        if backfill is not None and backfill.is_alive():
+            logger.info("History backfill still running; first heating fit waits.")
+        elif heating.ready_for_first_fit():
             heating.refresh()
     except Exception:
         logger.exception("Heating model sync failed at startup; continuing.")
@@ -365,9 +372,11 @@ def main() -> None:
     # both upsert the same recent (energy, date) row concurrently on first
     # startup. Harmless: both compute the same correct total from the same
     # underlying consumption rows, so whichever writes last is still right.
-    run_backfill_at_startup(yearly_comparison_backfill, client.mariadb)
+    backfill_thread = run_backfill_at_startup(
+        yearly_comparison_backfill, client.mariadb
+    )
     run_initial_consumption_summary_sync(consumption_summary)
-    run_initial_heating_model_sync(heating)
+    run_initial_heating_model_sync(heating, backfill_thread)
     # Primes agile_forecast before the first cost projection ever runs, so a
     # fresh install doesn't compute an Agile customer's projection against
     # an empty table -- cost_forecast reads agile_forecast rather than

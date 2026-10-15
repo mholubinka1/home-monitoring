@@ -409,8 +409,9 @@ class HeatingModelJob:
         if not fit.usable:
             self._mariadb.write_heating_model(_unusable_record(fit, inputs, now))
             logger.info(
-                f"Heating model refresh: unusable fit ({fit.reason}); "
-                "previous rows kept."
+                f"Heating model refresh: unusable fit "
+                f"({fit.reason.value if fit.reason else 'no reason'}); "
+                "re-judging with the previous usable model, if any."
             )
             return None
         record = _usable_record(self._mariadb, inputs, fit, now)

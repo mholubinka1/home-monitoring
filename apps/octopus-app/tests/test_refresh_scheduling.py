@@ -869,6 +869,34 @@ def test_run_initial_heating_model_sync_refreshes_when_ready_for_a_first_fit() -
     heating.refresh.assert_called_once()
 
 
+def test_run_initial_heating_model_sync_waits_while_the_backfill_is_running() -> None:
+    heating = Mock(spec=HeatingModelJob)
+    heating.ready_for_first_fit.return_value = True
+    release = threading.Event()
+    backfill = threading.Thread(target=release.wait, daemon=True)
+    backfill.start()
+
+    try:
+        run_initial_heating_model_sync(heating, backfill)
+    finally:
+        release.set()
+        backfill.join()
+
+    heating.refresh.assert_not_called()
+
+
+def test_run_initial_heating_model_sync_runs_once_the_backfill_has_finished() -> None:
+    heating = Mock(spec=HeatingModelJob)
+    heating.ready_for_first_fit.return_value = True
+    backfill = threading.Thread(target=lambda: None)
+    backfill.start()
+    backfill.join()
+
+    run_initial_heating_model_sync(heating, backfill)
+
+    heating.refresh.assert_called_once()
+
+
 def test_run_initial_heating_model_sync_does_nothing_when_not_ready() -> None:
     heating = Mock(spec=HeatingModelJob)
     heating.ready_for_first_fit.return_value = False
