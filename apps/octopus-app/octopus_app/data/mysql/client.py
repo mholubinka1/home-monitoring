@@ -368,6 +368,10 @@ class MariaDBClient(MariaDBClientBase):
             "heating forecast days",
         )
 
+    def clear_heating_forecast_days(self) -> None:
+        """Empties the forecast table: a forecast from days ago is worse than none."""
+        self._replace_all_rows(model.heating_forecast_day, [], "heating forecast days")
+
     def read_heating_forecast_days(self) -> list[tuple[int, HeatingForecastRecord]]:
         hf = model.heating_forecast_day
         with self.session_read_scope() as session:

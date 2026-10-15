@@ -219,8 +219,10 @@ def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_forecast_means(mariadb_client, {TODAY: 6.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
+    assert mariadb_client.read_heating_forecast_days()
     with mariadb_client.session_write_scope() as session:
         # Only winter days left: no warm day, so no baseload can be measured.
         session.query(model.daily_consumption_summary).filter(
@@ -232,6 +234,9 @@ def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_
     job.refresh(now=NOW + timedelta(days=1))
 
     assert _model_count(mariadb_client) == 1
+    # The old forecast is not left standing; the past days' verdicts are kept.
+    assert mariadb_client.read_heating_forecast_days() == []
+    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
 
 
 def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
@@ -296,6 +301,38 @@ def test_no_usable_gas_days_writes_nothing_and_does_not_raise(
     HeatingModelJob(mariadb_client).refresh(now=NOW)
 
     assert _model_count(mariadb_client) == 0
+
+
+def test_with_no_usable_gas_left_the_old_forecast_is_removed_and_nothing_raises(
+    mariadb_client: MariaDBClient,
+) -> None:
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_forecast_means(mariadb_client, {TODAY: 6.0})
+    job = HeatingModelJob(mariadb_client)
+    job.refresh(now=NOW)
+    assert mariadb_client.read_heating_forecast_days()
+    with mariadb_client.session_write_scope() as session:
+        session.query(model.daily_consumption_summary).delete()
+
+    job.refresh(now=NOW + timedelta(days=1))
+
+    assert mariadb_client.read_heating_forecast_days() == []
+    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
+
+
+def test_history_older_than_the_rolling_windows_still_gets_verdicts_and_weeks(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Summaries are never pruned, so the history keeps growing: nothing is cut
+    # off at a fixed age (here, about 4.7 years of it).
+    _, gas = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=1700)
+
+    HeatingModelJob(mariadb_client).refresh(now=NOW)
+
+    verdicts = mariadb_client.read_heating_day_verdicts(date(2000, 1, 1), TODAY)
+    assert min(day.date for _, day in verdicts) == min(gas)
+    weeks = mariadb_client.read_heating_weeks()
+    assert min(week.week_start for _, week in weeks) <= min(gas)
 
 
 def test_a_holiday_is_judged_away_and_does_not_pull_the_baseload_down(

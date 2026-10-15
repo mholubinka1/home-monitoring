@@ -32,9 +32,10 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 REFIT_AFTER_DAYS = 7  # a model this old or older is refitted
-# How far back gas history is read: past the 1096-day window the consumption
-# summary backfill covers, so it holds the whole history.
-HISTORY_DAYS = 1500
+# Gas history is read from here: consumption summaries are never pruned, so the
+# history keeps growing and a rolling cutoff would drop the oldest verdicts and
+# weeks (and split a boundary week).
+HISTORY_START = date(2000, 1, 1)
 FORECAST_DAYS = 7
 
 
@@ -92,9 +93,7 @@ class _Params:
 def _usable_gas_summaries(
     mariadb: MariaDBClient, today: date
 ) -> list[ConsumptionSummary]:
-    summaries = mariadb.read_daily_consumption_summary(
-        Energy.gas, today - timedelta(days=HISTORY_DAYS), today
-    )
+    summaries = mariadb.read_daily_consumption_summary(Energy.gas, HISTORY_START, today)
     return [s for s in summaries if is_usable(s) and s.date < today]
 
 
@@ -339,8 +338,9 @@ def _judge_and_write(
     if not derived.baseload:
         logger.warning(
             f"Heating model refresh: no baseload can be measured for model "
-            f"{model_id}; nothing judged."
+            f"{model_id}; the forecast table is emptied and nothing else judged."
         )
+        mariadb.clear_heating_forecast_days()
         return False
     mariadb.replace_heating_day_verdicts(
         model_id, _verdict_rows(inputs, derived, params)
@@ -392,7 +392,11 @@ class HeatingModelJob:
             now = datetime.now(UTC)
         inputs = _load_inputs(self._mariadb, local_day.to_local_date(now))
         if inputs is None:
-            logger.info("Heating model refresh: no usable gas days; nothing written.")
+            logger.info(
+                "Heating model refresh: no usable gas days; the forecast table "
+                "is emptied and nothing else written."
+            )
+            self._mariadb.clear_heating_forecast_days()
             return
         usable = self._mariadb.read_latest_usable_heating_model()
         latest = self._mariadb.read_latest_heating_model()
