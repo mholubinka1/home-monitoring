@@ -95,7 +95,7 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ### What to build
 
-A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict`, `heating_forecast_day` (created additively by Schema Sync); the weekly efficiency table is written by the next issue. It also runs once at startup when there is no model and enough data.
+A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict`, `heating_forecast_day` (created additively by Schema Sync); the fourth table, the weekly efficiency table `heating_week`, is MOD-8's (built in the same PR as this one, written by the same job). It also runs once at startup when there is no model and enough data (and, while no usable model exists, refits on every run).
 
 ### Acceptance criteria
 
