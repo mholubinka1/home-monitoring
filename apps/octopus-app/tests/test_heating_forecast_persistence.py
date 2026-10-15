@@ -1,5 +1,8 @@
 from datetime import UTC, date, datetime
 
+import pytest
+
+from common.exceptions import MariaDBError
 from octopus_app.data.model import HeatingForecastRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
@@ -55,3 +58,19 @@ def test_replacing_the_forecast_drops_days_no_longer_projected(
     assert mariadb_client.read_heating_forecast_days() == [
         (2, _day(date(2026, 10, 17), expected_gas=31.0))
     ]
+
+
+def test_a_failed_replace_leaves_the_previous_rows_in_place(
+    mariadb_client: MariaDBClient,
+) -> None:
+    kept = _day(date(2026, 10, 16))
+    mariadb_client.replace_heating_forecast_days(3, [kept], COMPUTED_AT)
+    day = date(2026, 10, 17)
+
+    with pytest.raises(MariaDBError):
+        # Two rows for one date break the primary key part way through.
+        mariadb_client.replace_heating_forecast_days(
+            4, [_day(day), _day(day, expected_gas=1.0)], COMPUTED_AT
+        )
+
+    assert mariadb_client.read_heating_forecast_days() == [(3, kept)]

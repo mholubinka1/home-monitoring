@@ -1,7 +1,11 @@
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from octopus_app.data.mysql.client import (
     MariaDBClient,
@@ -119,6 +123,24 @@ def test_heating_polls_are_empty_when_hive_app_has_never_run(
     )
 
     assert not readings
+
+
+def test_a_database_error_other_than_a_missing_table_is_not_swallowed(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @contextmanager
+    def lost_connection() -> Iterator[Session]:
+        raise OperationalError("SELECT", {}, Exception("connection lost"))
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(mariadb_client, "session_read_scope", lost_connection)
+
+    with pytest.raises(OperationalError, match="connection lost"):
+        list(
+            mariadb_client.read_heating_readings(
+                datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+            )
+        )
 
 
 def test_forecast_mean_temperatures_are_read_for_the_inclusive_range(
