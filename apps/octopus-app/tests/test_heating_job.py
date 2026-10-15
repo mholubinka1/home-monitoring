@@ -388,6 +388,21 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
     assert verdicts
 
 
+def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
+    mariadb_client: MariaDBClient,
+) -> None:
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_forecast_means(mariadb_client, {TODAY: 5.0, TODAY + timedelta(days=1): 7.0})
+    job = HeatingModelJob(mariadb_client)
+    job.refresh(now=NOW)
+    assert mariadb_client.read_heating_forecast_days()
+
+    # The next day the forecast table holds nothing for today or after.
+    job.refresh(now=NOW + timedelta(days=2))
+
+    assert mariadb_client.read_heating_forecast_days() == []
+
+
 def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(
     mariadb_client: MariaDBClient,
 ) -> None:

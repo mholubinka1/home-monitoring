@@ -355,9 +355,14 @@ def _judge_and_write(
             params.threshold,
         ),
     )
-    mariadb.replace_heating_forecast_days(
-        model_id, _forecast_rows(mariadb, inputs, derived, params), now
-    )
+    forecast = _forecast_rows(mariadb, inputs, derived, params)
+    if not forecast:
+        # A forecast from days ago is worse than none, so the table is emptied.
+        logger.warning(
+            f"Heating model refresh: no usable weather forecast for model "
+            f"{model_id}; the forecast table is emptied."
+        )
+    mariadb.replace_heating_forecast_days(model_id, forecast, now)
     return True
 
 
