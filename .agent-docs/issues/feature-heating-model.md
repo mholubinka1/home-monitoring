@@ -87,7 +87,7 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ---
 
-## MOD-5 · The daily job and the three tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
+## MOD-5 · The daily job and the tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
 
 **Blocked by**: #625, #627, #628, #646, #647
 
@@ -155,7 +155,7 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 
 ### What to build
 
-The model job also writes `heating_week`, one row per Monday-to-Sunday week over the whole history that has at least one gas day (a week with no gas at all is a gap): complete gas days, per-day averages of gas, degree-days (against the current model's threshold, on the effective temperature, for every year) and baseload (the moving baseload), heating gas above baseload, the efficiency (heating gas per degree-day), and a status that is `shown` or the reason the week is left out: too few days (under 5 complete), too mild (under 1.5 degree-days a day) or heating off (under 0.5 kWh a day of heating gas). The three guard values are named settings.
+The model job also writes `heating_week`, one row per Monday-to-Sunday week over the whole history that has at least one gas day (a week with no gas at all is a gap): complete gas days, per-day averages of gas, degree-days (against the current model's threshold, on the effective temperature, for every year) and baseload (the moving baseload), heating gas above baseload, the efficiency (heating gas per degree-day), and a status that is `shown` or the reason the week is left out: too few days (under 5 complete), too mild (under 1.5 degree-days a day) or heating off (under 0.5 kWh a day of heating gas). The three guard values are named constants.
 
 ### Acceptance criteria
 
