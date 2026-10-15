@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -56,8 +56,6 @@ from octopus_app.data.thermostat_check import HeatingReading
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
-
-_Record = TypeVar("_Record", bound="DataclassInstance")
 
 SUMMARIZATION_WINDOW_DAYS = 14
 HEATING_READ_CHUNK = 5000  # heating_status rows fetched per round trip
@@ -174,7 +172,9 @@ def _values_of(record: "DataclassInstance") -> dict[str, Any]:
     return {f.name: getattr(record, f.name) for f in fields(record)}
 
 
-def _record_of(record_type: type[_Record], row: Any, **overrides: Any) -> _Record:
+def _record_of[R: "DataclassInstance"](
+    record_type: type[R], row: Any, **overrides: Any
+) -> R:
     """A dataclass record built from the same-named columns of a table row."""
     values = {f.name: getattr(row, f.name) for f in fields(record_type)}
     return record_type(**(values | overrides))
