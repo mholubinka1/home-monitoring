@@ -1,6 +1,6 @@
 # Issues: feature-heating-model
 
-> Wave A complete (MOD-1, MOD-2: #672, merged). Wave B complete — MOD-3, MOD-4 and MOD-7 in one PR, ready to merge. MOD-5, MOD-6 and MOD-8 follow in wave C.
+> Wave A (MOD-1, MOD-2: #672) and wave B (MOD-3, MOD-4, MOD-7: #674) are merged. Wave C, PR 1 — MOD-5 and MOD-8 (the job, the tables, the weekly rows) — is built and in review; PR 2 is MOD-6 (the cost forecast adopts the model), started only after PR 1 is merged.
 
 ## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
@@ -87,7 +87,7 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ---
 
-## MOD-5 · The daily job and the three tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
+## MOD-5 · The daily job and the tables — [#629](https://github.com/mholubinka1/home-monitoring/issues/629)
 
 **Blocked by**: #625, #627, #628, #646, #647
 
@@ -95,15 +95,15 @@ From `heating_status`, classify each London day with enough readings (about 90% 
 
 ### What to build
 
-A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict`, `heating_forecast_day` (created additively by Schema Sync); the weekly efficiency table is written by the next issue. It also runs once at startup when there is no model and enough data.
+A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes every day's verdict with the latest model, and projects 7 days from the forecast daily mean, writing `heating_model`, `heating_day_verdict`, `heating_forecast_day` (created additively by Schema Sync); the fourth table, the weekly efficiency table `heating_week`, is MOD-8's (built in the same PR as this one, written by the same job). It also runs once at startup when there is no model and enough data (and, while no usable model exists, refits on every run).
 
 ### Acceptance criteria
 
-- [ ] Given no model and enough data, then a model row and verdict rows are written at startup.
-- [ ] Given a model fitted under 7 days ago, then the daily run recomputes verdicts without refitting; older, then it refits.
-- [ ] Given an unusable fit, then a model row with the reason is written and no misleading verdicts are.
-- [ ] Given the forecast table, then forecast-day rows hold expected gas for the next 7 days.
-- [ ] Each run records success or failure in `job_run`; Schema Sync creates the tables on an existing database.
+- [x] Given no model and enough data, then a model row and verdict rows are written at startup.
+- [x] Given a model fitted under 7 local days ago, then the daily run recomputes verdicts without refitting; 7 or more, then it refits (and while no usable model exists it refits every run).
+- [x] Given an unusable fit, then a model row with the reason is written and no misleading verdicts are.
+- [x] Given the forecast table, then forecast-day rows hold expected gas for the next 7 days.
+- [x] Each daily run records success or failure in `job_run` (the startup run, like the other startup syncs, only logs); Schema Sync creates the tables on an existing database.
 
 ---
 
@@ -155,12 +155,12 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 
 ### What to build
 
-The model job also writes `heating_week`, one row per Monday-to-Sunday week over the whole history: complete gas days, per-day averages of gas, degree-days (against the current model's threshold, on the effective temperature, for every year) and baseload (the moving baseload), heating gas above baseload, the efficiency (heating gas per degree-day), and a status that is `shown` or the reason the week is left out: too few days (under 5 complete), too mild (under 1.5 degree-days a day) or heating off (under 0.5 kWh a day of heating gas). The three guard values are named settings.
+The model job also writes `heating_week`, one row per Monday-to-Sunday week over the whole history that has at least one gas day (a week with no gas at all is a gap): complete gas days, per-day averages of gas, degree-days (against the current model's threshold, on the effective temperature, for every year) and baseload (the moving baseload), heating gas above baseload, the efficiency (heating gas per degree-day), and a status that is `shown` or the reason the week is left out: too few days (under 5 complete), too mild (under 1.5 degree-days a day) or heating off (under 0.5 kWh a day of heating gas). The three guard values are named constants.
 
 ### Acceptance criteria
 
-- [ ] Given a week with 5 complete days, then its per-day averages are used and its status is `shown` if the other guards pass.
-- [ ] Given a week with 4 complete days, then its status is "too few days"; under 1.5 degree-days a day, "too mild"; under 0.5 kWh a day of heating gas, "heating off".
-- [ ] Given two years, then both use the same degree-day threshold and each week's own moving baseload.
-- [ ] Given a week with an away or incomplete day, then that day is excluded from the averages (and counts against the 5).
-- [ ] The table covers the whole history with data, is rebuilt consistently on each refit, and Schema Sync creates it on an existing database.
+- [x] Given a week with 5 complete days, then its per-day averages are used and its status is `shown` if the other guards pass.
+- [x] Given a week with 4 complete days, then its status is "too few days"; under 1.5 degree-days a day, "too mild"; under 0.5 kWh a day of heating gas, "heating off".
+- [x] Given two years, then both use the same degree-day threshold and each week's own moving baseload.
+- [x] Given a week with an away or incomplete day, then that day is excluded from the averages (and counts against the 5).
+- [x] The table covers the whole history with data, is rebuilt consistently on each refit, and Schema Sync creates it on an existing database.

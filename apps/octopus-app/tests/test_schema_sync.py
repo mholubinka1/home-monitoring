@@ -125,6 +125,53 @@ def test_a_database_with_every_table_already_present_is_left_untouched(
         assert index_names == {index.name for index in table.indexes}
 
 
+HEATING_TABLES = {
+    "heating_model",
+    "heating_day_verdict",
+    "heating_forecast_day",
+    "heating_week",
+}
+
+
+def test_a_database_predating_the_heating_tables_gains_them_on_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _sqlite_engine()
+    older_tables = [
+        table
+        for table in SQLBase.metadata.tables.values()
+        if table.name not in HEATING_TABLES
+    ]
+    SQLBase.metadata.create_all(engine, tables=older_tables)
+    assert not HEATING_TABLES & set(inspect(engine).get_table_names())
+
+    _sync_against(engine, monkeypatch)
+
+    assert HEATING_TABLES <= set(inspect(engine).get_table_names())
+
+
+def test_a_database_that_already_has_the_heating_tables_keeps_their_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _sqlite_engine()
+    SQLBase.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    session.add(
+        model.heating_week(
+            week_start=date(2026, 10, 5),
+            model_id=1,
+            complete_days=7,
+            status="shown",
+        )
+    )
+    session.commit()
+
+    _sync_against(engine, monkeypatch)
+
+    read_session = sessionmaker(bind=engine)()
+    assert read_session.query(model.heating_week).one().week_start == date(2026, 10, 5)
+
+
 def test_a_column_missing_from_an_existing_table_is_added_on_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,6 +332,27 @@ def test_every_declared_index_compiles_as_valid_mariadb_ddl() -> None:
             CreateIndex(index).compile(  # type: ignore[arg-type]
                 dialect=mysql.dialect()
             )
+
+
+def test_no_declared_column_is_a_32_bit_float_on_mariadb() -> None:
+    # SQLAlchemy's Float is MariaDB's single-precision FLOAT: a stored blend
+    # weight of 0.8 would read back as 0.800000011920929 and fail the weight's
+    # range check. Model numbers use DOUBLE; SQLite (the fixture) hides this.
+    # Only this app's own tables: hive-app's share the declarative base once its
+    # models are imported in the same test session.
+    own_tables = [
+        value.__table__
+        for value in vars(model).values()
+        if isinstance(value, type)
+        and issubclass(value, SQLBase)
+        and value is not SQLBase
+        and value.__module__ == model.__name__
+    ]
+    assert own_tables
+    for table in own_tables:
+        for column in table.columns:
+            ddl_type = str(column.type.compile(dialect=mysql.dialect()))
+            assert ddl_type != "FLOAT", f"{table.name}.{column.name} is a 32-bit FLOAT"
 
 
 def test_consumption_quantities_reject_negative_values_on_mariadb() -> None:

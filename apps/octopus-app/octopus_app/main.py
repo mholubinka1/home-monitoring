@@ -23,6 +23,7 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
 from octopus_app.data.pruning import DataPruner
@@ -34,6 +35,7 @@ CONSUMPTION_REFRESH_JOB = "consumption_refresh"
 CONSUMPTION_BACKFILL_JOB = "consumption_backfill"
 PRICING_REFRESH_JOB = "pricing_refresh"
 CONSUMPTION_SUMMARY_JOB = "update_consumption_summary"
+HEATING_MODEL_JOB = "heating_model_refresh"
 PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
@@ -89,6 +91,23 @@ def run_initial_consumption_summary_sync(
         consumption_summary.refresh()
     except Exception:
         logger.exception("Consumption summary sync failed at startup; continuing.")
+
+
+def run_initial_heating_model_sync(
+    heating: HeatingModelJob, backfill: threading.Thread | None = None
+) -> None:
+    """Fits the first model at startup when there is none and enough data. Not
+    while the history backfill is still running: a fit on a half-filled history
+    would stand for a week, so the first daily run fits it instead. A backfill
+    that has already ended, even by failing, does not delay it. Like the other
+    startup syncs, this run is logged but not recorded in job_run."""
+    try:
+        if backfill is not None and backfill.is_alive():
+            logger.info("History backfill still running; first heating fit waits.")
+        elif heating.ready_for_first_fit():
+            heating.refresh()
+    except Exception:
+        logger.exception("Heating model sync failed at startup; continuing.")
 
 
 def run_initial_cost_forecast_sync(cost_forecast: CostForecastRetriever) -> None:
@@ -236,15 +255,18 @@ def register_daily_consumption_job(
     refresh_config: RefreshSettings,
     consumption: ConsumptionRetriever,
     consumption_summary: ConsumptionSummaryRetriever,
+    heating: HeatingModelJob,
     pruner: DataPruner,
     mariadb: MariaDBClient,
 ) -> Job:
     """Registers one daily job that refetches the full raw window, then summarizes,
-    then -- only if that summarization succeeded -- prunes raw data, all in the same
-    background thread. Summarizing after the refetch means each day's summary reads
-    the freshest raw rows; a failed refetch (already retried, then swallowed by
-    _with_backoff_recording) does not stop the summary. Sequencing the steps within
-    one thread (rather than as independently-scheduled jobs) is deliberate:
+    then -- only if that summarization succeeded -- refreshes the heating model
+    (skipped, and recorded so, otherwise; its failure never stops the prune) and
+    prunes raw data, all in the same background thread. Summarizing after the
+    refetch means each day's summary reads the freshest raw rows; a failed
+    refetch (already retried, then swallowed by _with_backoff_recording) does not
+    stop the summary. Sequencing the steps within one thread (rather than as
+    independently-scheduled jobs) is deliberate:
     prune_old_data's job_run gate must see *this* cycle's summarization outcome, not
     whichever outcome happened to be most recently recorded when its own tick fired
     -- separately-scheduled jobs can't guarantee that ordering, since each job's own
@@ -259,22 +281,27 @@ def register_daily_consumption_job(
     summarize = _with_backoff_recording(
         CONSUMPTION_SUMMARY_JOB, consumption_summary.refresh, mariadb
     )
+    refresh_heating = _with_backoff_recording(
+        HEATING_MODEL_JOB, heating.refresh, mariadb
+    )
     prune = _with_backoff_recording(PRUNE_OLD_DATA_JOB, pruner.run, mariadb)
 
-    def refetch_then_summarize_then_prune() -> None:
+    def refetch_summarize_refresh_then_prune() -> None:
         refetch_with_backoff()
         summarize()
         if mariadb.latest_job_run_is_successful(CONSUMPTION_SUMMARY_JOB):
+            refresh_heating()
             prune()
         else:
-            logger.info(
-                f"{CONSUMPTION_SUMMARY_JOB} did not succeed this cycle; "
-                f"skipping {PRUNE_OLD_DATA_JOB}."
-            )
-            mariadb.record_job_run(PRUNE_OLD_DATA_JOB, "skipped")
+            for skipped in (HEATING_MODEL_JOB, PRUNE_OLD_DATA_JOB):
+                logger.info(
+                    f"{CONSUMPTION_SUMMARY_JOB} did not succeed this cycle; "
+                    f"skipping {skipped}."
+                )
+                mariadb.record_job_run(skipped, "skipped")
 
     run = _run_in_background(
-        CONSUMPTION_BACKFILL_JOB, refetch_then_summarize_then_prune
+        CONSUMPTION_BACKFILL_JOB, refetch_summarize_refresh_then_prune
     )
     return scheduler.every().day.at(DAILY_JOB_TIME).do(run)
 
@@ -338,6 +365,7 @@ def main() -> None:
     yearly_comparison_backfill = ConsumptionSummaryBackfill(client)
     agile_forecast = AgileForecastRetriever(client)
     cost_forecast = CostForecastRetriever(client)
+    heating = HeatingModelJob(client.mariadb)
     pruner = DataPruner(client.mariadb, refresh_config.retention)
 
     startup(consumption, refresh_config)
@@ -346,8 +374,11 @@ def main() -> None:
     # both upsert the same recent (energy, date) row concurrently on first
     # startup. Harmless: both compute the same correct total from the same
     # underlying consumption rows, so whichever writes last is still right.
-    run_backfill_at_startup(yearly_comparison_backfill, client.mariadb)
+    backfill_thread = run_backfill_at_startup(
+        yearly_comparison_backfill, client.mariadb
+    )
     run_initial_consumption_summary_sync(consumption_summary)
+    run_initial_heating_model_sync(heating, backfill_thread)
     # Primes agile_forecast before the first cost projection ever runs, so a
     # fresh install doesn't compute an Agile customer's projection against
     # an empty table -- cost_forecast reads agile_forecast rather than
@@ -365,6 +396,7 @@ def main() -> None:
         refresh_config,
         consumption,
         consumption_summary,
+        heating,
         pruner,
         client.mariadb,
     )
