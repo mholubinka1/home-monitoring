@@ -286,7 +286,7 @@ def register_daily_consumption_job(
     )
     prune = _with_backoff_recording(PRUNE_OLD_DATA_JOB, pruner.run, mariadb)
 
-    def refetch_then_summarize_then_prune() -> None:
+    def refetch_summarize_refresh_then_prune() -> None:
         refetch_with_backoff()
         summarize()
         if mariadb.latest_job_run_is_successful(CONSUMPTION_SUMMARY_JOB):
@@ -301,7 +301,7 @@ def register_daily_consumption_job(
                 mariadb.record_job_run(skipped, "skipped")
 
     run = _run_in_background(
-        CONSUMPTION_BACKFILL_JOB, refetch_then_summarize_then_prune
+        CONSUMPTION_BACKFILL_JOB, refetch_summarize_refresh_then_prune
     )
     return scheduler.every().day.at(DAILY_JOB_TIME).do(run)
 
