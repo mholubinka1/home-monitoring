@@ -1,11 +1,14 @@
 import logging.config
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -25,12 +28,17 @@ from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
 from common.mariadb.client import MariaDBClientBase
 from octopus_app.common.logging import APP_LOGGER_NAME, config
+from octopus_app.data.heating_weeks import WeekRow, WeekStatus
 from octopus_app.data.model import (
     Consumption,
     ConsumptionSummary,
     CostForecast,
     DailyCostSummary,
     Energy,
+    HeatingDayVerdictRecord,
+    HeatingForecastRecord,
+    HeatingModelRecord,
+    StoredHeatingModel,
     as_energy_char,
     energy_from_char,
 )
@@ -43,13 +51,14 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
+from octopus_app.data.thermostat_check import HeatingReading
 
 SUMMARIZATION_WINDOW_DAYS = 14
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# weather_observation/weather_forecast are owned by hive-app, but live in the
+# weather_observation/weather_forecast/heating_status are owned by hive-app, but live in the
 # same shared `octopus` MariaDB schema this client already connects to (see
 # #511). They're declared here as plain Core Table objects against a
 # SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
@@ -88,6 +97,22 @@ weather_forecast_table = Table(
     Column("max_temp", Float),
     Column("mean_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
+    schema="octopus",
+)
+
+heating_status_table = Table(
+    "heating_status",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("polled_at", DateTime, nullable=False),
+    Column("current_temp", Float),
+    Column("target_temp", Float),
+    Column("mode", String(20)),
+    Column("state", String(20)),
+    Column("boost_active", Boolean),
+    Column("boost_ends_at", DateTime),
+    Column("schedule", JSON),
+    Column("working", Boolean),
     schema="octopus",
 )
 
@@ -135,6 +160,21 @@ def _rate_scoped_id(product_code: str, region: str, valid_from: datetime) -> str
 
 def _forecast_scoped_id(region: str, period_from: datetime) -> str:
     return f"{region}_{period_from.strftime('%Y%m%d%H%M')}"
+
+
+def _forecast_day_row(
+    row: HeatingForecastRecord, model_id: int, computed_at: datetime
+) -> model.heating_forecast_day:
+    # Built from a dict: the old sqlalchemy-stubs type Float columns as Decimal.
+    values: dict[str, Any] = {
+        "date": row.date,
+        "model_id": model_id,
+        "forecast_mean": row.forecast_mean,
+        "effective_temp": row.effective_temperature,
+        "expected_gas": row.expected_gas,
+        "computed_at": computed_at,
+    }
+    return model.heating_forecast_day(**values)
 
 
 class MariaDBClient(MariaDBClientBase):
@@ -228,6 +268,146 @@ class MariaDBClient(MariaDBClientBase):
             estimated_days=forecast.estimated_days,
         )
         self._write_all([record], "Cost forecast data")
+
+    def write_heating_model(self, record: HeatingModelRecord) -> int:
+        values = {f.name: getattr(record, f.name) for f in fields(record)}
+        # Stored as naive UTC, like every other DATETIME here.
+        values["fitted_at"] = record.fitted_at.astimezone(UTC).replace(tzinfo=None)
+        row = model.heating_model(**values)
+        try:
+            with self.session_write_scope() as session:
+                session.add(row)
+                session.flush()
+                return int(row.id)
+        except Exception as e:
+            logger.error(f"Failed to write heating model: {e}")
+            raise MariaDBError(e) from e
+
+    def read_latest_heating_model(self) -> StoredHeatingModel | None:
+        return self._read_newest_heating_model()
+
+    def read_latest_usable_heating_model(self) -> StoredHeatingModel | None:
+        return self._read_newest_heating_model(usable_only=True)
+
+    def _read_newest_heating_model(
+        self, usable_only: bool = False
+    ) -> StoredHeatingModel | None:
+        hm = model.heating_model
+        with self.session_read_scope() as session:
+            query = session.query(hm)
+            if usable_only:
+                query = query.filter(hm.usable.is_(True))
+            row = query.order_by(hm.fitted_at.desc(), hm.id.desc()).first()
+            if row is None:
+                return None
+            values = {f.name: getattr(row, f.name) for f in fields(HeatingModelRecord)}
+        values["fitted_at"] = row.fitted_at.replace(tzinfo=UTC)
+        return StoredHeatingModel(id=row.id, model=HeatingModelRecord(**values))
+
+    def _replace_all_rows(
+        self, table: type[SQLBase], rows: list[SQLBase], description: str
+    ) -> None:
+        # One transaction: a failure leaves the previous rows in place.
+        try:
+            with self.session_write_scope() as session:
+                session.query(table).delete(synchronize_session=False)
+                session.add_all(rows)
+        except Exception as e:
+            logger.error(f"Failed to replace {description}: {e}")
+            raise MariaDBError(e) from e
+
+    def replace_heating_day_verdicts(
+        self, model_id: int, rows: list[HeatingDayVerdictRecord]
+    ) -> None:
+        self._replace_all_rows(
+            model.heating_day_verdict,
+            [
+                model.heating_day_verdict(
+                    model_id=model_id,
+                    **{f.name: getattr(row, f.name) for f in fields(row)},
+                )
+                for row in rows
+            ],
+            "heating day verdicts",
+        )
+
+    def read_heating_day_verdicts(
+        self, start_date: date, end_date: date
+    ) -> list[tuple[int, HeatingDayVerdictRecord]]:
+        hv = model.heating_day_verdict
+        with self.session_read_scope() as session:
+            stored = (
+                session.query(hv)
+                .filter(hv.date >= start_date, hv.date <= end_date)
+                .order_by(hv.date)
+                .all()
+            )
+            return [
+                (
+                    row.model_id,
+                    HeatingDayVerdictRecord(
+                        **{
+                            f.name: getattr(row, f.name)
+                            for f in fields(HeatingDayVerdictRecord)
+                        }
+                    ),
+                )
+                for row in stored
+            ]
+
+    def replace_heating_forecast_days(
+        self, model_id: int, rows: list[HeatingForecastRecord], computed_at: datetime
+    ) -> None:
+        stamp = computed_at.astimezone(UTC).replace(tzinfo=None)
+        self._replace_all_rows(
+            model.heating_forecast_day,
+            [_forecast_day_row(row, model_id, stamp) for row in rows],
+            "heating forecast days",
+        )
+
+    def read_heating_forecast_days(self) -> list[tuple[int, HeatingForecastRecord]]:
+        hf = model.heating_forecast_day
+        with self.session_read_scope() as session:
+            return [
+                (
+                    row.model_id,
+                    HeatingForecastRecord(
+                        date=row.date,
+                        forecast_mean=float(row.forecast_mean),
+                        effective_temperature=float(row.effective_temp),
+                        expected_gas=float(row.expected_gas),
+                    ),
+                )
+                for row in session.query(hf).order_by(hf.date).all()
+            ]
+
+    def replace_heating_weeks(self, model_id: int, rows: list[WeekRow]) -> None:
+        self._replace_all_rows(
+            model.heating_week,
+            [
+                model.heating_week(
+                    model_id=model_id,
+                    **{f.name: getattr(row, f.name) for f in fields(row)}
+                    | {"status": row.status.value},
+                )
+                for row in rows
+            ],
+            "heating weeks",
+        )
+
+    def read_heating_weeks(self) -> list[tuple[int, WeekRow]]:
+        hw = model.heating_week
+        with self.session_read_scope() as session:
+            return [
+                (
+                    row.model_id,
+                    WeekRow(
+                        **{f.name: getattr(row, f.name) for f in fields(WeekRow)}
+                        | {"status": WeekStatus(row.status)}
+                    ),
+                )
+                for row in session.query(hw).order_by(hw.week_start).all()
+            ]
 
     def read_current_product_rate(
         self, product_code: str, region: str, as_of: datetime
@@ -546,6 +726,37 @@ class MariaDBClient(MariaDBClientBase):
                 means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
         return means
 
+    def read_heating_readings(
+        self, start: datetime, end: datetime
+    ) -> list[HeatingReading]:
+        # heating_status is hive-app's table, read cross-app (see the
+        # module-level comment on weather_observation_table). The DB holds
+        # naive UTC; the half-open window arguments are tz-aware.
+        hs = heating_status_table
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(hs.c.polled_at, hs.c.state, hs.c.boost_active)
+                    .filter(
+                        hs.c.polled_at >= start.astimezone(UTC).replace(tzinfo=None),
+                        hs.c.polled_at < end.astimezone(UTC).replace(tzinfo=None),
+                    )
+                    .order_by(hs.c.polled_at)
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return []
+        return [
+            HeatingReading(
+                polled_at=polled_at.replace(tzinfo=UTC),
+                state=state or "",
+                boost_active=bool(boost_active),
+            )
+            for polled_at, state, boost_active in rows
+        ]
+
     def read_weather_forecast_max_temps(
         self, start_date: date, end_date: date
     ) -> dict[date, float]:
@@ -576,6 +787,31 @@ class MariaDBClient(MariaDBClientBase):
             target_date: max_temp
             for target_date, max_temp in rows
             if max_temp is not None and math.isfinite(max_temp)
+        }
+
+    def read_weather_forecast_mean_temps(
+        self, start_date: date, end_date: date
+    ) -> dict[date, float]:
+        wf = weather_forecast_table
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(wf.c.target_date, wf.c.mean_temp)
+                    .filter(
+                        wf.c.target_date >= start_date,
+                        wf.c.target_date <= end_date,
+                    )
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return {}
+        # Cross-app input: NULL and NaN/Infinity count as "no forecast".
+        return {
+            target_date: mean_temp
+            for target_date, mean_temp in rows
+            if mean_temp is not None and math.isfinite(mean_temp)
         }
 
     def read_consumption_summarization_window(

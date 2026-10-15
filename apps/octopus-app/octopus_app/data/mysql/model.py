@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     Index,
     Integer,
     Numeric,
@@ -136,3 +137,84 @@ class cost_forecast(SQLBase):
         Boolean, nullable=False, server_default=false(), default=False
     )
     estimated_days = Column(Text)
+
+
+class heating_model(SQLBase):
+    __tablename__ = "heating_model"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fitted_at = Column(DateTime, nullable=False)
+    window_start = Column(Date, nullable=False)
+    window_end = Column(Date, nullable=False)
+    usable = Column(Boolean, nullable=False)
+    unusable_reason = Column(String(100))
+    days_used = Column(Integer)
+    threshold = Column(Float)
+    upper_threshold = Column(Float)
+    slope = Column(Float)
+    weight = Column(Float)
+    r_squared = Column(Float)
+    baseload = Column(Float)
+    baseload_measured_days = Column(Integer)
+    baseload_interpolated_days = Column(Integer)
+    baseload_held_days = Column(Integer)
+    noise_base = Column(Float)
+    noise_per_degree_day = Column(Float)
+    noise_floor = Column(Float)
+    thermostat_threshold = Column(Float)
+    heating_days = Column(Integer)
+    non_heating_days = Column(Integer)
+    label = Column(String(20), nullable=False)
+
+
+class heating_day_verdict(SQLBase):
+    __tablename__ = "heating_day_verdict"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per day, wholly replaced each time the verdicts are recomputed.
+    date = Column(Date, primary_key=True)
+    model_id = Column(Integer, nullable=False)
+    mean_temp = Column(Float)
+    effective_temp = Column(Float)
+    actual_gas = Column(Float, nullable=False)
+    expected_gas = Column(Float, nullable=False)
+    baseload = Column(Float, nullable=False)
+    baseload_kind = Column(String(20), nullable=False)
+    needed = Column(Boolean, nullable=False)
+    away = Column(Boolean, nullable=False)
+    expected_heating = Column(Float, nullable=False)
+    normal_variation = Column(Float, nullable=False)
+    possible = Column(Float, nullable=False)
+    clear = Column(Float, nullable=False)
+    margin = Column(Float, nullable=False)
+
+
+class heating_forecast_day(SQLBase):
+    __tablename__ = "heating_forecast_day"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per future day, wholly replaced each time the forecast is computed.
+    date = Column(Date, primary_key=True)
+    model_id = Column(Integer, nullable=False)
+    forecast_mean = Column(Float, nullable=False)
+    effective_temp = Column(Float, nullable=False)
+    expected_gas = Column(Float, nullable=False)
+    computed_at = Column(DateTime, nullable=False)
+
+
+class heating_week(SQLBase):
+    __tablename__ = "heating_week"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per Monday-to-Sunday week, wholly replaced on each recompute.
+    week_start = Column(Date, primary_key=True)
+    model_id = Column(Integer, nullable=False)
+    complete_days = Column(Integer, nullable=False)
+    avg_gas = Column(Float)
+    avg_degree_days = Column(Float)
+    avg_baseload = Column(Float)
+    avg_heating_gas = Column(Float)
+    efficiency = Column(Float)
+    # The WeekStatus value: 'shown' or the reason the week is left out.
+    status = Column(String(20), nullable=False)
