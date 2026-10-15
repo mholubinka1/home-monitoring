@@ -98,7 +98,9 @@ def run_initial_heating_model_sync(
 ) -> None:
     """Fits the first model at startup when there is none and enough data. Not
     while the history backfill is still running: a fit on a half-filled history
-    would stand for a week, so the first daily run fits it instead."""
+    would stand for a week, so the first daily run fits it instead. A backfill
+    that has already ended, even by failing, does not delay it. Like the other
+    startup syncs, this run is logged but not recorded in job_run."""
     try:
         if backfill is not None and backfill.is_alive():
             logger.info("History backfill still running; first heating fit waits.")
