@@ -24,6 +24,7 @@ from octopus_app.data.model import (
     HeatingDayVerdictRecord,
     HeatingForecastRecord,
     HeatingModelRecord,
+    StoredHeatingModel,
 )
 from octopus_app.data.mysql.client import MariaDBClient
 
@@ -31,7 +32,9 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 REFIT_AFTER_DAYS = 7  # a model this old or older is refitted
-HISTORY_DAYS = 1500  # how far back gas history is read
+# How far back gas history is read: past the 1096-day window the consumption
+# summary backfill covers, so it holds the whole history.
+HISTORY_DAYS = 1500
 FORECAST_DAYS = 7
 LABEL_ESTIMATED = "estimated"
 
@@ -328,6 +331,12 @@ def _judge_and_write(
     model_id, record = stored
     params = _Params.from_record(record)
     derived = _derive(inputs, params.weight, params.threshold)
+    if not derived.baseload:
+        logger.warning(
+            f"Heating model refresh: no baseload can be measured for model "
+            f"{model_id}; nothing judged."
+        )
+        return
     mariadb.replace_heating_day_verdicts(
         model_id, _verdict_rows(inputs, derived, params)
     )
@@ -346,6 +355,16 @@ def _judge_and_write(
     )
 
 
+def _is_stale(latest: StoredHeatingModel | None, now: datetime) -> bool:
+    """Whether the latest fit is REFIT_AFTER_DAYS or more local days old. Whole
+    local days, not elapsed time: a run a few seconds earlier than last week's
+    must not slip the refit to the next day."""
+    if latest is None:
+        return True
+    age = local_day.to_local_date(now) - local_day.to_local_date(latest.model.fitted_at)
+    return age >= timedelta(days=REFIT_AFTER_DAYS)
+
+
 class HeatingModelJob:
     _mariadb: MariaDBClient
 
@@ -353,21 +372,27 @@ class HeatingModelJob:
         self._mariadb = mariadb
 
     def refresh(self, now: datetime | None = None) -> None:
+        """Refit when the latest fit is REFIT_AFTER_DAYS or more local days old,
+        or when no usable model exists yet, then re-judge every day, the weeks
+        and the forecast with the newest usable model. A refit that comes out
+        unusable is recorded, and that run re-judges with the previous usable
+        model."""
         now = now or datetime.now(UTC)
         inputs = _load_inputs(self._mariadb, local_day.to_local_date(now))
         if inputs is None:
             logger.info("Heating model refresh: no usable gas days; nothing written.")
             return
+        usable = self._latest_usable()
         latest = self._mariadb.read_latest_heating_model()
-        refit = latest is None or now - latest.model.fitted_at >= timedelta(
-            days=REFIT_AFTER_DAYS
-        )
-        stored = self._refit(inputs, now) if refit else self._latest_usable()
+        refit = usable is None or _is_stale(latest, now)
+        refitted = self._refit(inputs, now) if refit else None
+        stored = refitted or usable
         if stored is None:
+            logger.info("Heating model refresh: no usable model yet; nothing judged.")
             return
         _judge_and_write(self._mariadb, inputs, stored, now)
         logger.info(
-            f"Heating model refresh: {'refitted' if refit else 'kept'} "
+            f"Heating model refresh: {'refitted' if refitted else 'kept'} "
             f"model {stored[0]}."
         )
 

@@ -109,10 +109,15 @@ def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rejudges(
     ("age", "refits"),
     [
         (timedelta(days=7), True),
-        (timedelta(days=6, hours=23), False),
+        # A run a few seconds early still counts as seven local days on.
+        (timedelta(days=7) - timedelta(seconds=3), True),
+        # NOW is 05:00 local (BST), so local midnight, seven dates on, is 6d19h later.
+        (timedelta(days=6, hours=19), True),
+        (timedelta(days=6, hours=18, minutes=59), False),  # 23:59, only six dates on
+        (timedelta(days=6), False),
     ],
 )
-def test_the_model_is_refitted_once_it_is_seven_days_old(
+def test_the_model_is_refitted_once_it_is_seven_local_days_old(
     mariadb_client: MariaDBClient, age: timedelta, refits: bool
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
@@ -150,7 +155,7 @@ def test_an_unusable_fit_stores_the_reason_and_writes_no_rows(
     assert mariadb_client.read_heating_weeks() == []
 
 
-def test_a_later_unusable_refit_leaves_the_previous_rows_untouched(
+def test_a_later_unusable_refit_is_recorded_and_the_day_is_rejudged_with_the_old_model(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
@@ -158,7 +163,6 @@ def test_a_later_unusable_refit_leaves_the_previous_rows_untouched(
     job.refresh(now=NOW)
     first = mariadb_client.read_latest_heating_model()
     assert first is not None
-    before = mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
     with mariadb_client.session_write_scope() as session:
         session.query(model.daily_consumption_summary).filter(
             model.daily_consumption_summary.date < LAST_GAS_DAY - timedelta(days=40)
@@ -170,10 +174,62 @@ def test_a_later_unusable_refit_leaves_the_previous_rows_untouched(
     assert latest is not None
     assert latest.id != first.id
     assert not latest.model.usable
-    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY) == before
+    verdicts = mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
+    assert 0 < len(verdicts) <= 41  # re-judged on what gas is left
+    assert {model_id for model_id, _ in verdicts} == {first.id}
     assert {model_id for model_id, _ in mariadb_client.read_heating_weeks()} == {
         first.id
     }
+    forecast_model_ids = {m for m, _ in mariadb_client.read_heating_forecast_days()}
+    assert forecast_model_ids <= {first.id}
+
+
+def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _, gas = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    older = {d: g for d, g in gas.items() if d < LAST_GAS_DAY - timedelta(days=100)}
+    with mariadb_client.session_write_scope() as session:
+        session.query(model.daily_consumption_summary).filter(
+            model.daily_consumption_summary.date < LAST_GAS_DAY - timedelta(days=100)
+        ).delete()
+    job = HeatingModelJob(mariadb_client)
+    job.refresh(now=NOW)
+    first = mariadb_client.read_latest_heating_model()
+    assert first is not None
+    assert not first.model.usable
+    for day, kwh in older.items():
+        seed_gas_day(mariadb_client, day, kwh)
+
+    job.refresh(now=NOW + timedelta(days=1))
+
+    latest = mariadb_client.read_latest_heating_model()
+    assert latest is not None
+    assert latest.model.usable
+    assert _model_count(mariadb_client) == 2
+    verdict_models = {
+        m for m, _ in mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
+    }
+    assert verdict_models == {latest.id}
+
+
+def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_raise(
+    mariadb_client: MariaDBClient,
+) -> None:
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    job = HeatingModelJob(mariadb_client)
+    job.refresh(now=NOW)
+    with mariadb_client.session_write_scope() as session:
+        # Only winter days left: no warm day, so no baseload can be measured.
+        session.query(model.daily_consumption_summary).filter(
+            model.daily_consumption_summary.date.notin_(
+                [date(2026, 1, 10) + timedelta(days=i) for i in range(5)]
+            )
+        ).delete(synchronize_session=False)
+
+    job.refresh(now=NOW + timedelta(days=1))
+
+    assert _model_count(mariadb_client) == 1
 
 
 def test_no_usable_gas_days_writes_nothing_and_does_not_raise(

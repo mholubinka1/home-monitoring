@@ -1,5 +1,7 @@
 import math
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
 
 from octopus_app.data.mysql.client import (
     MariaDBClient,
@@ -42,21 +44,40 @@ def _seed_forecast(
         )
 
 
-def test_heating_polls_in_the_window_are_read_back_in_time_order(
+def test_heating_polls_in_the_window_are_read_back(
     mariadb_client: MariaDBClient,
 ) -> None:
     _seed_poll(mariadb_client, datetime(2026, 10, 1, 9, 0, tzinfo=UTC), "OFF")
     _seed_poll(mariadb_client, datetime(2026, 10, 1, 8, 0, tzinfo=UTC), "ON", True)
 
-    readings = mariadb_client.read_heating_readings(
-        datetime(2026, 10, 1, 0, 0, tzinfo=UTC),
-        datetime(2026, 10, 2, 0, 0, tzinfo=UTC),
+    readings = list(
+        mariadb_client.read_heating_readings(
+            datetime(2026, 10, 1, 0, 0, tzinfo=UTC),
+            datetime(2026, 10, 2, 0, 0, tzinfo=UTC),
+        )
     )
 
-    assert readings == [
+    assert sorted(readings, key=lambda r: r.polled_at) == [
         HeatingReading(datetime(2026, 10, 1, 8, 0, tzinfo=UTC), "ON", True),
         HeatingReading(datetime(2026, 10, 1, 9, 0, tzinfo=UTC), "OFF", False),
     ]
+
+
+def test_polls_beyond_one_chunk_are_all_read_back(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("octopus_app.data.mysql.client.HEATING_READ_CHUNK", 2)
+    first = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
+    for i in range(5):
+        _seed_poll(mariadb_client, first + timedelta(minutes=2 * i))
+
+    readings = list(
+        mariadb_client.read_heating_readings(
+            datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+        )
+    )
+
+    assert len(readings) == 5
 
 
 def test_a_poll_at_the_window_start_is_in_and_one_at_the_end_is_out(
@@ -68,7 +89,7 @@ def test_a_poll_at_the_window_start_is_in_and_one_at_the_end_is_out(
     _seed_poll(mariadb_client, start)
     _seed_poll(mariadb_client, end)
 
-    readings = mariadb_client.read_heating_readings(start, end)
+    readings = list(mariadb_client.read_heating_readings(start, end))
 
     assert [reading.polled_at for reading in readings] == [start]
 
@@ -79,8 +100,10 @@ def test_a_poll_with_no_state_or_boost_flag_reads_as_empty_and_not_boosted(
     polled_at = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
     _seed_poll(mariadb_client, polled_at, state=None, boost_active=None)
 
-    readings = mariadb_client.read_heating_readings(
-        datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+    readings = list(
+        mariadb_client.read_heating_readings(
+            datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+        )
     )
 
     assert readings == [HeatingReading(polled_at, "", False)]
@@ -89,11 +112,13 @@ def test_a_poll_with_no_state_or_boost_flag_reads_as_empty_and_not_boosted(
 def test_heating_polls_are_empty_when_hive_app_has_never_run(
     mariadb_client_without_weather_tables: MariaDBClient,
 ) -> None:
-    readings = mariadb_client_without_weather_tables.read_heating_readings(
-        datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+    readings = list(
+        mariadb_client_without_weather_tables.read_heating_readings(
+            datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 2, tzinfo=UTC)
+        )
     )
 
-    assert readings == []
+    assert not readings
 
 
 def test_forecast_mean_temperatures_are_read_for_the_inclusive_range(

@@ -1,5 +1,6 @@
 import logging.config
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -54,12 +55,13 @@ from octopus_app.data.octopus.model import (
 from octopus_app.data.thermostat_check import HeatingReading
 
 SUMMARIZATION_WINDOW_DAYS = 14
+HEATING_READ_CHUNK = 5000  # heating_status rows fetched per round trip
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# weather_observation/weather_forecast/heating_status are owned by hive-app, but live in the
-# same shared `octopus` MariaDB schema this client already connects to (see
+# weather_observation/weather_forecast/heating_status are owned by hive-app, but
+# live in the same shared `octopus` MariaDB schema this client already connects to (see
 # #511). They're declared here as plain Core Table objects against a
 # SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
 # mysql/model.py's SQLBase -- so octopus-app's own Schema Sync create_all
@@ -728,7 +730,11 @@ class MariaDBClient(MariaDBClientBase):
 
     def read_heating_readings(
         self, start: datetime, end: datetime
-    ) -> list[HeatingReading]:
+    ) -> Iterator[HeatingReading]:
+        """The heating_status polls with start <= polled_at < end, in no
+        particular order, streamed in chunks so a year of two-minute polls
+        (about 262,000 rows) is never held in memory at once. The session
+        stays open until the iterator is exhausted or closed."""
         # heating_status is hive-app's table, read cross-app (see the
         # module-level comment on weather_observation_table). The DB holds
         # naive UTC; the half-open window arguments are tz-aware.
@@ -741,21 +747,17 @@ class MariaDBClient(MariaDBClientBase):
                         hs.c.polled_at >= start.astimezone(UTC).replace(tzinfo=None),
                         hs.c.polled_at < end.astimezone(UTC).replace(tzinfo=None),
                     )
-                    .order_by(hs.c.polled_at)
-                    .all()
+                    .yield_per(HEATING_READ_CHUNK)
                 )
+                for polled_at, state, boost_active in rows:
+                    yield HeatingReading(
+                        polled_at=polled_at.replace(tzinfo=UTC),
+                        state=state or "",
+                        boost_active=bool(boost_active),
+                    )
         except (OperationalError, ProgrammingError) as error:
             if not _is_missing_table_error(error):
                 raise
-            return []
-        return [
-            HeatingReading(
-                polled_at=polled_at.replace(tzinfo=UTC),
-                state=state or "",
-                boost_active=bool(boost_active),
-            )
-            for polled_at, state, boost_active in rows
-        ]
 
     def read_weather_forecast_max_temps(
         self, start_date: date, end_date: date
