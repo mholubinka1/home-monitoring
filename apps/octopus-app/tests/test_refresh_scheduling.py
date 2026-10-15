@@ -6,7 +6,7 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
-from schedule import Scheduler
+from schedule import Job, Scheduler
 
 from octopus_app.common.config import RefreshSettings
 from octopus_app.data.agile_forecast import AgileForecastRetriever
@@ -16,12 +16,15 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
 from octopus_app.data.pruning import DataPruner
 from octopus_app.main import (
+    HEATING_MODEL_JOB,
+    PRUNE_OLD_DATA_JOB,
     register_agile_forecast_refresh_job,
     register_cost_forecast_refresh_job,
     register_daily_consumption_job,
@@ -31,6 +34,7 @@ from octopus_app.main import (
     run_initial_agile_forecast_sync,
     run_initial_consumption_summary_sync,
     run_initial_cost_forecast_sync,
+    run_initial_heating_model_sync,
     run_initial_pricing_sync,
     run_pending_safely,
 )
@@ -188,6 +192,7 @@ def test_a_successful_consumption_summary_run_is_recorded_as_a_successful_job_ru
         REFRESH_CONFIG,
         Mock(spec=ConsumptionRetriever),
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         Mock(spec=DataPruner),
         mariadb_client,
     )
@@ -219,6 +224,7 @@ def test_a_persistently_failing_consumption_summary_run_retries_with_backoff(
         REFRESH_CONFIG,
         Mock(spec=ConsumptionRetriever),
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -385,6 +391,7 @@ def test_pruning_runs_immediately_after_a_successful_summary_run_in_the_same_tic
         REFRESH_CONFIG,
         Mock(spec=ConsumptionRetriever),
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -411,6 +418,7 @@ def test_pruning_is_skipped_and_recorded_when_the_summary_run_ultimately_fails(
         REFRESH_CONFIG,
         Mock(spec=ConsumptionRetriever),
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -442,6 +450,7 @@ def test_pruning_reflects_this_cycles_outcome_not_a_stale_previous_success(
         REFRESH_CONFIG,
         Mock(spec=ConsumptionRetriever),
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -627,6 +636,7 @@ def test_a_successful_backfill_run_calls_retrieve_and_is_recorded_as_successful(
         REFRESH_CONFIG,
         consumption,
         Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=HeatingModelJob),
         Mock(spec=DataPruner),
         mariadb_client,
     )
@@ -665,6 +675,7 @@ def test_a_backfill_run_recomputes_period_from_at_call_time_not_registration(
         REFRESH_CONFIG,
         consumption,
         Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=HeatingModelJob),
         Mock(spec=DataPruner),
         mariadb_client,
     )
@@ -691,6 +702,7 @@ def test_a_persistently_failing_backfill_retries_with_exponential_backoff(
         REFRESH_CONFIG,
         consumption,
         Mock(spec=ConsumptionSummaryRetriever),
+        Mock(spec=HeatingModelJob),
         Mock(spec=DataPruner),
         mariadb_client,
     )
@@ -727,6 +739,7 @@ def test_the_daily_job_refetches_then_summarizes_then_prunes_in_that_order(
         REFRESH_CONFIG,
         consumption,
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -755,6 +768,7 @@ def test_a_failed_refetch_does_not_stop_the_summary_or_pruning(
         REFRESH_CONFIG,
         consumption,
         consumption_summary,
+        Mock(spec=HeatingModelJob),
         pruner,
         mariadb_client,
     )
@@ -768,3 +782,105 @@ def test_a_failed_refetch_does_not_stop_the_summary_or_pruning(
     assert ("consumption_backfill", "failure") in statuses
     assert ("update_consumption_summary", "success") in statuses
     assert ("prune_old_data", "success") in statuses
+
+
+def _daily_job_with(
+    mariadb_client: MariaDBClient,
+    *,
+    summary: Mock | None = None,
+    heating: Mock | None = None,
+    pruner: Mock | None = None,
+) -> Job:
+    return register_daily_consumption_job(
+        Scheduler(),
+        REFRESH_CONFIG,
+        Mock(spec=ConsumptionRetriever),
+        summary or Mock(spec=ConsumptionSummaryRetriever),
+        heating or Mock(spec=HeatingModelJob),
+        pruner or Mock(spec=DataPruner),
+        mariadb_client,
+    )
+
+
+def _runs_of(mariadb_client: MariaDBClient, job_name: str) -> list[str]:
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).filter_by(job_name=job_name).all()
+    return [run.status for run in runs]
+
+
+def test_the_heating_refresh_runs_after_the_summary_and_before_the_prune(
+    mariadb_client: MariaDBClient,
+) -> None:
+    steps = Mock()
+    summary = Mock(spec=ConsumptionSummaryRetriever)
+    heating = Mock(spec=HeatingModelJob)
+    pruner = Mock(spec=DataPruner)
+    steps.attach_mock(summary.refresh, "summarize")
+    steps.attach_mock(heating.refresh, "heating")
+    steps.attach_mock(pruner.run, "prune")
+
+    _daily_job_with(
+        mariadb_client, summary=summary, heating=heating, pruner=pruner
+    ).run().join()
+
+    assert [name for name, _, _ in steps.mock_calls] == [
+        "summarize",
+        "heating",
+        "prune",
+    ]
+    assert _runs_of(mariadb_client, HEATING_MODEL_JOB) == ["success"]
+
+
+def test_a_failing_heating_refresh_is_recorded_and_does_not_stop_the_prune(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
+    heating = Mock(spec=HeatingModelJob)
+    heating.refresh.side_effect = RuntimeError("fit exploded")
+    pruner = Mock(spec=DataPruner)
+
+    _daily_job_with(mariadb_client, heating=heating, pruner=pruner).run().join()
+
+    assert set(_runs_of(mariadb_client, HEATING_MODEL_JOB)) == {"failure"}
+    pruner.run.assert_called_once()
+    assert _runs_of(mariadb_client, PRUNE_OLD_DATA_JOB) == ["success"]
+
+
+def test_a_failed_summary_skips_the_heating_refresh_and_records_it(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
+    summary = Mock(spec=ConsumptionSummaryRetriever)
+    summary.refresh.side_effect = RuntimeError("MariaDB unavailable")
+    heating = Mock(spec=HeatingModelJob)
+
+    _daily_job_with(mariadb_client, summary=summary, heating=heating).run().join()
+
+    heating.refresh.assert_not_called()
+    assert _runs_of(mariadb_client, HEATING_MODEL_JOB) == ["skipped"]
+
+
+def test_run_initial_heating_model_sync_refreshes_when_ready_for_a_first_fit() -> None:
+    heating = Mock(spec=HeatingModelJob)
+    heating.ready_for_first_fit.return_value = True
+
+    run_initial_heating_model_sync(heating)
+
+    heating.refresh.assert_called_once()
+
+
+def test_run_initial_heating_model_sync_does_nothing_when_not_ready() -> None:
+    heating = Mock(spec=HeatingModelJob)
+    heating.ready_for_first_fit.return_value = False
+
+    run_initial_heating_model_sync(heating)
+
+    heating.refresh.assert_not_called()
+
+
+def test_run_initial_heating_model_sync_does_not_propagate_a_startup_failure() -> None:
+    heating = Mock(spec=HeatingModelJob)
+    heating.ready_for_first_fit.return_value = True
+    heating.refresh.side_effect = RuntimeError("fit exploded")
+
+    run_initial_heating_model_sync(heating)
