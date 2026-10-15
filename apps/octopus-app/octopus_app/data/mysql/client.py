@@ -164,6 +164,17 @@ def _forecast_scoped_id(region: str, period_from: datetime) -> str:
     return f"{region}_{period_from.strftime('%Y%m%d%H%M')}"
 
 
+def _values_of(record: Any) -> dict[str, Any]:
+    """A dataclass record's fields by name, for building its table row."""
+    return {f.name: getattr(record, f.name) for f in fields(record)}
+
+
+def _record_of(record_type: type, row: Any, **overrides: Any) -> Any:
+    """A dataclass record built from the same-named columns of a table row."""
+    values = {f.name: getattr(row, f.name) for f in fields(record_type)}
+    return record_type(**(values | overrides))
+
+
 def _forecast_day_row(
     row: HeatingForecastRecord, model_id: int, computed_at: datetime
 ) -> model.heating_forecast_day:
@@ -272,10 +283,11 @@ class MariaDBClient(MariaDBClientBase):
         self._write_all([record], "Cost forecast data")
 
     def write_heating_model(self, record: HeatingModelRecord) -> int:
-        values = {f.name: getattr(record, f.name) for f in fields(record)}
         # Stored as naive UTC, like every other DATETIME here.
-        values["fitted_at"] = record.fitted_at.astimezone(UTC).replace(tzinfo=None)
-        row = model.heating_model(**values)
+        row = model.heating_model(
+            **_values_of(record)
+            | {"fitted_at": record.fitted_at.astimezone(UTC).replace(tzinfo=None)}
+        )
         try:
             with self.session_write_scope() as session:
                 session.add(row)
@@ -302,9 +314,14 @@ class MariaDBClient(MariaDBClientBase):
             row = query.order_by(hm.fitted_at.desc(), hm.id.desc()).first()
             if row is None:
                 return None
-            values = {f.name: getattr(row, f.name) for f in fields(HeatingModelRecord)}
-        values["fitted_at"] = row.fitted_at.replace(tzinfo=UTC)
-        return StoredHeatingModel(id=row.id, model=HeatingModelRecord(**values))
+            return StoredHeatingModel(
+                id=row.id,
+                model=_record_of(
+                    HeatingModelRecord,
+                    row,
+                    fitted_at=row.fitted_at.replace(tzinfo=UTC),
+                ),
+            )
 
     def _replace_all_rows(
         self, table: type[SQLBase], rows: list[SQLBase], description: str
@@ -324,10 +341,7 @@ class MariaDBClient(MariaDBClientBase):
         self._replace_all_rows(
             model.heating_day_verdict,
             [
-                model.heating_day_verdict(
-                    model_id=model_id,
-                    **{f.name: getattr(row, f.name) for f in fields(row)},
-                )
+                model.heating_day_verdict(model_id=model_id, **_values_of(row))
                 for row in rows
             ],
             "heating day verdicts",
@@ -345,15 +359,7 @@ class MariaDBClient(MariaDBClientBase):
                 .all()
             )
             return [
-                (
-                    row.model_id,
-                    HeatingDayVerdictRecord(
-                        **{
-                            f.name: getattr(row, f.name)
-                            for f in fields(HeatingDayVerdictRecord)
-                        }
-                    ),
-                )
+                (row.model_id, _record_of(HeatingDayVerdictRecord, row))
                 for row in stored
             ]
 
@@ -389,8 +395,7 @@ class MariaDBClient(MariaDBClientBase):
             [
                 model.heating_week(
                     model_id=model_id,
-                    **{f.name: getattr(row, f.name) for f in fields(row)}
-                    | {"status": row.status.value},
+                    **_values_of(row) | {"status": row.status.value},
                 )
                 for row in rows
             ],
@@ -403,10 +408,7 @@ class MariaDBClient(MariaDBClientBase):
             return [
                 (
                     row.model_id,
-                    WeekRow(
-                        **{f.name: getattr(row, f.name) for f in fields(WeekRow)}
-                        | {"status": WeekStatus(row.status)}
-                    ),
+                    _record_of(WeekRow, row, status=WeekStatus(row.status)),
                 )
                 for row in session.query(hw).order_by(hw.week_start).all()
             ]

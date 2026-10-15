@@ -3,8 +3,9 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from octopus_app.data.heating_job import HeatingModelJob
-from octopus_app.data.heating_model import THRESHOLDS, UnusableReason
+from octopus_app.data.heating_model import THRESHOLDS, WEIGHT_MAX, UnusableReason
 from octopus_app.data.heating_weeks import WeekStatus
+from octopus_app.data.model import HeatingModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 
@@ -230,6 +231,49 @@ def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_
     job.refresh(now=NOW + timedelta(days=1))
 
     assert _model_count(mariadb_client) == 1
+
+
+def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The live fit lands on the 0.8 cap; the next day's run reads it back from
+    # the table and must not trip the weight's range check.
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_forecast_means(mariadb_client, {TODAY: 6.0})
+    mariadb_client.write_heating_model(
+        HeatingModelRecord(
+            fitted_at=NOW,
+            window_start=date(2025, 10, 13),
+            window_end=LAST_GAS_DAY,
+            usable=True,
+            unusable_reason=None,
+            days_used=333,
+            threshold=PLANTED_THRESHOLD,
+            upper_threshold=PLANTED_THRESHOLD + 1,
+            slope=PLANTED_SLOPE,
+            weight=WEIGHT_MAX,
+            r_squared=0.9,
+            baseload=PLANTED_BASELOAD,
+            baseload_measured_days=1,
+            baseload_interpolated_days=0,
+            baseload_held_days=0,
+            noise_base=2.0,
+            noise_per_degree_day=0.1,
+            noise_floor=1.0,
+            thermostat_threshold=None,
+            heating_days=None,
+            non_heating_days=None,
+            label="estimated",
+        )
+    )
+
+    HeatingModelJob(mariadb_client).refresh(now=NOW)  # the model is not stale
+
+    assert _model_count(mariadb_client) == 1
+    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
+    assert [row.date for _, row in mariadb_client.read_heating_forecast_days()] == [
+        TODAY
+    ]
 
 
 def test_no_usable_gas_days_writes_nothing_and_does_not_raise(

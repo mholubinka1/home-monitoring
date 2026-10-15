@@ -254,9 +254,10 @@ def register_daily_consumption_job(
     then -- only if that summarization succeeded -- refreshes the heating model
     (skipped, and recorded so, otherwise; its failure never stops the prune) and
     prunes raw data, all in the same background thread. Summarizing after the
-    refetch means each day's summary reads the freshest raw rows; a failed refetch (already retried, then swallowed by
-    _with_backoff_recording) does not stop the summary. Sequencing the steps within
-    one thread (rather than as independently-scheduled jobs) is deliberate:
+    refetch means each day's summary reads the freshest raw rows; a failed
+    refetch (already retried, then swallowed by _with_backoff_recording) does not
+    stop the summary. Sequencing the steps within one thread (rather than as
+    independently-scheduled jobs) is deliberate:
     prune_old_data's job_run gate must see *this* cycle's summarization outcome, not
     whichever outcome happened to be most recently recorded when its own tick fired
     -- separately-scheduled jobs can't guarantee that ordering, since each job's own

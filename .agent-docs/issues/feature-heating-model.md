@@ -100,7 +100,7 @@ A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes e
 ### Acceptance criteria
 
 - [x] Given no model and enough data, then a model row and verdict rows are written at startup.
-- [x] Given a model fitted under 7 days ago, then the daily run recomputes verdicts without refitting; older, then it refits.
+- [x] Given a model fitted under 7 local days ago, then the daily run recomputes verdicts without refitting; 7 or more, then it refits (and while no usable model exists it refits every run).
 - [x] Given an unusable fit, then a model row with the reason is written and no misleading verdicts are.
 - [x] Given the forecast table, then forecast-day rows hold expected gas for the next 7 days.
 - [x] Each run records success or failure in `job_run`; Schema Sync creates the tables on an existing database.

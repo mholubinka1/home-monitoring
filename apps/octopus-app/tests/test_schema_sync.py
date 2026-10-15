@@ -334,6 +334,27 @@ def test_every_declared_index_compiles_as_valid_mariadb_ddl() -> None:
             )
 
 
+def test_no_declared_column_is_a_32_bit_float_on_mariadb() -> None:
+    # SQLAlchemy's Float is MariaDB's single-precision FLOAT: a stored blend
+    # weight of 0.8 would read back as 0.800000011920929 and fail the weight's
+    # range check. Model numbers use DOUBLE; SQLite (the fixture) hides this.
+    # Only this app's own tables: hive-app's share the declarative base once its
+    # models are imported in the same test session.
+    own_tables = [
+        value.__table__
+        for value in vars(model).values()
+        if isinstance(value, type)
+        and issubclass(value, SQLBase)
+        and value is not SQLBase
+        and value.__module__ == model.__name__
+    ]
+    assert own_tables
+    for table in own_tables:
+        for column in table.columns:
+            ddl_type = str(column.type.compile(dialect=mysql.dialect()))
+            assert ddl_type != "FLOAT", f"{table.name}.{column.name} is a 32-bit FLOAT"
+
+
 def test_consumption_quantities_reject_negative_values_on_mariadb() -> None:
     table = SQLBase.metadata.tables["octopus.consumption"]
     ddl = str(CreateTable(table).compile(dialect=mysql.dialect()))
