@@ -46,7 +46,7 @@ def _need(value: float | None, name: str) -> float:
 
 
 @dataclass(frozen=True)
-class _Inputs:
+class _RunInputs:
     """What one run reads: the usable gas days before today and the daily means."""
 
     today: date
@@ -99,7 +99,7 @@ def _usable_gas_summaries(
     return [s for s in summaries if is_usable(s) and s.date < today]
 
 
-def _load_inputs(mariadb: MariaDBClient, today: date) -> _Inputs | None:
+def _load_inputs(mariadb: MariaDBClient, today: date) -> _RunInputs | None:
     summaries = _usable_gas_summaries(mariadb, today)
     if not summaries:
         return None
@@ -107,10 +107,10 @@ def _load_inputs(mariadb: MariaDBClient, today: date) -> _Inputs | None:
     means = mariadb.read_complete_day_mean_temperatures(
         min(gas) - timedelta(days=1), today - timedelta(days=1)
     )
-    return _Inputs(today, max(gas), summaries, gas, means)
+    return _RunInputs(today, max(gas), summaries, gas, means)
 
 
-def _derive(inputs: _Inputs, weight: float, threshold: float) -> _Derived:
+def _derive(inputs: _RunInputs, weight: float, threshold: float) -> _Derived:
     effective = heating_model.effective_temperatures(inputs.means, weight)
     baseload, away = heating_model.baseload_and_away_days(
         inputs.gas, effective, threshold
@@ -123,7 +123,7 @@ def _window_start(as_of: date) -> date:
 
 
 def _unusable_record(
-    fit: HeatingFit, inputs: _Inputs, now: datetime
+    fit: HeatingFit, inputs: _RunInputs, now: datetime
 ) -> HeatingModelRecord:
     quality = fit.quality
     return HeatingModelRecord(
@@ -161,7 +161,7 @@ class _Window:
     days: list[date]
 
 
-def _fit_window(inputs: _Inputs, derived: _Derived) -> _Window:
+def _fit_window(inputs: _RunInputs, derived: _Derived) -> _Window:
     start = _window_start(inputs.as_of)
     days = [
         day
@@ -175,7 +175,7 @@ def _fit_window(inputs: _Inputs, derived: _Derived) -> _Window:
 
 
 def _baseload_kind_count(
-    inputs: _Inputs, derived: _Derived, window: _Window, kind: BaselineKind
+    inputs: _RunInputs, derived: _Derived, window: _Window, kind: BaselineKind
 ) -> int:
     return sum(
         1
@@ -186,7 +186,7 @@ def _baseload_kind_count(
 
 
 def _thermostat(
-    mariadb: MariaDBClient, inputs: _Inputs, derived: _Derived, window: _Window
+    mariadb: MariaDBClient, inputs: _RunInputs, derived: _Derived, window: _Window
 ) -> thermostat_check.ThermostatCheck | None:
     readings = mariadb.read_heating_readings(
         local_day.start_of_local_day(window.start),
@@ -198,7 +198,7 @@ def _thermostat(
 
 
 def _noise_and_upper(
-    inputs: _Inputs, derived: _Derived, window: _Window, fit: HeatingFit
+    inputs: _RunInputs, derived: _Derived, window: _Window, fit: HeatingFit
 ) -> tuple[heating_verdict.NoiseModel, float]:
     threshold = _need(fit.threshold, "threshold")
     slope = _need(fit.slope, "slope")
@@ -216,7 +216,7 @@ def _noise_and_upper(
 
 
 def _usable_record(
-    mariadb: MariaDBClient, inputs: _Inputs, fit: HeatingFit, now: datetime
+    mariadb: MariaDBClient, inputs: _RunInputs, fit: HeatingFit, now: datetime
 ) -> HeatingModelRecord:
     quality = fit.quality
     threshold = _need(fit.threshold, "threshold")
@@ -260,7 +260,7 @@ def _usable_record(
 
 
 def _verdict_rows(
-    inputs: _Inputs, derived: _Derived, params: _Params
+    inputs: _RunInputs, derived: _Derived, params: _Params
 ) -> list[HeatingDayVerdictRecord]:
     judging = heating_verdict.JudgingModel(
         params.threshold, params.slope, params.upper, params.noise
@@ -299,7 +299,7 @@ def _verdict_rows(
 
 
 def _forecast_rows(
-    mariadb: MariaDBClient, inputs: _Inputs, derived: _Derived, params: _Params
+    mariadb: MariaDBClient, inputs: _RunInputs, derived: _Derived, params: _Params
 ) -> list[HeatingForecastRecord]:
     forecast_means = mariadb.read_weather_forecast_mean_temps(
         inputs.today, inputs.today + timedelta(days=FORECAST_DAYS - 1)
@@ -325,10 +325,12 @@ def _forecast_rows(
 
 def _judge_and_write(
     mariadb: MariaDBClient,
-    inputs: _Inputs,
+    inputs: _RunInputs,
     stored: tuple[int, HeatingModelRecord],
     now: datetime,
-) -> None:
+) -> bool:
+    """Rewrites the verdicts, weeks and forecast from the stored model; False
+    when nothing could be judged."""
     model_id, record = stored
     params = _Params.from_record(record)
     derived = _derive(inputs, params.weight, params.threshold)
@@ -337,7 +339,7 @@ def _judge_and_write(
             f"Heating model refresh: no baseload can be measured for model "
             f"{model_id}; nothing judged."
         )
-        return
+        return False
     mariadb.replace_heating_day_verdicts(
         model_id, _verdict_rows(inputs, derived, params)
     )
@@ -354,6 +356,7 @@ def _judge_and_write(
     mariadb.replace_heating_forecast_days(
         model_id, _forecast_rows(mariadb, inputs, derived, params), now
     )
+    return True
 
 
 def _is_stale(latest: StoredHeatingModel | None, now: datetime) -> bool:
@@ -378,7 +381,8 @@ class HeatingModelJob:
         and the forecast with the newest usable model. A refit that comes out
         unusable is recorded, and that run re-judges with the previous usable
         model."""
-        now = now or datetime.now(UTC)
+        if now is None:
+            now = datetime.now(UTC)
         inputs = _load_inputs(self._mariadb, local_day.to_local_date(now))
         if inputs is None:
             logger.info("Heating model refresh: no usable gas days; nothing written.")
@@ -391,18 +395,18 @@ class HeatingModelJob:
         if stored is None:
             logger.info("Heating model refresh: no usable model yet; nothing judged.")
             return
-        _judge_and_write(self._mariadb, inputs, stored, now)
-        logger.info(
-            f"Heating model refresh: {'refitted' if refitted else 'kept'} "
-            f"model {stored[0]}."
-        )
+        if _judge_and_write(self._mariadb, inputs, stored, now):
+            logger.info(
+                f"Heating model refresh: {'refitted' if refitted else 'kept'} "
+                f"model {stored[0]}."
+            )
 
     def _latest_usable(self) -> tuple[int, HeatingModelRecord] | None:
         latest = self._mariadb.read_latest_usable_heating_model()
         return (latest.id, latest.model) if latest else None
 
     def _refit(
-        self, inputs: _Inputs, now: datetime
+        self, inputs: _RunInputs, now: datetime
     ) -> tuple[int, HeatingModelRecord] | None:
         fit = heating_model.fit_heating_model(
             inputs.summaries, inputs.means, inputs.as_of

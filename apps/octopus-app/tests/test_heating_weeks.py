@@ -116,8 +116,10 @@ def test_a_week_with_too_few_days_and_a_mild_climate_reports_too_few_days_first(
     assert week.status is WeekStatus.TOO_FEW_DAYS
 
 
-def test_each_week_uses_its_own_baseload_and_the_one_threshold() -> None:
-    second = MONDAY + timedelta(days=7)
+def test_the_same_week_two_years_apart_uses_one_threshold_and_its_own_baseload() -> (
+    None
+):
+    second = MONDAY + timedelta(days=728)  # the same week, two years on
     gas_1, eff_1, base_1 = _week(MONDAY, 5, baseload=6.0, heating_gas=20.0)
     gas_2, eff_2, base_2 = _week(second, 5, baseload=8.0, heating_gas=20.0)
 
