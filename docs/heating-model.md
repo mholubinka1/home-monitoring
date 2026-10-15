@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built and tested. The daily job that runs it, the seven-day projection, the weekly chart and the dashboard panels that show it are still being built, so a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the estimated/confirmed label in section 10, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere yet. They are written as they will work.
+> **Status.** The maths described here is built and tested. The daily job that runs it (the range around the threshold, the estimated/confirmed label, the seven-day projection and the weekly rows) is built, but it has not been deployed yet, and the dashboard panels that show it are still being built. So a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the label in section 10, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere you can see yet. They are written as they will work.
 
 ## 1. What this is for, and the picture
 

@@ -1,6 +1,6 @@
 # Issues: feature-heating-model
 
-> Wave A complete (MOD-1, MOD-2: #672, merged). Wave B complete — MOD-3, MOD-4 and MOD-7 in one PR, ready to merge. MOD-5, MOD-6 and MOD-8 follow in wave C.
+> Wave A (MOD-1, MOD-2: #672) and wave B (MOD-3, MOD-4, MOD-7: #674) are merged. Wave C, PR 1 — MOD-5 and MOD-8 (the job, the tables, the weekly rows) — is built and in review; PR 2 is MOD-6 (the cost forecast adopts the model), started only after PR 1 is merged.
 
 ## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
@@ -99,11 +99,11 @@ A daily octopus-app job (recorded in `job_run`) that refits weekly, recomputes e
 
 ### Acceptance criteria
 
-- [ ] Given no model and enough data, then a model row and verdict rows are written at startup.
-- [ ] Given a model fitted under 7 days ago, then the daily run recomputes verdicts without refitting; older, then it refits.
-- [ ] Given an unusable fit, then a model row with the reason is written and no misleading verdicts are.
-- [ ] Given the forecast table, then forecast-day rows hold expected gas for the next 7 days.
-- [ ] Each run records success or failure in `job_run`; Schema Sync creates the tables on an existing database.
+- [x] Given no model and enough data, then a model row and verdict rows are written at startup.
+- [x] Given a model fitted under 7 days ago, then the daily run recomputes verdicts without refitting; older, then it refits.
+- [x] Given an unusable fit, then a model row with the reason is written and no misleading verdicts are.
+- [x] Given the forecast table, then forecast-day rows hold expected gas for the next 7 days.
+- [x] Each run records success or failure in `job_run`; Schema Sync creates the tables on an existing database.
 
 ---
 
@@ -159,8 +159,8 @@ The model job also writes `heating_week`, one row per Monday-to-Sunday week over
 
 ### Acceptance criteria
 
-- [ ] Given a week with 5 complete days, then its per-day averages are used and its status is `shown` if the other guards pass.
-- [ ] Given a week with 4 complete days, then its status is "too few days"; under 1.5 degree-days a day, "too mild"; under 0.5 kWh a day of heating gas, "heating off".
-- [ ] Given two years, then both use the same degree-day threshold and each week's own moving baseload.
-- [ ] Given a week with an away or incomplete day, then that day is excluded from the averages (and counts against the 5).
-- [ ] The table covers the whole history with data, is rebuilt consistently on each refit, and Schema Sync creates it on an existing database.
+- [x] Given a week with 5 complete days, then its per-day averages are used and its status is `shown` if the other guards pass.
+- [x] Given a week with 4 complete days, then its status is "too few days"; under 1.5 degree-days a day, "too mild"; under 0.5 kWh a day of heating gas, "heating off".
+- [x] Given two years, then both use the same degree-day threshold and each week's own moving baseload.
+- [x] Given a week with an away or incomplete day, then that day is excluded from the averages (and counts against the 5).
+- [x] The table covers the whole history with data, is rebuilt consistently on each refit, and Schema Sync creates it on an existing database.
