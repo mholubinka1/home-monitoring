@@ -173,26 +173,11 @@ def _values_of(record: "DataclassInstance") -> dict[str, Any]:
 
 
 def _record_of[R: "DataclassInstance"](
-    record_type: type[R], row: Any, **overrides: Any
+    record_type: type[R], row: object, **overrides: Any
 ) -> R:
-    """A dataclass record built from the same-named columns of a table row."""
+    """A dataclass record built from the same-named columns of an ORM row."""
     values = {f.name: getattr(row, f.name) for f in fields(record_type)}
     return record_type(**(values | overrides))
-
-
-def _forecast_day_row(
-    row: HeatingForecastRecord, model_id: int, computed_at: datetime
-) -> model.heating_forecast_day:
-    # Built from a dict: the old sqlalchemy-stubs type Float columns as Decimal.
-    values: dict[str, Any] = {
-        "date": row.date,
-        "model_id": model_id,
-        "forecast_mean": row.forecast_mean,
-        "effective_temp": row.effective_temperature,
-        "expected_gas": row.expected_gas,
-        "computed_at": computed_at,
-    }
-    return model.heating_forecast_day(**values)
 
 
 class MariaDBClient(MariaDBClientBase):
@@ -374,7 +359,12 @@ class MariaDBClient(MariaDBClientBase):
         stamp = computed_at.astimezone(UTC).replace(tzinfo=None)
         self._replace_all_rows(
             model.heating_forecast_day,
-            [_forecast_day_row(row, model_id, stamp) for row in rows],
+            [
+                model.heating_forecast_day(
+                    model_id=model_id, computed_at=stamp, **_values_of(row)
+                )
+                for row in rows
+            ],
             "heating forecast days",
         )
 
@@ -382,15 +372,7 @@ class MariaDBClient(MariaDBClientBase):
         hf = model.heating_forecast_day
         with self.session_read_scope() as session:
             return [
-                (
-                    row.model_id,
-                    HeatingForecastRecord(
-                        date=row.date,
-                        forecast_mean=float(row.forecast_mean),
-                        effective_temperature=float(row.effective_temp),
-                        expected_gas=float(row.expected_gas),
-                    ),
-                )
+                (row.model_id, _record_of(HeatingForecastRecord, row))
                 for row in session.query(hf).order_by(hf.date).all()
             ]
 

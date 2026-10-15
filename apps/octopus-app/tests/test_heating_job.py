@@ -79,8 +79,7 @@ def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model
     for _, row in forecast:
         assert row.expected_gas == pytest.approx(
             stored.model.baseload
-            + stored.model.slope
-            * max(0.0, stored.model.threshold - row.effective_temperature)
+            + stored.model.slope * max(0.0, stored.model.threshold - row.effective_temp)
         )
     weeks = mariadb_client.read_heating_weeks()
     assert weeks
@@ -276,6 +275,19 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
     ]
 
 
+def test_a_stored_usable_model_missing_a_number_names_it_when_it_fails(
+    mariadb_client: MariaDBClient,
+) -> None:
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    job = HeatingModelJob(mariadb_client)
+    job.refresh(now=NOW)
+    with mariadb_client.session_write_scope() as session:
+        session.query(model.heating_model).update({"noise_floor": None})
+
+    with pytest.raises(ValueError, match="noise floor"):
+        job.refresh(now=NOW + timedelta(days=1))
+
+
 def test_no_usable_gas_days_writes_nothing_and_does_not_raise(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -328,7 +340,7 @@ def test_only_forecast_days_with_a_mean_get_a_row_and_use_yesterdays_observed_me
     forecast = {row.date: row for _, row in mariadb_client.read_heating_forecast_days()}
     assert set(forecast) == {TODAY, TODAY + timedelta(days=1)}
     weight = stored.model.weight
-    assert forecast[TODAY].effective_temperature == pytest.approx(
+    assert forecast[TODAY].effective_temp == pytest.approx(
         (1 - weight) * 5.0 + weight * means[LAST_GAS_DAY]
     )
 

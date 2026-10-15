@@ -39,9 +39,9 @@ FORECAST_DAYS = 7
 LABEL_ESTIMATED = "estimated"
 
 
-def _need(value: float | None) -> float:
+def _need(value: float | None, name: str) -> float:
     if value is None:
-        raise ValueError("a usable heating model is missing a number")
+        raise ValueError(f"a usable heating model is missing its {name}")
     return value
 
 
@@ -78,14 +78,14 @@ class _Params:
     @classmethod
     def from_record(cls, record: HeatingModelRecord) -> "_Params":
         return cls(
-            threshold=_need(record.threshold),
-            slope=_need(record.slope),
-            weight=_need(record.weight),
-            upper=_need(record.upper_threshold),
+            threshold=_need(record.threshold, "threshold"),
+            slope=_need(record.slope, "slope"),
+            weight=_need(record.weight, "weight"),
+            upper=_need(record.upper_threshold, "upper threshold"),
             noise=heating_verdict.NoiseModel(
-                _need(record.noise_base),
-                _need(record.noise_per_degree_day),
-                _need(record.noise_floor),
+                _need(record.noise_base, "noise base"),
+                _need(record.noise_per_degree_day, "noise slope"),
+                _need(record.noise_floor, "noise floor"),
             ),
         )
 
@@ -200,7 +200,8 @@ def _thermostat(
 def _noise_and_upper(
     inputs: _Inputs, derived: _Derived, window: _Window, fit: HeatingFit
 ) -> tuple[heating_verdict.NoiseModel, float]:
-    threshold, slope = _need(fit.threshold), _need(fit.slope)
+    threshold = _need(fit.threshold, "threshold")
+    slope = _need(fit.slope, "slope")
     degree_days = {
         day: max(0.0, threshold - derived.effective[day]) for day in window.days
     }
@@ -218,8 +219,8 @@ def _usable_record(
     mariadb: MariaDBClient, inputs: _Inputs, fit: HeatingFit, now: datetime
 ) -> HeatingModelRecord:
     quality = fit.quality
-    threshold = _need(fit.threshold)
-    derived = _derive(inputs, _need(fit.weight), threshold)
+    threshold = _need(fit.threshold, "threshold")
+    derived = _derive(inputs, _need(fit.weight, "weight"), threshold)
     if quality is None or inputs.as_of not in derived.baseload:
         raise ValueError("a usable fit has no quality or baseload")
     window = _fit_window(inputs, derived)

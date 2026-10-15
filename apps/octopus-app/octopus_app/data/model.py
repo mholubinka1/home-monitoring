@@ -135,7 +135,7 @@ class HeatingForecastRecord:
 
     date: date
     forecast_mean: float
-    effective_temperature: float
+    effective_temp: float
     expected_gas: float
 
 

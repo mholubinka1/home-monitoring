@@ -11,7 +11,7 @@ def _day(day: date, expected_gas: float = 25.0) -> HeatingForecastRecord:
     return HeatingForecastRecord(
         date=day,
         forecast_mean=6.5,
-        effective_temperature=7.0,
+        effective_temp=7.0,
         expected_gas=expected_gas,
     )
 
