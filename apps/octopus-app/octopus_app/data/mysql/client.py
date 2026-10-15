@@ -583,9 +583,9 @@ class MariaDBClient(MariaDBClientBase):
         # Inclusive [start_date, end_date] range read straight from the
         # already-summarized daily_consumption_summary table -- unlike
         # read_elapsed_billing_period_costs (which derives daily totals from
-        # raw half-hourly consumption rows), this is only ever used for the
-        # gas weather-regression's historical training window, which is
-        # always well within the summarization job's trailing coverage.
+        # raw half-hourly consumption rows). Callers pass either a trailing
+        # window (the cost forecast's gas regression) or the whole history (the
+        # heating model job); summaries are never pruned.
         dcs = model.daily_consumption_summary
         with self.session_read_scope() as session:
             rows = (
