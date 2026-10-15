@@ -315,11 +315,14 @@ def _failed_guard(
     return None
 
 
-def _away_indices(gas: Sequence[float | None], candidate: _Candidate) -> set[int]:
+def _away_indices(
+    gas: Sequence[float | None], baseload: Sequence[tuple[float, BaselineKind]]
+) -> set[int]:
+    """The positions whose gas is under AWAY_FRACTION of that day's baseload."""
     return {
         i
         for i, g in enumerate(gas)
-        if g is not None and g < candidate.baseload[i][0] * AWAY_FRACTION
+        if g is not None and g < baseload[i][0] * AWAY_FRACTION
     }
 
 
@@ -333,6 +336,42 @@ def _calendar_inputs(
         weight: _calendar(effective_temperatures(daily_means, weight), start, length)
         for weight in weights
     }
+
+
+def baseload_and_away_days(
+    gas: Mapping[date, float],
+    effective: Mapping[date, float],
+    threshold: float,
+) -> tuple[dict[date, BaselinePoint], frozenset[date]]:
+    """The moving baseload with away days removed, and the away days: the same
+    two steps the fit takes, for a threshold and effective temperatures already
+    chosen. Days under AWAY_FRACTION of their baseload on all of `gas` are away
+    days; they are dropped and the baseload is measured again. The baseload
+    covers every calendar day from the first to the last gas day.
+
+    `gas` must already hold only usable days (see gas_day.is_usable). Returns
+    ({}, frozenset()) when no baseload can be measured, before or after the
+    away days are dropped."""
+    if not gas:
+        return {}, frozenset()
+    start, length = _calendar_span(gas)
+    gas_list = _calendar(gas, start, length)
+    effective_list = _calendar(effective, start, length)
+    first = _baseload_series(gas_list, effective_list, threshold)
+    if not first:
+        return {}, frozenset()
+    away = _away_indices(gas_list, first)
+    kept = [None if i in away else g for i, g in enumerate(gas_list)]
+    final = _baseload_series(kept, effective_list, threshold)
+    if not final:
+        return {}, frozenset()
+    return (
+        {
+            start + timedelta(days=i): BaselinePoint(kwh, kind)
+            for i, (kwh, kind) in enumerate(final)
+        },
+        frozenset(start + timedelta(days=i) for i in away),
+    )
 
 
 @dataclass(frozen=True)
@@ -366,7 +405,7 @@ def _no_fit_reason(problem: _Problem) -> UnusableReason:
 
 def _refit_without_away_days(problem: _Problem, first: _Candidate) -> HeatingFit:
     """Mark away days from the first fit, drop them and fit a second time."""
-    away = _away_indices(problem.gas, first)
+    away = _away_indices(problem.gas, first.baseload)
     away_days = frozenset(problem.start + timedelta(days=i) for i in away)
     kept = [None if i in away else g for i, g in enumerate(problem.gas)]
     final = problem.best(kept)
