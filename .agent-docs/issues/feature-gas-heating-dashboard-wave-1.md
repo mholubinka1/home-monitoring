@@ -33,7 +33,7 @@ The gas heatmap by hour and weekday (London time, last 45 days, mirroring the el
 ### Acceptance criteria
 
 - [x] The heatmap shows average gas per time slot by weekday for the last 45 days, in London time.
-- [x] The monthly chart shows monthly gas totals for this year and last.
+- [x] The monthly chart shows monthly gas totals for this year and last (decided with the user: scaled to the full month from the complete days, months with under 10 complete days left out, complete-day count shown; see the queries document).
 - [x] Days without settled gas are gaps, not zeros.
 - [x] Both queries are documented and checked against the existing electricity equivalents' shape.
 
@@ -89,7 +89,7 @@ Bars of boost minutes per day (readings with boost active times the 2-minute int
 
 ### Acceptance criteria
 
-- [x] Given the boiler input is not set, then only minutes are shown.
+- [x] Given the boiler input is not set (0 or not a number), then only minutes are shown. The dashboard variable defaults to 12 kW (measured on 2026-10-06), so the cost shows from the first load.
 - [x] Given it is set, then the cost series equals minutes / 60 x kW x the day's unit rate.
 - [x] The series is labelled "estimated; assumes full output".
 - [x] Verified against the boosts recorded on 2026-10-06 (two short boosts).
@@ -128,7 +128,7 @@ Daily minimum, mean and maximum outdoor temperature (complete days) as a band, w
 
 - [x] The band shows min, mean and max for complete days only.
 - [x] Sunshine and radiation appear on a second axis.
-- [x] History appears from the backfill's start date.
+- [x] History appears from the backfill's start date (25 July 2024, the first complete London day) when the time range is widened; the default range is the last 14 days.
 
 ---
 

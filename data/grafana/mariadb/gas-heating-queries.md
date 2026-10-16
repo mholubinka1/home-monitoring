@@ -118,6 +118,8 @@ AND (
 
 **Gas rates for a day.** The gas agreement and the rate row in force at the day's London midnight (the same correlated lookup as the electricity panels: the latest `product_rate` row with `valid_from` at or before the day start).
 
+**Repeated fragments.** The hourly outdoor CTE (`wx` and `daily`) is copied into the daily gas panel's query C and the band query, the Complete Gas Day condition into four queries, and the text box number guard (`REGEXP` then `CAST`, NULL otherwise) into the boost and comfort queries, on purpose: each query stands alone in Grafana, so a later change has to be made in every copy (the tests check the copies exist).
+
 ### Daily Gas and Outdoor Temperature (time series)
 
 Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected (the text and unit variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
@@ -339,7 +341,7 @@ ORDER BY time;
 
 ### Daily Outdoor Temperature Band with Sunshine (time series)
 
-Daily minimum, mean and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), with the day's sunshine hours (bars) and solar radiation (kWh per square metre, a line) on the right axis. The same hourly outdoor readings and complete-day rule as the daily gas panel's query C. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
+Daily minimum, mean and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), with the day's sunshine hours (bars) and solar radiation (kWh per square metre, a line) on the right axis. The same hourly outdoor readings and complete-day rule as the daily gas panel's query C. Sunshine and radiation are hourly sums that Open-Meteo stamps at the end of the hour, so a day's sum is shifted by one hour at its edges, which is negligible in the UK where there is no sun near midnight. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
 
 ```sql
 WITH wx AS (
@@ -410,9 +412,9 @@ LIMIT 1;
 
 **Checked read-only against the Pi on 16 October 2026:** 12.41 cost so far, 32.76 projected, the same figures as the latest gas row of `cost_forecast`.
 
-### Monthly Gas (scaled to the full month), this year against last (time series)
+### Monthly Gas (scaled to the full month), last 12 months against the 12 before (time series)
 
-Bars for the last 12 months (this year) and the 12 months before them drawn on the same months (last year), with dots on the right axis for the number of complete gas days each month had. A month's figure is the average of its complete days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26); the current month is projected from the days so far. The 12-month cut-off uses the London date, not the server's. A month with fewer than 10 complete days is left out.
+Bars for the last 12 months (the SQL columns are `this_year_kwh` and `last_year_kwh`) and the 12 months before them, drawn on the same months, with dots on the right axis for the number of complete gas days each month had. A month's figure is the average of its complete days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26); the current month is projected from the days so far. The 12-month cut-off uses the London date, not the server's. A month with fewer than 10 complete days is left out. Compared with the electricity "Monthly Total Consumption": the same monthly bars on a time axis from `daily_consumption_summary` (columns: a month-start time and the kWh), with a second 12-month series drawn on the same months, the scaling and the dots.
 
 ```sql
 WITH usable AS (
@@ -461,7 +463,7 @@ ORDER BY 1;
 
 ### Gas Heatmap (Hour-by-Hour, Last 45 Days) (heatmap)
 
-Average gas per half-hour reading for each hour of the London day, by weekday, over the last 45 days (the raw retention window), mirroring the electricity "Consumption Heatmap". A reading counts only when its day is a Complete Gas Day.
+Average gas per half-hour reading for each hour of the London day, by weekday, over the last 45 days (the raw retention window), mirroring the electricity "Consumption Heatmap". A reading counts only when its day is a Complete Gas Day. Compared with the electricity heatmap: the same shape (one row per London hour on today's date, one column per weekday, average kWh per reading, the same 45-day window), with the extra join to the Complete Gas Day rule.
 
 ```sql
 SELECT

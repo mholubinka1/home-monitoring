@@ -1354,7 +1354,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Monthly gas for the last 12 months against the 12 months before, drawn on the same months. A month's figure is the average of its complete gas days times the days in the month, so it is an estimate; the dots (right axis) show how many complete days each month had. A month with fewer than 10 complete days is left out.",
+      "description": "Monthly gas for the last 12 months against the 12 months before them ('last year'), drawn on the same months. A month's figure is the average of its complete gas days times the days in the month, so it is an estimate; the dots (right axis) show how many complete days each month had. A month with fewer than 10 complete days is left out.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1424,7 +1424,7 @@
               },
               {
                 "id": "displayName",
-                "value": "this year"
+                "value": "last 12 months"
               }
             ]
           },
@@ -1447,7 +1447,7 @@
               },
               {
                 "id": "displayName",
-                "value": "last year"
+                "value": "the 12 months before"
               }
             ]
           },
@@ -1498,7 +1498,7 @@
               },
               {
                 "id": "displayName",
-                "value": "complete days this year"
+                "value": "complete days (last 12 months)"
               }
             ]
           },
@@ -1549,7 +1549,7 @@
               },
               {
                 "id": "displayName",
-                "value": "complete days last year"
+                "value": "complete days (12 months before)"
               }
             ]
           }
@@ -1606,7 +1606,7 @@
           }
         }
       ],
-      "title": "Monthly Gas (scaled to the full month), this year against last",
+      "title": "Monthly Gas (scaled to the full month), last 12 months against the 12 before",
       "type": "timeseries",
       "timeFrom": "400d"
     },

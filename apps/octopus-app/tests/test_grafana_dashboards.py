@@ -200,6 +200,15 @@ def test_boost_cost_is_minutes_over_sixty_times_kw_times_the_unit_rate() -> None
     )
 
 
+def test_a_boiler_input_that_is_zero_or_not_a_number_shows_minutes_only() -> None:
+    boost = next(p for p in _gas_panels() if p["title"].startswith("Boost Minutes"))
+    sql = boost["targets"][0]["rawSql"]
+
+    assert "REGEXP '^[0-9]+([.][0-9]+)?$'" in sql
+    assert ") > 0," in sql
+    assert "      NULL\n    ) AS extra_cost_gbp" in sql
+
+
 def test_text_box_values_enter_the_sql_escaped() -> None:
     # A dashboard text box can be set from the URL, so it is never pasted
     # between hand-written quotes.
