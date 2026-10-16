@@ -112,3 +112,10 @@ def test_every_series_override_names_a_column_alias_of_its_query() -> None:
 
     for series in _panel_overrides(TEMPERATURES):
         assert re.search(rf"\bAS {series}\b", sql), series
+
+
+def test_the_current_location_tie_breaks_on_the_newest_row() -> None:
+    # After a location change two places can share the newest hour.
+    outdoor = next(t for t in _panel(TEMPERATURES)["targets"] if t["refId"] == "B")
+
+    assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in outdoor["rawSql"]

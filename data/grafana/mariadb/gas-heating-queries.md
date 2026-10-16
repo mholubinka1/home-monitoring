@@ -26,7 +26,7 @@ weather_observation  (hive-app) id, source, location, observed_at, temp, humidit
                                 sunshine_duration; unique (source, location, observed_at)
 ```
 
-`heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation, so a changed postcode never mixes two places.
+`heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation (ties on the same hour go to the newest row id), so a changed postcode never mixes two places.
 
 ---
 
@@ -63,7 +63,7 @@ WHERE $__timeFilter(w.observed_at)
   AND w.temp IS NOT NULL
   AND w.location = (
     SELECT l.location FROM weather_observation l
-    ORDER BY l.observed_at DESC LIMIT 1
+    ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
   )
   AND (
     COALESCE(w.source, '') <> 'open-meteo-archive'
