@@ -858,12 +858,12 @@ class CostForecastRetriever:
                 model_day_count += 1
                 # The model's figure is the whole local day's total, so a
                 # whole day keeps it on a 23- or 25-hour clock-change day.
-                day_fraction = hours_remaining / self._hours_in_day(day)
+                remaining_share = hours_remaining / self._hours_in_day(day)
                 day_kwh = expected_gas[day]
             else:
-                day_fraction = hours_remaining / 24
+                remaining_share = hours_remaining / 24
                 day_kwh = future_daily_kwh
-            variable_cost += day_fraction * day_kwh * current_rate.unit_rate
+            variable_cost += remaining_share * day_kwh * current_rate.unit_rate
             day += timedelta(days=1)
 
         # One summary line per refresh, so an operator can see how many of

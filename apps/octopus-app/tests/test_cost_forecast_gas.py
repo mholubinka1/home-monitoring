@@ -589,6 +589,28 @@ def test_a_model_figure_is_a_whole_days_total_even_on_a_clock_change_day(
     assert projected == Decimal("7.59")
 
 
+@responses.activate
+def test_a_mid_day_as_of_on_a_25_hour_day_takes_its_share_of_the_models_total(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-10-25", "2026-10-27")
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s, date(2026, 10, 24))
+    _seed_heating_forecast(
+        mariadb_client, {date(2026, 10, 25): 24.0, date(2026, 10, 26): 24.0}
+    )
+
+    as_of = start_of_local_day(date(2026, 10, 25)) + timedelta(hours=7)
+    projected = _refresh_seeded_gas_projection(mariadb_client, as_of)
+
+    # 07:00 BST is 06:00 GMT, so 18 of the day's 25 hours remain (0.72). The
+    # elapsed day costs GBP 3.65 and 10-25 itself is a standing-charge-only
+    # gap day (29.00p): actual GBP 3.94. Variable: 0.72 * 24.0 * 7.00p
+    # (120.96p) + 24.0 * 7.00p (168.00p) = 288.96p, plus 1 later day of
+    # standing (29.00p): remaining GBP 3.1796 -> total GBP 7.1196 = 7.12.
+    assert projected == Decimal("7.12")
+
+
 class _FakeWrappedError(Exception):
     """Mimics SQLAlchemy's DBAPIError shape: the driver's own exception is
     nested under `.orig`, not the wrapper itself."""
