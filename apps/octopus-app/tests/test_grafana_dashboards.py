@@ -223,11 +223,10 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
 
 
 def test_a_missing_day_is_a_gap_on_the_daily_temperature_lines() -> None:
-    outdoor = _panel_overrides("Daily Gas and Outdoor Temperature (${gas_unit})")[
-        "outdoor_mean"
-    ]
-    assert outdoor["custom.spanNulls"] is False
-    assert outdoor["custom.insertNulls"] == 129600000
+    overrides = _panel_overrides("Daily Gas and Outdoor Temperature (${gas_unit})")
+    for series in ("outdoor_mean", "forecast_mean"):
+        assert overrides[series]["custom.spanNulls"] is False, series
+        assert overrides[series]["custom.insertNulls"] == 129600000, series
 
     band = _panel("Daily Outdoor Temperature Band with Sunshine")
     custom = band["fieldConfig"]["defaults"]["custom"]

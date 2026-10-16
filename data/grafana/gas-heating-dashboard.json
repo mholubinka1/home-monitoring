@@ -452,6 +452,14 @@
                 }
               },
               {
+                "id": "custom.insertNulls",
+                "value": 129600000
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
                 "id": "unit",
                 "value": "celsius"
               },
