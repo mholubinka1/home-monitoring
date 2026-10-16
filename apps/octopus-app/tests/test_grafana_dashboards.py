@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 GRAFANA_DIR = Path(__file__).resolve().parents[3] / "data" / "grafana"
-DASHBOARD_FILES = sorted(GRAFANA_DIR.glob("*dashboard.json"))
+DASHBOARD_FILES = sorted(GRAFANA_DIR.glob("*.json"))
 GAS_HEATING_DASHBOARD = GRAFANA_DIR / "gas-heating-dashboard.json"
 TEMPERATURES = "Indoor, Target and Outdoor Temperature"
 
@@ -91,3 +91,5 @@ def test_lines_join_across_missing_points_so_the_hourly_outdoor_line_draws() -> 
     custom = _panel(TEMPERATURES)["fieldConfig"]["defaults"]["custom"]
 
     assert custom["spanNulls"] is True
+    for series, properties in _panel_overrides(TEMPERATURES).items():
+        assert "custom.spanNulls" not in properties, series
