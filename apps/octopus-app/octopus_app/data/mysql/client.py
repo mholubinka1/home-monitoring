@@ -64,9 +64,8 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # weather_observation/weather_forecast/heating_status are owned by hive-app, but
-# live in the same shared `octopus` MariaDB schema this client already connects to (see
-# #511). They're declared here as plain Core Table objects against a
-# SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
+# live in the same shared `octopus` MariaDB schema this client already connects
+# to. They're declared here as plain Core Table objects against a SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
 # mysql/model.py's SQLBase -- so octopus-app's own Schema Sync create_all
 # never mistakenly claims ownership of tables hive-app owns (which would risk
 # drift/ordering races between the two apps' migrations). Column shapes
@@ -131,7 +130,7 @@ def _is_missing_table_error(error: Exception) -> bool:
     # hive-app owns weather_observation/weather_forecast and creates them
     # via its own Schema Sync -- if hive-app has never run, these tables
     # simply don't exist yet in the shared database (the documented
-    # "hive-app hasn't run yet" scenario in #511's acceptance criteria).
+    # "hive-app hasn't run yet" scenario).
     # MariaDB/PyMySQL raises ProgrammingError with error code 1146 ("table
     # doesn't exist"); SQLite (this app's test fixture) raises
     # OperationalError with a "no such table" message instead -- both are
@@ -584,7 +583,7 @@ class MariaDBClient(MariaDBClientBase):
         # already-summarized daily_consumption_summary table -- unlike
         # read_elapsed_billing_period_costs (which derives daily totals from
         # raw half-hourly consumption rows). Callers pass either a trailing
-        # window (the cost forecast's gas regression) or the whole history (the
+        # window (the cost forecast's bootstrap) or the whole history (the
         # heating model job); summaries are never pruned.
         dcs = model.daily_consumption_summary
         with self.session_read_scope() as session:

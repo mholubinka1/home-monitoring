@@ -1,4 +1,3 @@
-# pylint: disable=too-many-lines
 import logging.config
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal

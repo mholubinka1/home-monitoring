@@ -328,11 +328,6 @@ def test_a_gas_meter_added_after_construction_is_picked_up_via_refresh_meters(
 
 # Billing period (after Kraken's date-shift) runs 2026-07-06 .. 2026-08-06;
 # every remaining day from as_of's local date (2026-07-07) through the
-# period end is the window a forecast needs covering.
-
-
-# Billing period (after Kraken's date-shift) runs 2026-07-06 .. 2026-08-06;
-# every remaining day from as_of's local date (2026-07-07) through the
 # period end is a day the projection needs a figure for.
 _REMAINING_WINDOW_START = date(2026, 7, 7)
 _REMAINING_WINDOW_END = date(2026, 8, 6)
