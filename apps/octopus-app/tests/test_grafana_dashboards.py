@@ -32,12 +32,12 @@ def test_panel_ids_are_unique_within_the_gas_heating_dashboard() -> None:
     assert len(set(ids)) == len(ids)
 
 
-def test_the_gas_heating_dashboard_has_no_table_panels() -> None:
+def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
     # House style: every panel is a chart. The billing-period predictor is a
-    # bar gauge, not a table.
+    # bar gauge, the one non-chart exception.
     types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
 
-    assert "table" not in types
+    assert types <= {"timeseries", "barchart", "heatmap", "bargauge"}
 
 
 @pytest.mark.parametrize("path", DASHBOARD_FILES, ids=lambda p: p.name)

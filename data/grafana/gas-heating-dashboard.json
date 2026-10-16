@@ -155,6 +155,10 @@
                   "fixedColor": "green",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": true
               }
             ]
           }
@@ -191,7 +195,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(polled_at, $__interval),\n  AVG(current_temp) AS indoor,\n  AVG(target_temp) AS target\nFROM heating_status\nWHERE $__timeFilter(polled_at)\nGROUP BY 1\nORDER BY 1;",
+          "rawSql": "SELECT\n  $__timeGroupAlias(polled_at, $__interval),\n  AVG(current_temp) AS indoor,\n  CAST(\n    SUBSTRING_INDEX(GROUP_CONCAT(target_temp ORDER BY polled_at), ',', -1)\n    AS DECIMAL(5, 2)\n  ) AS target\nFROM heating_status\nWHERE $__timeFilter(polled_at)\nGROUP BY 1\nORDER BY 1;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -220,7 +224,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  w.observed_at AS time,\n  w.temp AS outdoor\nFROM weather_observation w\nWHERE $__timeFilter(w.observed_at)\n  AND w.temp IS NOT NULL\n  AND w.location = (\n    SELECT l.location FROM weather_observation l\n    ORDER BY l.observed_at DESC LIMIT 1\n  )\n  AND (\n    w.source <> 'open-meteo-archive'\n    OR NOT EXISTS (\n      SELECT 1 FROM weather_observation live\n      WHERE live.location = w.location\n        AND live.observed_at = w.observed_at\n        AND live.source <> 'open-meteo-archive'\n    )\n  )\nORDER BY w.observed_at;",
+          "rawSql": "SELECT\n  w.observed_at AS time,\n  w.temp AS outdoor\nFROM weather_observation w\nWHERE $__timeFilter(w.observed_at)\n  AND w.temp IS NOT NULL\n  AND w.location = (\n    SELECT l.location FROM weather_observation l\n    ORDER BY l.observed_at DESC LIMIT 1\n  )\n  AND (\n    COALESCE(w.source, '') <> 'open-meteo-archive'\n    OR NOT EXISTS (\n      SELECT 1 FROM weather_observation live\n      WHERE live.location = w.location\n        AND live.observed_at = w.observed_at\n        AND COALESCE(live.source, '') <> 'open-meteo-archive'\n    )\n  )\nORDER BY w.observed_at;",
           "refId": "B",
           "sql": {
             "columns": [

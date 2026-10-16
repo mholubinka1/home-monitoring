@@ -13,7 +13,7 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 ## Dashboard settings and variables
 
 - **Time zone**: `Europe/London`, so every axis is in London time. All stored times are UTC and Grafana converts them for display.
-- **Time range**: `now-21d` to `now`, refreshing every 5 minutes (the thermostat is polled every 2 minutes). Charts that look ahead (planned, daily gas with the forecast) carry their own range.
+- **Time range**: `now-21d` to `now`, refreshing every 5 minutes (the thermostat is polled every 2 minutes). Charts that look ahead (a later panel) carry their own range.
 - `${timezone}`: hidden constant, default `Europe/London`. The zone that defines a local day for the daily panels added later; it must match the apps' `timezone` setting (see the README). Edit it in the `query` and `current` fields of the JSON, or a re-import puts the old zone back.
 
 ## Schema assumed
@@ -36,13 +36,16 @@ weather_observation  (hive-app) id, source, location, observed_at, temp, humidit
 
 Three lines: **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them.
 
-Query A, thermostat (averaged into Grafana's interval bucket; a bucket with no reading is a gap, and gaps up to 30 minutes are bridged):
+Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last reading in the bucket, so a step is not blurred into an in-between value). A bucket with no reading has no row. Thermostat gaps longer than about 30 minutes show as breaks wherever the weather has a reading inside the gap; the outdoor line is always joined across its hourly points:
 
 ```sql
 SELECT
   $__timeGroupAlias(polled_at, $__interval),
   AVG(current_temp) AS indoor,
-  AVG(target_temp) AS target
+  CAST(
+    SUBSTRING_INDEX(GROUP_CONCAT(target_temp ORDER BY polled_at), ',', -1)
+    AS DECIMAL(5, 2)
+  ) AS target
 FROM heating_status
 WHERE $__timeFilter(polled_at)
 GROUP BY 1
@@ -63,15 +66,15 @@ WHERE $__timeFilter(w.observed_at)
     ORDER BY l.observed_at DESC LIMIT 1
   )
   AND (
-    w.source <> 'open-meteo-archive'
+    COALESCE(w.source, '') <> 'open-meteo-archive'
     OR NOT EXISTS (
       SELECT 1 FROM weather_observation live
       WHERE live.location = w.location
         AND live.observed_at = w.observed_at
-        AND live.source <> 'open-meteo-archive'
+        AND COALESCE(live.source, '') <> 'open-meteo-archive'
     )
   )
 ORDER BY w.observed_at;
 ```
 
-**Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (18:50 to 19:40 UTC, 24 readings): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and went to 23 C for the boost at 19:14 to 19:18 and again at 19:24 (the boost flag was set at 19:18 and 19:24), matching the recorded heating-on windows. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
+**Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (18:50 to 19:40 UTC, 24 readings): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and went to 23 C for the boost at 19:14 to 19:18 and again at 19:24 (the boost flag was set at 19:18 and 19:24), matching the recorded heating-on windows. The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over the default 21 days it returns about 1,160 buckets of 16 minutes in under a second, and the outdoor query 519 hourly rows. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
