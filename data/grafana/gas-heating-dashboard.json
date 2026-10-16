@@ -701,7 +701,7 @@
               },
               {
                 "id": "unit",
-                "value": "m"
+                "value": "suffix: min"
               },
               {
                 "id": "displayName",
@@ -879,7 +879,7 @@
               },
               {
                 "id": "unit",
-                "value": "m"
+                "value": "suffix: min"
               },
               {
                 "id": "displayName",
@@ -1091,7 +1091,7 @@
               },
               {
                 "id": "unit",
-                "value": "h"
+                "value": "suffix: h"
               },
               {
                 "id": "custom.drawStyle",
@@ -1490,7 +1490,7 @@
               },
               {
                 "id": "unit",
-                "value": "d"
+                "value": "suffix: days"
               },
               {
                 "id": "decimals",
@@ -1541,7 +1541,7 @@
               },
               {
                 "id": "unit",
-                "value": "d"
+                "value": "suffix: days"
               },
               {
                 "id": "decimals",
@@ -1687,7 +1687,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  TIMESTAMP(CURDATE()) + INTERVAL HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) HOUR AS time,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Monday' THEN c.est_kwh END), 4) AS `Monday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Tuesday' THEN c.est_kwh END), 4) AS `Tuesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Wednesday' THEN c.est_kwh END), 4) AS `Wednesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Thursday' THEN c.est_kwh END), 4) AS `Thursday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Friday' THEN c.est_kwh END), 4) AS `Friday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Saturday' THEN c.est_kwh END), 4) AS `Saturday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Sunday' THEN c.est_kwh END), 4) AS `Sunday`\nFROM consumption c\nJOIN daily_consumption_summary s\n  ON s.date = DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nWHERE c.energy = 'G'\n  AND s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n  AND c.period_from >= NOW() - INTERVAL 45 DAY\nGROUP BY HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nORDER BY time;",
+          "rawSql": "SELECT\n  CONVERT_TZ(\n    TIMESTAMP(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')))\n      + INTERVAL HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) HOUR,\n    '${timezone}', 'UTC'\n  ) AS time,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Monday' THEN c.est_kwh END), 4) AS `Monday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Tuesday' THEN c.est_kwh END), 4) AS `Tuesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Wednesday' THEN c.est_kwh END), 4) AS `Wednesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Thursday' THEN c.est_kwh END), 4) AS `Thursday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Friday' THEN c.est_kwh END), 4) AS `Friday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Saturday' THEN c.est_kwh END), 4) AS `Saturday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Sunday' THEN c.est_kwh END), 4) AS `Sunday`\nFROM consumption c\nJOIN daily_consumption_summary s\n  ON s.date = DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nWHERE c.energy = 'G'\n  AND s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n  AND c.period_from >= NOW() - INTERVAL 45 DAY\nGROUP BY HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nORDER BY time;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1796,7 +1796,7 @@
           "text": "12",
           "value": "12"
         },
-        "description": "The boiler's gas input at full output, for the estimated boost cost. About 12 kW was measured on the 6 October 2026 test evening.",
+        "description": "The boiler's gas input at full output, for the estimated boost cost, as digits only (no spaces or units). About 12 kW was measured on the 6 October 2026 test evening.",
         "hide": 0,
         "label": "Boiler gas input (kW, 0 = minutes only)",
         "name": "boiler_kw",
@@ -1817,7 +1817,7 @@
           "text": "15",
           "value": "15"
         },
-        "description": "A target at or above this counts as a comfort target; below it is the frost setting.",
+        "description": "A target at or above this counts as a comfort target; below it is the frost setting. Digits only (no spaces or units); anything else shows no data.",
         "hide": 0,
         "label": "Comfort target (C)",
         "name": "comfort_target",
@@ -1838,7 +1838,7 @@
           "text": "1.0",
           "value": "1.0"
         },
-        "description": "How far below its target the room must be for a minute to count.",
+        "description": "How far below its target the room must be for a minute to count. Digits only (no spaces or units); anything else shows no data.",
         "hide": 0,
         "label": "Margin below target (C)",
         "name": "comfort_margin",

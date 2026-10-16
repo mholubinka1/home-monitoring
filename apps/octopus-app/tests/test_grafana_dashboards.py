@@ -270,3 +270,22 @@ def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
     for sql in copies:
         assert rule in sql
         assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in sql
+
+
+def test_the_monthly_and_heatmap_panels_carry_their_own_time_ranges() -> None:
+    # Neither query uses the dashboard range: the monthly one needs 13+ months
+    # of history, the heatmap is "today" with its hours on the right day.
+    monthly = next(p for p in _gas_panels() if p["title"].startswith("Monthly Gas"))
+    heatmap = next(p for p in _gas_panels() if p["type"] == "heatmap")
+
+    assert monthly["timeFrom"] == "400d"
+    assert heatmap["timeFrom"] == "now/d"
+    assert heatmap["hideTimeOverride"] is True
+
+
+def test_minutes_and_days_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
+    for title, series in (
+        ("Boost Minutes and Estimated Extra Gas Cost", "boost_minutes"),
+        ("Daily Outdoor Temperature Band with Sunshine", "sunshine_hours"),
+    ):
+        assert _panel_overrides(title)[series]["unit"].startswith("suffix: ")
