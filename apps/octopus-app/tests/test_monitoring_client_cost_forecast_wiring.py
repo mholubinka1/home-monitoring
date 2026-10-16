@@ -148,11 +148,9 @@ def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiri
     # _RealCostForecastSource fake. That fake independently satisfies the
     # CostForecastSource Protocol by delegating to MariaDBClient directly --
     # it cannot catch a regression in MonitoringClient's OWN delegation
-    # (e.g. a swapped argument, a method never added). This exact gap
-    # already surfaced once during #511's development: mypy caught
-    # MonitoringClient missing the new weather-read methods, but
-    # nothing in the test suite would have. This test closes that gap for
-    # the gas heating-model path specifically.
+    # (e.g. a swapped argument, a method never added). This test closes that
+    # gap for the gas heating-model path: read_latest_usable_heating_model
+    # and read_heating_forecast_days.
     responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)
     responses.add(
         responses.GET,

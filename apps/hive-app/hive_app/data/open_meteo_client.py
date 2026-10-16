@@ -191,7 +191,7 @@ class OpenMeteoClient:
                 # (ADR-0010), not UTC -- requesting Open-Meteo's daily
                 # aggregation in that same timezone keeps target_date aligned
                 # with daily_consumption_summary's day boundaries, so a later
-                # join (gas cost projection, #511) compares like-for-like
+                # join (the heating model, ADR-0030) compares like-for-like
                 # days instead of drifting by up to an hour around clock
                 # changes.
                 "timezone": get_local_timezone().key,

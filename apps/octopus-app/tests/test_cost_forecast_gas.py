@@ -534,6 +534,25 @@ def test_forecast_rows_tied_to_a_different_model_than_the_latest_usable_one_are_
     assert "do not match the latest usable heating model" in caplog.text
 
 
+@responses.activate
+def test_a_usable_model_with_no_forecast_rows_yet_falls_back_to_the_flat_average(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The model has been fitted but the job has not written its forecast yet.
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+    mariadb_client.write_heating_model(
+        heating_model_record(datetime(2026, 7, 6, 4, 0, tzinfo=UTC))
+    )
+
+    with caplog.at_level("INFO"):
+        projected = _refresh_seeded_gas_projection(mariadb_client)
+
+    assert projected == _FLAT_AVERAGE_PROJECTED_TOTAL
+    assert "do not match the latest usable heating model" not in caplog.text
+
+
 class _FakeWrappedError(Exception):
     """Mimics SQLAlchemy's DBAPIError shape: the driver's own exception is
     nested under `.orig`, not the wrapper itself."""
