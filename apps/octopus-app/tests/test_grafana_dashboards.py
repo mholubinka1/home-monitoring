@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -99,9 +100,9 @@ def test_lines_join_across_missing_points_so_the_hourly_outdoor_line_draws() -> 
 def test_each_temperature_query_returns_a_time_column_for_the_join() -> None:
     for target in _panel(TEMPERATURES)["targets"]:
         assert target["format"] == "table", target["refId"]
-        assert (
-            " AS time" in target["rawSql"] or "$__timeGroupAlias(" in target["rawSql"]
-        )
+        assert re.search(r"\bAS time\b|\$__timeGroupAlias\(", target["rawSql"]), target[
+            "refId"
+        ]
 
 
 def test_every_series_override_names_a_column_alias_of_its_query() -> None:
