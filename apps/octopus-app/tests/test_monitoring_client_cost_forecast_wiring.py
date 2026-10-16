@@ -3,13 +3,8 @@ from decimal import Decimal
 
 import responses
 from sqlalchemy.orm import Session
-from tests.weather_fixtures import TRAINING_DAYS_AND_TEMPS as _TRAINING_DAYS_AND_TEMPS
 from tests.weather_fixtures import mock_billing_period as _mock_billing_period
-from tests.weather_fixtures import (
-    seed_daily_consumption_summary as _seed_daily_consumption_summary,
-)
-from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
-from tests.weather_fixtures import seed_weather_observation as _seed_weather_observation
+from tests.weather_fixtures import seed_heating_forecast as _seed_heating_forecast
 
 from common.local_day import start_of_local_day
 from octopus_app.common.config import (
@@ -73,12 +68,9 @@ ACCOUNT_RESPONSE = {
 GRID_SUPPLY_POINTS_RESPONSE = {"results": [{"group_id": f"_{REGION}"}]}
 
 
-# Same training/forecast fixture shape as test_cost_forecast_gas.py's
-# tracer-bullet test -- reusing the same numbers means the test below can
-# assert the identical known-correct total (proven exact in the
-# tracer-bullet test) rather than re-deriving new arithmetic -- if it
-# doesn't match, the real wiring diverges from the already-verified
-# regression logic.
+# Same billing-period and gas/electricity fixtures as test_cost_forecast_gas.py,
+# so the total below is the one that file's tests already prove by hand -- if
+# it does not match, the real wiring diverges from the verified logic.
 
 
 def _seed_gas_and_electricity_fixtures(s: Session) -> None:
@@ -142,19 +134,9 @@ def _seed_gas_and_electricity_fixtures(s: Session) -> None:
             )
         )
 
-    for day, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS:
-        _seed_daily_consumption_summary(s, day, kwh)
-        _seed_weather_observation(s, day, max_temp)
-
-    remaining_day = date(2026, 7, 7)
-    billing_period_end = date(2026, 8, 6)
-    while remaining_day <= billing_period_end:
-        _seed_weather_forecast(s, remaining_day, -6.0)
-        remaining_day += timedelta(days=1)
-
 
 @responses.activate
-def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
+def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiring(
     mariadb_client: MariaDBClient,
 ) -> None:
     # This is the one test in the suite that constructs the REAL
@@ -163,11 +145,9 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
     # _RealCostForecastSource fake. That fake independently satisfies the
     # CostForecastSource Protocol by delegating to MariaDBClient directly --
     # it cannot catch a regression in MonitoringClient's OWN delegation
-    # (e.g. a swapped argument, a method never added). This exact gap
-    # already surfaced once during #511's development: mypy caught
-    # MonitoringClient missing the three new weather-read methods, but
-    # nothing in the test suite would have. This test closes that gap for
-    # the gas weather-regression path specifically.
+    # (e.g. a swapped argument, a method never added). This test closes that
+    # gap for the gas heating-model path: read_latest_usable_heating_model
+    # and read_heating_forecast_days.
     responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)
     responses.add(
         responses.GET,
@@ -179,6 +159,10 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
 
     with mariadb_client.session_write_scope() as s:
         _seed_gas_and_electricity_fixtures(s)
+    _seed_heating_forecast(
+        mariadb_client,
+        {date(2026, 7, 7) + timedelta(days=offset): 63.0 for offset in range(7)},
+    )
 
     settings = ApplicationSettings(
         octopus=OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test"),
@@ -201,7 +185,7 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
     with mariadb_client.session_read_scope() as session:
         gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
 
-    # Same expected total as test_cost_forecast_gas.py's tracer-bullet test
-    # (identical fixture shape): £3.65 actual-to-date + £145.70 remaining
-    # (31 days * 63.0 kWh/day @ 7.00p + 29.00p standing) = £149.35.
-    assert gas_row.projected_total_cost == Decimal("149.35")
+    # The model covers a week, as the job writes it: £3.65 actual-to-date +
+    # £120.50 remaining (7 days * 63.0 kWh and 24 days * the flat 48.0 kWh,
+    # all @ 7.00p, plus 31 days of 29.00p standing) = £124.15.
+    assert gas_row.projected_total_cost == Decimal("124.15")

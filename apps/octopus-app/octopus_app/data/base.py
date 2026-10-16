@@ -7,6 +7,8 @@ from octopus_app.data.model import (
     CostForecast,
     DailyCostSummary,
     Energy,
+    HeatingForecastRecord,
+    StoredHeatingModel,
 )
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.octopus.agile_predict import AgilePredictClient
@@ -155,17 +157,11 @@ class MonitoringClient:
     ) -> list[ConsumptionSummary]:
         return self.mariadb.read_daily_consumption_summary(energy, start_date, end_date)
 
-    def read_weather_observation_daily_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]:
-        return self.mariadb.read_weather_observation_daily_max_temps(
-            start_date, end_date
-        )
+    def read_latest_usable_heating_model(self) -> StoredHeatingModel | None:
+        return self.mariadb.read_latest_usable_heating_model()
 
-    def read_weather_forecast_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]:
-        return self.mariadb.read_weather_forecast_max_temps(start_date, end_date)
+    def read_heating_forecast_days(self) -> list[tuple[int, HeatingForecastRecord]]:
+        return self.mariadb.read_heating_forecast_days()
 
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self.mariadb.write_cost_forecast(forecast)
