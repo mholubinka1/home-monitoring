@@ -32,10 +32,10 @@ The gas heatmap by hour and weekday (London time, last 45 days, mirroring the el
 
 ### Acceptance criteria
 
-- [ ] The heatmap shows average gas per time slot by weekday for the last 45 days, in London time.
-- [ ] The monthly chart shows monthly gas totals for this year and last.
-- [ ] Days without settled gas are gaps, not zeros.
-- [ ] Both queries are documented and checked against the existing electricity equivalents' shape.
+- [x] The heatmap shows average gas per time slot by weekday for the last 45 days, in London time.
+- [x] The monthly chart shows monthly gas totals for this year and last.
+- [x] Days without settled gas are gaps, not zeros.
+- [x] Both queries are documented and checked against the existing electricity equivalents' shape.
 
 ---
 
@@ -51,9 +51,9 @@ A bar gauge of the latest gas row of the cost forecast (cost so far against proj
 
 ### Acceptance criteria
 
-- [ ] The gauge shows the latest gas actual-to-date and projected total.
-- [ ] The billing-period variables are defined on the new dashboard.
-- [ ] The query and the fact that it shows whatever the cost forecast currently computes are documented.
+- [x] The gauge shows the latest gas actual-to-date and projected total.
+- [x] The billing-period variables are defined on the new dashboard.
+- [x] The query and the fact that it shows whatever the cost forecast currently computes are documented.
 
 ---
 
@@ -69,11 +69,11 @@ Daily gas bars with the daily mean outdoor temperature (complete days only) as a
 
 ### Acceptance criteria
 
-- [ ] Given the kWh option, then bars show daily gas; given pounds, unit cost and standing charge appear as separate series.
-- [ ] Outdoor temperature appears only for complete days; incomplete days are gaps.
-- [ ] Days without settled gas are gaps, not zeros.
-- [ ] The next 7 days show the forecast temperature.
-- [ ] The pounds figure matches the cost forecast's daily gas cost for a known day.
+- [x] Given the kWh option, then bars show daily gas; given pounds, unit cost and standing charge appear as separate series.
+- [x] Outdoor temperature appears only for complete days; incomplete days are gaps.
+- [x] Days without settled gas are gaps, not zeros.
+- [x] The next 7 days show the forecast temperature.
+- [x] The pounds figure matches the cost forecast's daily gas cost for a known day.
 
 ---
 
@@ -89,10 +89,10 @@ Bars of boost minutes per day (readings with boost active times the 2-minute int
 
 ### Acceptance criteria
 
-- [ ] Given the boiler input is not set, then only minutes are shown.
-- [ ] Given it is set, then the cost series equals minutes / 60 x kW x the day's unit rate.
-- [ ] The series is labelled "estimated; assumes full output".
-- [ ] Verified against the boosts recorded on 2026-10-06 (two short boosts).
+- [x] Given the boiler input is not set, then only minutes are shown.
+- [x] Given it is set, then the cost series equals minutes / 60 x kW x the day's unit rate.
+- [x] The series is labelled "estimated; assumes full output".
+- [x] Verified against the boosts recorded on 2026-10-06 (two short boosts).
 
 ---
 
@@ -108,9 +108,9 @@ Minutes per day with a comfort target active (target at or above a dashboard set
 
 ### Acceptance criteria
 
-- [ ] A day on the frost setting counts zero regardless of temperature.
-- [ ] A day with an active comfort target and the room below it by more than the margin counts those minutes.
-- [ ] The two settings are dashboard variables with the stated defaults.
+- [x] A day on the frost setting counts zero regardless of temperature.
+- [x] A day with an active comfort target and the room below it by more than the margin counts those minutes.
+- [x] The two settings are dashboard variables with the stated defaults.
 
 ---
 
@@ -126,9 +126,9 @@ Daily minimum, mean and maximum outdoor temperature (complete days) as a band, w
 
 ### Acceptance criteria
 
-- [ ] The band shows min, mean and max for complete days only.
-- [ ] Sunshine and radiation appear on a second axis.
-- [ ] History appears from the backfill's start date.
+- [x] The band shows min, mean and max for complete days only.
+- [x] Sunshine and radiation appear on a second axis.
+- [x] History appears from the backfill's start date.
 
 ---
 

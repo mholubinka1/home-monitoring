@@ -97,21 +97,31 @@ def test_lines_join_across_missing_points_so_the_hourly_outdoor_line_draws() -> 
         assert "custom.spanNulls" not in properties, series
 
 
-def test_each_temperature_query_returns_a_time_column_for_the_join() -> None:
-    for target in _panel(TEMPERATURES)["targets"]:
-        assert target["format"] == "table", target["refId"]
-        assert re.search(r"\bAS time\b|\$__timeGroupAlias\(", target["rawSql"]), target[
-            "refId"
-        ]
+def _gas_panels() -> list[dict]:
+    return _panels(_load(GAS_HEATING_DASHBOARD))
+
+
+def test_every_time_series_query_returns_a_time_column_for_the_join() -> None:
+    for panel in _gas_panels():
+        if panel["type"] != "timeseries":
+            continue
+        for target in panel["targets"]:
+            assert target["format"] == "table", (panel["title"], target["refId"])
+            assert re.search(
+                r"\bAS time\b|\$__timeGroupAlias\(|^SELECT time\b",
+                target["rawSql"],
+                re.MULTILINE,
+            ), (panel["title"], target["refId"])
 
 
 def test_every_series_override_names_a_column_alias_of_its_query() -> None:
-    # The colours and the step are by-name overrides, so a renamed alias in
-    # the SQL would silently drop them.
-    sql = " ".join(t["rawSql"] for t in _panel(TEMPERATURES)["targets"])
-
-    for series in _panel_overrides(TEMPERATURES):
-        assert re.search(rf"\bAS {series}\b", sql), series
+    # The colours, axes and units are by-name overrides, so a renamed alias
+    # in the SQL would silently drop them.
+    for panel in _gas_panels():
+        sql = " ".join(t["rawSql"] for t in panel["targets"])
+        for override in panel["fieldConfig"]["overrides"]:
+            series = override["matcher"]["options"]
+            assert re.search(rf"\bAS {series}\b", sql), (panel["title"], series)
 
 
 def test_the_current_location_tie_breaks_on_the_newest_row() -> None:
@@ -119,3 +129,70 @@ def test_the_current_location_tie_breaks_on_the_newest_row() -> None:
     outdoor = next(t for t in _panel(TEMPERATURES)["targets"] if t["refId"] == "B")
 
     assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in outdoor["rawSql"]
+
+
+BUILT_IN_VARIABLES = {"DS_MYSQL", "__interval", "__interval_ms", "__from", "__to"}
+
+
+def test_every_variable_the_panels_use_is_defined() -> None:
+    dashboard = _load(GAS_HEATING_DASHBOARD)
+    defined = {v["name"] for v in dashboard["templating"]["list"]} | BUILT_IN_VARIABLES
+    text = json.dumps(dashboard["panels"]) + json.dumps(
+        [v.get("query") for v in dashboard["templating"]["list"]]
+    )
+
+    used = set(re.findall(r"\$\{(\w+)\}", text))
+    assert used - defined == set()
+
+
+def test_the_dashboard_range_reaches_a_week_ahead_for_the_forecast() -> None:
+    assert _load(GAS_HEATING_DASHBOARD)["time"]["to"] == "now+7d"
+
+
+def test_the_agreed_defaults_are_set() -> None:
+    variables = {
+        v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
+    }
+
+    assert variables["boiler_kw"]["query"] == "12"
+    assert variables["comfort_target"]["query"] == "15"
+    assert variables["comfort_margin"]["query"] == "1.0"
+    assert variables["gas_unit"]["query"] == "kWh,pounds"
+
+
+def test_daily_gas_panels_use_only_complete_gas_days() -> None:
+    # A stored gas total of zero means missing, and a short reading count
+    # means a partial day: neither may be drawn.
+    daily = [
+        t["rawSql"]
+        for p in _gas_panels()
+        for t in p["targets"]
+        if "daily_consumption_summary" in t["rawSql"]
+    ]
+
+    assert len(daily) == 4  # kWh, pounds, monthly, heatmap
+    for sql in daily:
+        assert "s.total_kwh > 0" in sql
+        assert "s.half_hour_count = TIMESTAMPDIFF(" in sql
+
+
+def test_the_predictor_reads_the_gas_row_of_the_cost_forecast() -> None:
+    predictor = next(p for p in _gas_panels() if p["type"] == "bargauge")
+
+    assert "FROM cost_forecast" in predictor["targets"][0]["rawSql"]
+    assert "WHERE energy = 'G'" in predictor["targets"][0]["rawSql"]
+
+
+def test_boost_cost_is_minutes_over_sixty_times_kw_times_the_unit_rate() -> None:
+    boost = next(p for p in _gas_panels() if p["title"].startswith("Boost Minutes"))
+    sql = boost["targets"][0]["rawSql"]
+
+    assert "boost_minutes / 60 *" in sql
+    assert "COUNT(*) * 2 AS boost_minutes" in sql
+    overrides = {
+        o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
+        for o in boost["fieldConfig"]["overrides"]
+    }
+    assert (
+        "estimated; assumes full output" in overrides["extra_cost_gbp"]["displayName"]
+    )
