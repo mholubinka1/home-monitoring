@@ -792,6 +792,13 @@ class CostForecastRetriever:
         per_slot_kwh = future_daily_kwh / HALF_HOURS_PER_DAY
         return sum((per_slot_kwh * r.unit_rate for r in remaining_readings), Decimal(0))
 
+    @staticmethod
+    def _hours_in_day(day: date) -> Decimal:
+        return _hours_between(
+            local_day.start_of_local_day(day),
+            local_day.start_of_local_day(day + timedelta(days=1)),
+        )
+
     def _hours_remaining_in_day(self, as_of: datetime, day: date) -> Decimal:
         # Uses the same _hours_between helper as _remaining_billing_window,
         # scoped to just this one day -- as_of's own local day gets the
@@ -846,14 +853,17 @@ class CostForecastRetriever:
         while day <= billing_period_end:
             # The model only projects a week ahead, so a day without a
             # figure uses the same flat average as every other projection.
-            day_kwh = expected_gas.get(day, future_daily_kwh)
+            hours_remaining = self._hours_remaining_in_day(as_of, day)
             if day in expected_gas:
                 model_day_count += 1
-            variable_cost += (
-                (self._hours_remaining_in_day(as_of, day) / 24)
-                * day_kwh
-                * current_rate.unit_rate
-            )
+                # The model's figure is the whole local day's total, so a
+                # whole day keeps it on a 23- or 25-hour clock-change day.
+                day_fraction = hours_remaining / self._hours_in_day(day)
+                day_kwh = expected_gas[day]
+            else:
+                day_fraction = hours_remaining / 24
+                day_kwh = future_daily_kwh
+            variable_cost += day_fraction * day_kwh * current_rate.unit_rate
             day += timedelta(days=1)
 
         # One summary line per refresh, so an operator can see how many of

@@ -184,7 +184,9 @@ def _source(mariadb: MariaDBClient, meters: list[Meter]) -> _RealCostForecastSou
     )
 
 
-def _seed_electricity_and_gas_fixtures(s: Session) -> None:
+def _seed_electricity_and_gas_fixtures(
+    s: Session, elapsed_day: date = date(2026, 7, 6)
+) -> None:
     s.add(
         model.agreement(
             id="E20220101000000",
@@ -206,7 +208,7 @@ def _seed_electricity_and_gas_fixtures(s: Session) -> None:
             standing_charge=Decimal("48.00"),
         )
     )
-    _seed_complete_day(s, date(2026, 7, 6), "0.1", energy="E")
+    _seed_complete_day(s, elapsed_day, "0.1", energy="E")
 
     s.add(
         model.agreement(
@@ -230,7 +232,7 @@ def _seed_electricity_and_gas_fixtures(s: Session) -> None:
         )
     )
     # One elapsed day (2026-07-06), a full 48-slot day totalling 48.0 kWh.
-    _seed_complete_day(s, date(2026, 7, 6), "1.0", energy="G")
+    _seed_complete_day(s, elapsed_day, "1.0", energy="G")
 
 
 @responses.activate
@@ -551,6 +553,40 @@ def test_a_usable_model_with_no_forecast_rows_yet_falls_back_to_the_flat_average
 
     assert projected == _FLAT_AVERAGE_PROJECTED_TOTAL
     assert "do not match the latest usable heating model" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "elapsed_day, billing_start, billing_end",
+    [
+        # 2026-10-25 has 25 hours, 2026-03-29 has 23.
+        (date(2026, 10, 24), "2026-10-25", "2026-10-27"),
+        (date(2026, 3, 28), "2026-03-29", "2026-03-31"),
+    ],
+)
+@responses.activate
+def test_a_model_figure_is_a_whole_days_total_even_on_a_clock_change_day(
+    mariadb_client: MariaDBClient,
+    elapsed_day: date,
+    billing_start: str,
+    billing_end: str,
+) -> None:
+    clock_change_day = elapsed_day + timedelta(days=1)
+    _mock_billing_period(billing_start, billing_end)
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s, elapsed_day)
+    _seed_heating_forecast(
+        mariadb_client,
+        {clock_change_day: 24.0, clock_change_day + timedelta(days=1): 24.0},
+    )
+
+    projected = _refresh_seeded_gas_projection(
+        mariadb_client, start_of_local_day(clock_change_day)
+    )
+
+    # Elapsed day: 48.0 kWh @ 7.00p + 29.00p standing = GBP 3.65. Two
+    # remaining days, each a stored 24.0 kWh total @ 7.00p (336.00p) plus
+    # 2 * 29.00p standing: GBP 3.94, whatever the clock-change day's length.
+    assert projected == Decimal("7.59")
 
 
 class _FakeWrappedError(Exception):
