@@ -102,3 +102,12 @@ def test_each_temperature_query_returns_a_time_column_for_the_join() -> None:
         assert (
             " AS time" in target["rawSql"] or "$__timeGroupAlias(" in target["rawSql"]
         )
+
+
+def test_every_series_override_names_a_column_alias_of_its_query() -> None:
+    # The colours and the step are by-name overrides, so a renamed alias in
+    # the SQL would silently drop them.
+    sql = " ".join(t["rawSql"] for t in _panel(TEMPERATURES)["targets"])
+
+    for series in _panel_overrides(TEMPERATURES):
+        assert re.search(rf"\bAS {series}\b", sql), series
