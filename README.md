@@ -36,7 +36,9 @@ explained in plain language in [docs/heating-model.md](docs/heating-model.md).
   independently against the same database — see the header comment in
   `libs/common/common/mariadb/model.py` for the tables both share.
 - **Grafana** (not included in this repo) — point its MySQL data source at the MariaDB
-  instance to build dashboards.
+  instance to build dashboards. Two dashboards are kept here as importable JSON:
+  `data/grafana/dashboard.json` (electricity) and `data/grafana/gas-heating-dashboard.json`
+  (gas, heating and weather), each documented in `data/grafana/mariadb/`.
 
 ## Configuration
 
@@ -91,7 +93,8 @@ Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "loc
 - Set the dashboard's `timezone` variable to the same zone (Dashboard settings, Variables).
   The dashboard is imported from `data/grafana/dashboard.json`, so also set that
   variable's `query` and `current` values in the JSON, or a re-import puts the old zone
-  back.
+  back. The gas and heating dashboard (`data/grafana/gas-heating-dashboard.json`) has the
+  same variable and needs the same edit (it is unused until its daily panels land).
 - On a database that already holds data, `daily_consumption_summary` days keep the zone
   they were written in. The days with a reading count were built from raw readings
   Octopus still serves, so they can be rebuilt: stop octopus-app, set its `timezone`, run
