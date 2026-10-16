@@ -122,7 +122,7 @@ AND (
 
 ### Daily Gas and Outdoor Temperature (time series)
 
-Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected (the text and unit variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
+Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
 
 Query A, kWh:
 
@@ -167,7 +167,7 @@ FROM (
     ON pr.id = (
       SELECT pr2.id FROM product_rate pr2
       WHERE pr2.product_code = a.product_code
-        AND pr2.region = '${region}'
+        AND pr2.region = ${region:sqlstring}
         AND pr2.valid_from <= CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC')
       ORDER BY pr2.valid_from DESC
       LIMIT 1
@@ -280,7 +280,7 @@ FROM (
         FROM agreement a
         JOIN product_rate pr
           ON pr.product_code = a.product_code
-         AND pr.region = '${region}'
+         AND pr.region = ${region:sqlstring}
          AND pr.valid_from <= CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC')
         WHERE a.energy = 'G'
           AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') >= a.valid_from

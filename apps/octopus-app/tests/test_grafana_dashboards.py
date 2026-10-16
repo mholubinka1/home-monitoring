@@ -214,7 +214,7 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
     # between hand-written quotes.
     sql = " ".join(t["rawSql"] for p in _gas_panels() for t in p["targets"])
 
-    for name in ("boiler_kw", "comfort_target", "comfort_margin", "gas_unit"):
+    for name in ("boiler_kw", "comfort_target", "comfort_margin", "gas_unit", "region"):
         assert f"'${{{name}}}'" not in sql, name
         assert f"${{{name}:sqlstring}}" in sql, name
 
@@ -247,3 +247,23 @@ def test_the_band_shades_between_its_maximum_and_minimum_display_names() -> None
         overrides["max_temp"]["custom.fillBelowTo"]
         == overrides["min_temp"]["displayName"]
     )
+
+
+def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
+    # The daily gas panel's temperature line and the band both keep a London
+    # day only when every hour of it has a reading (23, 24 or 25).
+    rule = (
+        "HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n"
+        "    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),"
+    )
+    copies = [
+        t["rawSql"]
+        for p in _gas_panels()
+        for t in p["targets"]
+        if "weather_observation" in t["rawSql"] and "wx AS" in t["rawSql"]
+    ]
+
+    assert len(copies) == 2
+    for sql in copies:
+        assert rule in sql
+        assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in sql
