@@ -72,9 +72,10 @@ WHERE $__timeFilter(w.observed_at)
       WHERE live.location = w.location
         AND live.observed_at = w.observed_at
         AND COALESCE(live.source, '') <> 'open-meteo-archive'
+        AND live.temp IS NOT NULL
     )
   )
 ORDER BY w.observed_at;
 ```
 
-**Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (18:50 to 19:40 UTC, 24 readings): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and went to 23 C for the boost at 19:14 to 19:18 and again at 19:24 (the boost flag was set at 19:18 and 19:24), matching the recorded heating-on windows. The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over the default 21 days, with 16-minute buckets (an example; Grafana chooses the interval), it returns about 1,160 buckets in under a second, and the outdoor query 519 hourly rows. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
+**Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (18:50 to 19:40 UTC, 24 readings): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and went to 23 C for the boost at 19:14 to 19:18 and again at 19:24 (the boost flag was set at 19:18 and 19:24), matching the recorded heating-on windows. The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over 25 September to 16 October (21.6 days, with gaps in the thermostat history), with 16-minute buckets (an example; Grafana chooses the interval), it returns about 1,160 buckets (at most 1,940) in under a second, and the outdoor query 519 hourly rows. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.

@@ -6,6 +6,7 @@ import pytest
 GRAFANA_DIR = Path(__file__).resolve().parents[3] / "data" / "grafana"
 DASHBOARD_FILES = sorted(GRAFANA_DIR.glob("*dashboard.json"))
 GAS_HEATING_DASHBOARD = GRAFANA_DIR / "gas-heating-dashboard.json"
+TEMPERATURES = "Indoor, Target and Outdoor Temperature"
 
 
 def _load(path: Path) -> dict:
@@ -64,20 +65,22 @@ def test_the_gas_heating_dashboard_uses_london_time() -> None:
     variables = {v["name"]: v for v in dashboard["templating"]["list"]}
     assert dashboard["timezone"] == "Europe/London"
     assert variables["timezone"]["query"] == "Europe/London"
+    assert variables["timezone"]["current"]["value"] == "Europe/London"
+
+
+def _panel(title: str) -> dict:
+    return next(p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["title"] == title)
 
 
 def _panel_overrides(title: str) -> dict[str, dict[str, object]]:
-    panel = next(
-        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["title"] == title
-    )
     return {
         o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
-        for o in panel["fieldConfig"]["overrides"]
+        for o in _panel(title)["fieldConfig"]["overrides"]
     }
 
 
 def test_the_target_temperature_is_drawn_as_a_step() -> None:
-    overrides = _panel_overrides("Indoor, Target and Outdoor Temperature")
+    overrides = _panel_overrides(TEMPERATURES)
 
     assert overrides["target"]["custom.lineInterpolation"] == "stepAfter"
     assert "custom.lineInterpolation" not in overrides["indoor"]
@@ -85,10 +88,6 @@ def test_the_target_temperature_is_drawn_as_a_step() -> None:
 
 
 def test_lines_join_across_missing_points_so_the_hourly_outdoor_line_draws() -> None:
-    panel = next(
-        p
-        for p in _panels(_load(GAS_HEATING_DASHBOARD))
-        if p["title"] == "Indoor, Target and Outdoor Temperature"
-    )
+    custom = _panel(TEMPERATURES)["fieldConfig"]["defaults"]["custom"]
 
-    assert panel["fieldConfig"]["defaults"]["custom"]["spanNulls"] is True
+    assert custom["spanNulls"] is True

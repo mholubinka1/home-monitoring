@@ -220,7 +220,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  w.observed_at AS time,\n  w.temp AS outdoor\nFROM weather_observation w\nWHERE $__timeFilter(w.observed_at)\n  AND w.temp IS NOT NULL\n  AND w.location = (\n    SELECT l.location FROM weather_observation l\n    ORDER BY l.observed_at DESC LIMIT 1\n  )\n  AND (\n    COALESCE(w.source, '') <> 'open-meteo-archive'\n    OR NOT EXISTS (\n      SELECT 1 FROM weather_observation live\n      WHERE live.location = w.location\n        AND live.observed_at = w.observed_at\n        AND COALESCE(live.source, '') <> 'open-meteo-archive'\n    )\n  )\nORDER BY w.observed_at;",
+          "rawSql": "SELECT\n  w.observed_at AS time,\n  w.temp AS outdoor\nFROM weather_observation w\nWHERE $__timeFilter(w.observed_at)\n  AND w.temp IS NOT NULL\n  AND w.location = (\n    SELECT l.location FROM weather_observation l\n    ORDER BY l.observed_at DESC LIMIT 1\n  )\n  AND (\n    COALESCE(w.source, '') <> 'open-meteo-archive'\n    OR NOT EXISTS (\n      SELECT 1 FROM weather_observation live\n      WHERE live.location = w.location\n        AND live.observed_at = w.observed_at\n        AND COALESCE(live.source, '') <> 'open-meteo-archive'\n        AND live.temp IS NOT NULL\n    )\n  )\nORDER BY w.observed_at;",
           "refId": "B",
           "sql": {
             "columns": [
