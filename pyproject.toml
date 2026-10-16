@@ -101,9 +101,9 @@ max-attributes = 8
 # Same facade shape as max-attributes above: each fetch/persist/read method delegates
 # one MonitoringClient operation to the underlying Octopus/MariaDB client it wraps, so
 # the method count grows by one each time a Retriever needs a new operation. Raised
-# from the default (20) to fit its current shape, then to 24 for #511's three new gas
-# weather-regression read methods (read_daily_consumption_summary,
-# read_weather_observation_daily_max_temps, read_weather_forecast_max_temps), then to
+# from the default (20) to fit its current shape, then to 24 for the gas cost
+# forecast's read methods (#511, since #630 read_daily_consumption_summary,
+# read_latest_usable_heating_model, read_heating_forecast_days), then to
 # 25 for read_product_rates_for_local_day (ADR-0023's gap-day rate pricing).
 max-public-methods = 25
 

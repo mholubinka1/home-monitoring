@@ -150,7 +150,7 @@ def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiri
     # it cannot catch a regression in MonitoringClient's OWN delegation
     # (e.g. a swapped argument, a method never added). This exact gap
     # already surfaced once during #511's development: mypy caught
-    # MonitoringClient missing the three new weather-read methods, but
+    # MonitoringClient missing the new weather-read methods, but
     # nothing in the test suite would have. This test closes that gap for
     # the gas heating-model path specifically.
     responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)

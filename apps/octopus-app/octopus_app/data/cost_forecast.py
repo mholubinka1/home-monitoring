@@ -818,11 +818,19 @@ class CostForecastRetriever:
                 "average-consumption method for the whole remaining period."
             )
             return {}
-        return {
+        stored_rows = self._client.read_heating_forecast_days()
+        figures = {
             record.date: _decimal_from_float(record.expected_gas)
-            for model_id, record in self._client.read_heating_forecast_days()
+            for model_id, record in stored_rows
             if model_id == stored.id
         }
+        if stored_rows and not figures:
+            logger.info(
+                "Gas variable cost: the stored forecast days belong to an "
+                "older heating model than the latest usable one -- using the "
+                "average-consumption method until the job rewrites them."
+            )
+        return figures
 
     def _project_gas_variable_cost(
         self,

@@ -652,8 +652,7 @@ class MariaDBClient(MariaDBClientBase):
 
         # One temperature per hour: the live reading when there is one, else
         # the archive's. temp is external, cross-app input, so NULL and
-        # NaN/Infinity count as "no reading" (as in
-        # read_weather_observation_daily_max_temps above).
+        # NaN/Infinity count as "no reading".
         live: dict[datetime, float] = {}
         archive: dict[datetime, float] = {}
         for source, observed_at, temp in rows:
