@@ -245,7 +245,7 @@ The extension of octopus-app's `cost_forecast` (previously implicitly electricit
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 
 **Gas Heating Dashboard**:
-The second Grafana dashboard ("pi-desktop: gas-heating-monitoring", `data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard, which it never changes. Every panel is a chart (no tables; the planned billing-period predictor is a bar gauge), in London time. Its import steps and panels are in the queries document; the panels that read the **Heating Model**'s tables come in a second wave.
+The second Grafana dashboard ("pi-desktop: gas-heating-monitoring", `data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard, which it never changes. Every panel is a chart (no tables; the billing-period predictor is a bar gauge), in London time. Its import steps and panels are in the queries document; the panels that read the **Heating Model**'s tables come in a second wave.
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
 **Presence-Based Heating Control**:

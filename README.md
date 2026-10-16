@@ -94,7 +94,7 @@ Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "loc
   The dashboard is imported from `data/grafana/dashboard.json`, so also set that
   variable's `query` and `current` values in the JSON, or a re-import puts the old zone
   back. The gas and heating dashboard (`data/grafana/gas-heating-dashboard.json`) has the
-  same variable and needs the same edit (it is unused until its daily panels land).
+  same variable and needs the same edit.
 - On a database that already holds data, `daily_consumption_summary` days keep the zone
   they were written in. The days with a reading count were built from raw readings
   Octopus still serves, so they can be rebuilt: stop octopus-app, set its `timezone`, run

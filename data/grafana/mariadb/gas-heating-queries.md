@@ -67,30 +67,30 @@ GROUP BY 1
 ORDER BY 1;
 ```
 
-Query B, outdoor (hourly; the current location only; the live reading wins over the archive for the same hour):
+Query B, outdoor (hourly; the current location only; the readings of an hour are ranked, a live one before an archive one, and the first is kept; a reading with no temperature is dropped first, so it never hides the other source's reading):
 
 ```sql
 SELECT
-  w.observed_at AS time,
-  w.temp AS outdoor
-FROM weather_observation w
-WHERE $__timeFilter(w.observed_at)
-  AND w.temp IS NOT NULL
-  AND w.location = (
-    SELECT l.location FROM weather_observation l
-    ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
-  )
-  AND (
-    COALESCE(w.source, '') <> 'open-meteo-archive'
-    OR NOT EXISTS (
-      SELECT 1 FROM weather_observation live
-      WHERE live.location = w.location
-        AND live.observed_at = w.observed_at
-        AND COALESCE(live.source, '') <> 'open-meteo-archive'
-        AND live.temp IS NOT NULL
+  observed_at AS time,
+  temp AS outdoor
+FROM (
+  SELECT
+    w.observed_at,
+    w.temp,
+    ROW_NUMBER() OVER (
+      PARTITION BY w.observed_at
+      ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id
+    ) AS preference
+  FROM weather_observation w
+  WHERE $__timeFilter(w.observed_at)
+    AND w.temp IS NOT NULL
+    AND w.location = (
+      SELECT l.location FROM weather_observation l
+      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
     )
-  )
-ORDER BY w.observed_at;
+) ranked
+WHERE preference = 1
+ORDER BY observed_at;
 ```
 
 **Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (24 readings between 18:50 and 19:40 UTC; the rows around the boosts are listed below): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and stepped to 23 C in the 19:14 to 19:18 buckets and again at 19:24, with the boost flag set in the 19:18 and 19:24 buckets, consistent with the recorded heating-on windows to bucket resolution (the boost flag comes from a separate read of the same rows; the target rises with the demand, and the exact on and off times are within a bucket). Rows at 2-minute buckets (indoor C, target C, boost flag): 19:12 20.6, 7, 0; 19:14 20.7, 23, 0; 19:16 20.7, 23, 0; 19:18 20.7, 23, 1; 19:20 20.8, 7, 0; 19:22 20.7, 7, 0; 19:24 20.7, 23, 1; 19:26 20.8, 7, 0 (the 19:00 bucket has no reading). The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over 25 September to 16 October (the thermostat history starts on 3 October, so about 13 days of readings), with 16-minute buckets (an example; Grafana chooses the interval), it returns about 1,160 buckets in under a second, and the outdoor query 519 hourly rows. The daylight-saving check for this panel is deferred until after the first London clock change on 25 October 2026 (the thermostat history starts on 3 October); the panel groups by UTC time and Grafana converts for display, so nothing in its queries depends on the local day. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
@@ -188,29 +188,28 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-Query C, daily mean outdoor temperature (complete London days only: every hour of the local day has a reading, 23, 24 or 25 hours; one reading per hour at the current location, the live one preferred over the archive):
+Query C, daily mean outdoor temperature (complete London days only: every hour of the local day has a reading, 23, 24 or 25 hours; one reading per hour at the current location, ranked with a window function so the live one is kept over the archive; sunshine and radiation are NULL for a day where any hour lacks them):
 
 ```sql
 WITH wx AS (
-  SELECT w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration
-  FROM weather_observation w
-  WHERE w.temp IS NOT NULL
-    AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY
-    AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY
-    AND w.location = (
+  SELECT observed_at, temp, shortwave_radiation, sunshine_duration
+  FROM (
+    SELECT
+      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,
+      ROW_NUMBER() OVER (
+        PARTITION BY w.observed_at
+        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id
+      ) AS preference
+    FROM weather_observation w
+    WHERE w.temp IS NOT NULL
+      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY
+      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY
+      AND w.location = (
         SELECT l.location FROM weather_observation l
         ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
       )
-    AND (
-      COALESCE(w.source, '') <> 'open-meteo-archive'
-      OR NOT EXISTS (
-        SELECT 1 FROM weather_observation live
-        WHERE live.location = w.location
-          AND live.observed_at = w.observed_at
-          AND COALESCE(live.source, '') <> 'open-meteo-archive'
-          AND live.temp IS NOT NULL
-      )
-    )
+  ) ranked
+  WHERE preference = 1
 ),
 daily AS (
   SELECT
@@ -218,8 +217,10 @@ daily AS (
     AVG(temp) AS mean_temp,
     MIN(temp) AS min_temp,
     MAX(temp) AS max_temp,
-    SUM(sunshine_duration) / 3600 AS sunshine_hours,
-    SUM(shortwave_radiation) / 1000 AS radiation_kwh_m2
+    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)
+      AS sunshine_hours,
+    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)
+      AS radiation_kwh_m2
   FROM wx
   GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(
@@ -345,25 +346,24 @@ Daily minimum, mean and maximum outdoor temperature for complete London days, sh
 
 ```sql
 WITH wx AS (
-  SELECT w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration
-  FROM weather_observation w
-  WHERE w.temp IS NOT NULL
-    AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY
-    AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY
-    AND w.location = (
+  SELECT observed_at, temp, shortwave_radiation, sunshine_duration
+  FROM (
+    SELECT
+      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,
+      ROW_NUMBER() OVER (
+        PARTITION BY w.observed_at
+        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id
+      ) AS preference
+    FROM weather_observation w
+    WHERE w.temp IS NOT NULL
+      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY
+      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY
+      AND w.location = (
         SELECT l.location FROM weather_observation l
         ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
       )
-    AND (
-      COALESCE(w.source, '') <> 'open-meteo-archive'
-      OR NOT EXISTS (
-        SELECT 1 FROM weather_observation live
-        WHERE live.location = w.location
-          AND live.observed_at = w.observed_at
-          AND COALESCE(live.source, '') <> 'open-meteo-archive'
-          AND live.temp IS NOT NULL
-      )
-    )
+  ) ranked
+  WHERE preference = 1
 ),
 daily AS (
   SELECT
@@ -371,8 +371,10 @@ daily AS (
     AVG(temp) AS mean_temp,
     MIN(temp) AS min_temp,
     MAX(temp) AS max_temp,
-    SUM(sunshine_duration) / 3600 AS sunshine_hours,
-    SUM(shortwave_radiation) / 1000 AS radiation_kwh_m2
+    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)
+      AS sunshine_hours,
+    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)
+      AS radiation_kwh_m2
   FROM wx
   GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))
   HAVING COUNT(*) = TIMESTAMPDIFF(
@@ -396,7 +398,7 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 16 October 2026.** 3 October: minimum 12.4, mean 15.7, maximum 19.3 C, 5.4 sunshine hours, 2.33 kWh/m2; 6 October (a dull day): 10.1, 13.1, 14.6 C, 0.0 hours, 0.43 kWh/m2. History starts on 25 July 2024, the first complete London day after the backfill's first reading (24 July 2024 00:00 UTC is 01:00 BST): 15.4, 17.4, 19.8 C.
+**Checked read-only against the Pi on 16 October 2026.** 3 October: minimum 12.4, mean 15.7, maximum 19.3 C, 5.4 sunshine hours, 2.33 kWh/m2; 6 October (a dull day): 10.1, 13.1, 14.6 C, 0.0 hours, 0.43 kWh/m2. History starts on 25 July 2024, the first complete London day after the backfill's first reading (24 July 2024 00:00 UTC is 01:00 BST): 15.4, 17.4, 19.8 C. Over the whole history (20 July 2024 to 23 October 2026, 813 complete days) the query runs in about a second; an earlier version that looked each hour up with a correlated `NOT EXISTS` could not use the table's index and took over two minutes, so the live-over-archive choice is now a window-function ranking.
 
 ### Gas Billing Period Progress (bar gauge)
 
