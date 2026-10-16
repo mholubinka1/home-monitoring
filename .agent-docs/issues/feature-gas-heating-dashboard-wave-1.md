@@ -12,11 +12,11 @@ A new, separate dashboard file with its own title, uid, variables and defaults, 
 
 ### Acceptance criteria
 
-- [ ] The dashboard JSON is valid with a unique title and uid, and the existing dashboard files are unchanged.
-- [ ] Panel 1 shows indoor and target from the thermostat and outdoor from the weather (live preferred), in London time.
-- [ ] The target is drawn as a step line; there is no heating-on strip or shading.
-- [ ] The queries document records the panel's query and the import steps (Database field `home_monitoring`).
-- [ ] The query was run read-only against live data and checked for a known day.
+- [x] The dashboard JSON is valid with a unique title and uid, and the existing dashboard files are unchanged.
+- [x] Panel 1 shows indoor and target from the thermostat and outdoor from the weather (live preferred), in London time.
+- [x] The target is drawn as a step line; there is no heating-on strip or shading.
+- [x] The queries document records the panel's query and the import steps (Database field `home_monitoring`).
+- [x] The query was run read-only against live data and checked for a known day.
 
 ---
 
