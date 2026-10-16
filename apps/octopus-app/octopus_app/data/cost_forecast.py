@@ -737,10 +737,9 @@ class CostForecastRetriever:
                 billing_period.end, future_daily_kwh, as_of
             )
         elif energy == Energy.gas:
-            # Gas only -- electricity keeps the flat scalar formula below
-            # completely unchanged. This replaces that single-scalar
-            # calculation with a per-remaining-day loop so each day can use
-            # either the heating model's expected gas or the flat average.
+            # Gas only -- electricity keeps the flat scalar formula below. Gas
+            # loops over the remaining days so each can use either the
+            # heating model's expected gas or the flat average.
             variable_cost = self._project_gas_variable_cost(
                 billing_period.end, as_of, future_daily_kwh, current_rate
             )
