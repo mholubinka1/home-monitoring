@@ -402,7 +402,7 @@ ORDER BY time;
 
 ### Gas Billing Period Progress (bar gauge)
 
-The one non-chart panel, mirroring "Billing Period Progress" on the electricity dashboard: the latest gas row of the cost forecast, the cost so far against the projected total. It shows whatever the cost forecast currently computes; since the heating model was adopted, each remaining day's expected gas comes from the model (flat average beyond its week). Its title uses the hidden `gas_billing_period_start`, `gas_billing_period_end` and `gas_rates_estimated_note` variables (the latest gas `cost_forecast` row, refreshing on a time range change like the electricity ones).
+The one non-chart panel, mirroring "Billing Period Progress" on the electricity dashboard: the latest gas row of the cost forecast, the cost so far against the projected total. It shows whatever the cost forecast currently computes (its colour thresholds, 60, 80 and 100 pounds, are copied from the electricity panel, so a gas projection near 33 pounds stays green; the bar length is what carries the information); since the heating model was adopted, each remaining day's expected gas comes from the model (flat average beyond its week). Its title uses the hidden `gas_billing_period_start`, `gas_billing_period_end` and `gas_rates_estimated_note` variables (the latest gas `cost_forecast` row, refreshing on a time range change like the electricity ones).
 
 ```sql
 SELECT actual_cost_to_date AS billing_period_cost_gbp, projected_total_cost AS projected_cost_gbp

@@ -289,3 +289,20 @@ def test_minutes_and_days_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
         ("Daily Outdoor Temperature Band with Sunshine", "sunshine_hours"),
     ):
         assert _panel_overrides(title)[series]["unit"].startswith("suffix: ")
+
+
+def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:
+    queries = [t["rawSql"] for p in _gas_panels() for t in p["targets"]]
+
+    gas_days = [q for q in queries if "daily_consumption_summary" in q]
+    for sql in gas_days:
+        assert "s.half_hour_count IS NULL" in sql  # days before the API's first day
+
+    ranked = [q for q in queries if "ROW_NUMBER() OVER" in q]
+    assert len(ranked) == 3  # panel 1 outdoor, daily gas C, the band
+    for sql in ranked:
+        assert "ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id" in sql
+
+    comfort = next(q for q in queries if "minutes_below_target" in q)
+    for name in ("comfort_target", "comfort_margin"):
+        assert f"${{{name}:sqlstring}} REGEXP" in comfort

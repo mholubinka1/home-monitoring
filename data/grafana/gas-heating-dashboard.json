@@ -704,6 +704,10 @@
                 "value": "suffix: min"
               },
               {
+                "id": "decimals",
+                "value": 0
+              },
+              {
                 "id": "displayName",
                 "value": "boost minutes"
               }
