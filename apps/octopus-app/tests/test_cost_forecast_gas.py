@@ -353,7 +353,7 @@ def _latest_gas_projected_total_cost(mariadb_client: MariaDBClient) -> Decimal:
 
 
 @responses.activate
-def test_a_forecast_colder_than_the_recent_average_raises_gas_projected_total_cost_above_the_flat_average_method(
+def test_a_model_figure_above_the_flat_average_raises_gas_projected_total_cost(
     mariadb_client: MariaDBClient,
 ) -> None:
     _mock_billing_period("2026-07-07", "2026-08-07")
