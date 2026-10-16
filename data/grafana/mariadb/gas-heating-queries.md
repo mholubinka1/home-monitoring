@@ -120,7 +120,7 @@ AND (
 
 ### Daily Gas and Outdoor Temperature (time series)
 
-Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected. In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (not rounded in SQL, so the panel's two decimals add up the same way the cost forecast's do). A day with no complete gas figure has no bar in either unit, standing charge included.
+Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected (the text and unit variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
 
 Query A, kWh:
 
@@ -131,7 +131,7 @@ FROM (
     CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC') AS time,
     s.total_kwh AS gas_kwh
   FROM daily_consumption_summary s
-  WHERE '${gas_unit}' = 'kWh'
+  WHERE ${gas_unit:sqlstring} = 'kWh'
     AND s.energy = 'G'
     AND s.total_kwh > 0
     AND (
@@ -170,7 +170,7 @@ FROM (
       ORDER BY pr2.valid_from DESC
       LIMIT 1
     )
-  WHERE '${gas_unit}' = 'pounds'
+  WHERE ${gas_unit:sqlstring} = 'pounds'
     AND s.energy = 'G'
     AND s.total_kwh > 0
     AND (
@@ -263,7 +263,7 @@ ORDER BY time;
 
 ### Boost Minutes and Estimated Extra Gas Cost (time series)
 
-Bars of boost minutes per London day (boost-active readings x the 2-minute poll interval), plus a line of the estimated extra gas cost on the right axis: minutes / 60 x the **Boiler gas input** (kW, default 12, measured on the 6 October 2026 test evening) x that day's gas unit rate / 100. It is labelled "estimated; assumes full output", and a boiler input of 0 (or anything that is not a number) shows minutes only.
+Bars of boost minutes per London day (boost-active readings x the 2-minute poll interval), plus a line of the estimated extra gas cost on the right axis: minutes / 60 x the **Boiler gas input** (kW, default 12, measured on the 6 October 2026 test evening) x that day's gas unit rate / 100. It is labelled "estimated; assumes full output", and a boiler input of 0 (or anything that is not a number) shows minutes only. A day with thermostat readings and no boost shows 0 minutes; a day with no thermostat readings has no row.
 
 ```sql
 SELECT time, boost_minutes, extra_cost_gbp
@@ -272,8 +272,8 @@ FROM (
     CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,
     boost_minutes,
     IF(
-      IF('${boiler_kw}' REGEXP '^[0-9]+([.][0-9]+)?$', CAST('${boiler_kw}' AS DECIMAL(8, 2)), 0) > 0,
-      ROUND(boost_minutes / 60 * IF('${boiler_kw}' REGEXP '^[0-9]+([.][0-9]+)?$', CAST('${boiler_kw}' AS DECIMAL(8, 2)), 0) * (
+      IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) > 0,
+      ROUND(boost_minutes / 60 * IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) * (
         SELECT pr.unit_rate
         FROM agreement a
         JOIN product_rate pr
@@ -285,16 +285,15 @@ FROM (
           AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')
         ORDER BY pr.valid_from DESC
         LIMIT 1
-      ) / 100, 2),
+      ) / 100, 4),
       NULL
     ) AS extra_cost_gbp
   FROM (
     SELECT
       DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,
-      COUNT(*) * 2 AS boost_minutes
+      COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes
     FROM heating_status
-    WHERE boost_active = 1
-      AND polled_at >= $__timeFrom() - INTERVAL 2 DAY
+    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY
       AND polled_at <= $__timeTo()
     GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))
   ) b
@@ -303,11 +302,11 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 16 October 2026.** The 6 October test evening has two boost readings (19:18 and 19:24 UTC): 4 minutes, and 4 / 60 x 12 kW x 8.58396p = 6.9p, which the panel shows as 0.07. With the boiler input at 0 the cost column is NULL and only the minutes remain. Days without a boost have no row.
+**Checked read-only against the Pi on 16 October 2026.** The 6 October test evening has two boost readings (19:18 and 19:24 UTC): 4 minutes, and 4 / 60 x 12 kW x 8.58396p = 6.87p (0.0687 in the query, shown as 0.07). Every other day from 3 October has 0 minutes and 0 cost. With the boiler input at 0 or `abc` the cost column is NULL and only the minutes remain.
 
 ### Minutes Below Target (time series)
 
-Bars of minutes per London day in which a comfort target was active (target at or above the **Comfort target** variable, default 15 C) and the room was more than the **Margin below target** (default 1.0 C) under it. A day on the frost setting (7 C) counts nothing whatever the room temperature.
+Bars of minutes per London day in which a comfort target was active (target at or above the **Comfort target** variable, default 15 C) and the room was more than the **Margin below target** (default 1.0 C) under it. A day on the frost setting (7 C) counts zero whatever the room temperature, and a day with thermostat readings shows 0 rather than a gap. If a setting is not a number (a typo like `15C`), the panel shows no data instead of silently counting every frost-setting minute.
 
 ```sql
 SELECT time, minutes_below_target
@@ -318,11 +317,16 @@ FROM (
   FROM (
     SELECT
       DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,
-      COUNT(*) * 2 AS minutes_below_target
+      IF(
+        IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL) IS NULL OR IF(${comfort_margin:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_margin:sqlstring} AS DECIMAL(8, 2)), NULL) IS NULL,
+        NULL,
+        COUNT(CASE
+          WHEN target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
+           AND current_temp < target_temp - IF(${comfort_margin:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_margin:sqlstring} AS DECIMAL(8, 2)), NULL)
+          THEN 1 END) * 2
+      ) AS minutes_below_target
     FROM heating_status
-    WHERE target_temp >= IF('${comfort_target}' REGEXP '^[0-9]+([.][0-9]+)?$', CAST('${comfort_target}' AS DECIMAL(8, 2)), 0)
-      AND current_temp < target_temp - IF('${comfort_margin}' REGEXP '^[0-9]+([.][0-9]+)?$', CAST('${comfort_margin}' AS DECIMAL(8, 2)), 0)
-      AND polled_at >= $__timeFrom() - INTERVAL 2 DAY
+    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY
       AND polled_at <= $__timeTo()
     GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))
   ) b
@@ -331,11 +335,11 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 16 October 2026.** 6 October: 8 minutes (the four 23 C readings of the boost evening, 19:14 to 19:18 and 19:24 UTC, with the room at 20.7 C, more than 1 C under). Every other day so far has no row, because the target never left the frost setting.
+**Checked read-only against the Pi on 16 October 2026.** 6 October: 8 minutes (the four 23 C readings of the boost evening, 19:14 to 19:18 and 19:24 UTC, with the room at 20.7 C, more than 1 C under). Every other day from 3 October shows 0, because the target never left the frost setting. With the comfort target set to `15C` every value is NULL (no data).
 
 ### Daily Outdoor Temperature Band with Sunshine (time series)
 
-Daily minimum, mean and maximum outdoor temperature for complete London days, shaded between the minimum and maximum, with the day's sunshine hours (bars) and solar radiation (kWh per square metre, a line) on the right axis. The same hourly outdoor readings and complete-day rule as the daily gas panel's query C. History starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July).
+Daily minimum, mean and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), with the day's sunshine hours (bars) and solar radiation (kWh per square metre, a line) on the right axis. The same hourly outdoor readings and complete-day rule as the daily gas panel's query C. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
 
 ```sql
 WITH wx AS (
@@ -408,7 +412,7 @@ LIMIT 1;
 
 ### Monthly Gas (scaled to the full month), this year against last (time series)
 
-Bars for the last 12 months (this year) and the 12 months before them drawn on the same months (last year), with dots on the right axis for the number of complete gas days each month had. A month's figure is the average of its complete days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26); the current month is projected from the days so far. A month with fewer than 10 complete days is left out.
+Bars for the last 12 months (this year) and the 12 months before them drawn on the same months (last year), with dots on the right axis for the number of complete gas days each month had. A month's figure is the average of its complete days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26); the current month is projected from the days so far. The 12-month cut-off uses the London date, not the server's. A month with fewer than 10 complete days is left out.
 
 ```sql
 WITH usable AS (
@@ -424,7 +428,7 @@ WITH usable AS (
         CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
       ) / 30
     )
-    AND s.date >= DATE_FORMAT(CURDATE() - INTERVAL 23 MONTH, '%Y-%m-01')
+    AND s.date >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 23 MONTH, '%Y-%m-01')
 ),
 months AS (
   SELECT
@@ -437,16 +441,16 @@ months AS (
 )
 SELECT
   CONVERT_TZ(CAST(
-    IF(month_start >= DATE_FORMAT(CURDATE() - INTERVAL 11 MONTH, '%Y-%m-01'),
+    IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
        month_start, month_start + INTERVAL 12 MONTH) AS DATETIME
   ), '${timezone}', 'UTC') AS time,
-  MAX(IF(month_start >= DATE_FORMAT(CURDATE() - INTERVAL 11 MONTH, '%Y-%m-01'),
+  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
          ROUND(month_kwh, 0), NULL)) AS this_year_kwh,
-  MAX(IF(month_start < DATE_FORMAT(CURDATE() - INTERVAL 11 MONTH, '%Y-%m-01'),
+  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
          ROUND(month_kwh, 0), NULL)) AS last_year_kwh,
-  MAX(IF(month_start >= DATE_FORMAT(CURDATE() - INTERVAL 11 MONTH, '%Y-%m-01'),
+  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
          days_counted, NULL)) AS days_counted_this_year,
-  MAX(IF(month_start < DATE_FORMAT(CURDATE() - INTERVAL 11 MONTH, '%Y-%m-01'),
+  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
          days_counted, NULL)) AS days_counted_last_year
 FROM months
 GROUP BY 1

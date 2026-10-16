@@ -141,7 +141,8 @@ def test_every_variable_the_panels_use_is_defined() -> None:
         [v.get("query") for v in dashboard["templating"]["list"]]
     )
 
-    used = set(re.findall(r"\$\{(\w+)\}", text))
+    used = set(re.findall(r"\$\{(\w+)(?::\w+)?\}", text))
+    used |= set(re.findall(r"\$([A-Za-z]\w*)", text))
     assert used - defined == set()
 
 
@@ -188,11 +189,52 @@ def test_boost_cost_is_minutes_over_sixty_times_kw_times_the_unit_rate() -> None
     sql = boost["targets"][0]["rawSql"]
 
     assert "boost_minutes / 60 *" in sql
-    assert "COUNT(*) * 2 AS boost_minutes" in sql
+    assert "COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes" in sql
+    assert "/ 100, 4)" in sql
     overrides = {
         o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
         for o in boost["fieldConfig"]["overrides"]
     }
     assert (
         "estimated; assumes full output" in overrides["extra_cost_gbp"]["displayName"]
+    )
+
+
+def test_text_box_values_enter_the_sql_escaped() -> None:
+    # A dashboard text box can be set from the URL, so it is never pasted
+    # between hand-written quotes.
+    sql = " ".join(t["rawSql"] for p in _gas_panels() for t in p["targets"])
+
+    for name in ("boiler_kw", "comfort_target", "comfort_margin", "gas_unit"):
+        assert f"'${{{name}}}'" not in sql, name
+        assert f"${{{name}:sqlstring}}" in sql, name
+
+
+def test_a_missing_day_is_a_gap_on_the_daily_temperature_lines() -> None:
+    outdoor = _panel_overrides("Daily Gas and Outdoor Temperature (${gas_unit})")[
+        "outdoor_mean"
+    ]
+    assert outdoor["custom.spanNulls"] is False
+    assert outdoor["custom.insertNulls"] == 129600000
+
+    band = _panel("Daily Outdoor Temperature Band with Sunshine")
+    custom = band["fieldConfig"]["defaults"]["custom"]
+    assert custom["spanNulls"] is False
+    assert custom["insertNulls"] == 129600000
+
+
+def test_a_comfort_setting_that_is_not_a_number_shows_no_data_not_zero() -> None:
+    below = next(p for p in _gas_panels() if p["title"].startswith("Minutes Below"))
+    sql = below["targets"][0]["rawSql"]
+
+    assert "CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)" in sql
+    assert "IS NULL OR" in sql
+
+
+def test_the_band_shades_between_its_maximum_and_minimum_display_names() -> None:
+    overrides = _panel_overrides("Daily Outdoor Temperature Band with Sunshine")
+
+    assert (
+        overrides["max_temp"]["custom.fillBelowTo"]
+        == overrides["min_temp"]["displayName"]
     )
