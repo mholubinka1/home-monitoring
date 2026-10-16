@@ -122,7 +122,7 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 - [x] Given a usable model, then the projected gas cost uses the model's expected gas for the remaining days.
 - [x] Given no usable model, then the projection equals the existing flat-average result.
 - [x] The old regression code and tests are removed and replaced by model-based tests.
-- [ ] The PR description lists the old and new projected total for the current period.
+- [x] The PR description lists the old and new projected total for the current period.
 - [x] The Gas Cost Forecast glossary entry is updated.
 
 ---

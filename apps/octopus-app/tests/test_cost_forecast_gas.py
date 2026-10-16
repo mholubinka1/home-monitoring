@@ -603,7 +603,8 @@ def test_a_mid_day_as_of_on_a_25_hour_day_takes_its_share_of_the_models_total(
     as_of = start_of_local_day(date(2026, 10, 25)) + timedelta(hours=7)
     projected = _refresh_seeded_gas_projection(mariadb_client, as_of)
 
-    # 07:00 BST is 06:00 GMT, so 18 of the day's 25 hours remain (0.72). The
+    # as_of is local midnight plus 7 elapsed hours, i.e. 06:00 GMT after the
+    # clock change, so 18 of the day's 25 hours remain (0.72). The
     # elapsed day costs GBP 3.65 and 10-25 itself is a standing-charge-only
     # gap day (29.00p): actual GBP 3.94. Variable: 0.72 * 24.0 * 7.00p
     # (120.96p) + 24.0 * 7.00p (168.00p) = 288.96p, plus 1 later day of
