@@ -3,13 +3,8 @@ from decimal import Decimal
 
 import responses
 from sqlalchemy.orm import Session
-from tests.weather_fixtures import TRAINING_DAYS_AND_TEMPS as _TRAINING_DAYS_AND_TEMPS
 from tests.weather_fixtures import mock_billing_period as _mock_billing_period
-from tests.weather_fixtures import (
-    seed_daily_consumption_summary as _seed_daily_consumption_summary,
-)
-from tests.weather_fixtures import seed_weather_forecast as _seed_weather_forecast
-from tests.weather_fixtures import seed_weather_observation as _seed_weather_observation
+from tests.weather_fixtures import seed_heating_forecast as _seed_heating_forecast
 
 from common.local_day import start_of_local_day
 from octopus_app.common.config import (
@@ -142,19 +137,9 @@ def _seed_gas_and_electricity_fixtures(s: Session) -> None:
             )
         )
 
-    for day, max_temp, kwh in _TRAINING_DAYS_AND_TEMPS:
-        _seed_daily_consumption_summary(s, day, kwh)
-        _seed_weather_observation(s, day, max_temp)
-
-    remaining_day = date(2026, 7, 7)
-    billing_period_end = date(2026, 8, 6)
-    while remaining_day <= billing_period_end:
-        _seed_weather_forecast(s, remaining_day, -6.0)
-        remaining_day += timedelta(days=1)
-
 
 @responses.activate
-def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
+def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiring(
     mariadb_client: MariaDBClient,
 ) -> None:
     # This is the one test in the suite that constructs the REAL
@@ -167,7 +152,7 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
     # already surfaced once during #511's development: mypy caught
     # MonitoringClient missing the three new weather-read methods, but
     # nothing in the test suite would have. This test closes that gap for
-    # the gas weather-regression path specifically.
+    # the gas heating-model path specifically.
     responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)
     responses.add(
         responses.GET,
@@ -179,6 +164,10 @@ def test_gas_weather_regression_runs_through_the_real_monitoring_client_wiring(
 
     with mariadb_client.session_write_scope() as s:
         _seed_gas_and_electricity_fixtures(s)
+    _seed_heating_forecast(
+        mariadb_client,
+        {date(2026, 7, 7) + timedelta(days=offset): 63.0 for offset in range(31)},
+    )
 
     settings = ApplicationSettings(
         octopus=OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test"),

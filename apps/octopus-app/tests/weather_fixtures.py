@@ -1,31 +1,14 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import responses
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from common.local_day import start_of_local_day
+from octopus_app.data.model import HeatingForecastRecord, HeatingModelRecord
 from octopus_app.data.mysql import model
+from octopus_app.data.mysql.client import MariaDBClient
 
 GRAPHQL_ENDPOINT = "https://api.octopus.energy/v1/graphql/"
-
-# Seven trailing historical days (2026-06-30 .. 2026-07-06, the day before
-# as_of's local date in every test using this fixture) with a perfectly
-# linear kWh = 20 + 2*heating-degree-days(max_temp) relationship -- HDD uses
-# a 15.5C base, so e.g. day1's 15.0C -> HDD 0.5 -> 21.0 kWh, day7's -3.0C ->
-# HDD 18.5 -> 57.0 kWh. Flat average of these seven totals is exactly
-# 39.0 kWh/day (273.0 / 7) -- the figure #507's unweighted-average fallback
-# would use instead.
-TRAINING_DAYS_AND_TEMPS = [
-    (date(2026, 6, 30), 15.0, "21.0"),
-    (date(2026, 7, 1), 12.0, "27.0"),
-    (date(2026, 7, 2), 9.0, "33.0"),
-    (date(2026, 7, 3), 6.0, "39.0"),
-    (date(2026, 7, 4), 3.0, "45.0"),
-    (date(2026, 7, 5), 0.0, "51.0"),
-    (date(2026, 7, 6), -3.0, "57.0"),
-]
 
 
 def mock_billing_period(start: str, end: str, is_fixed: bool = True) -> None:
@@ -63,37 +46,49 @@ def seed_daily_consumption_summary(
     )
 
 
-def seed_weather_observation(s: Session, local_day: date, max_temp: float) -> None:
-    # Local noon, not local midnight -- keeps the observation unambiguously
-    # inside `local_day` after Europe/London bucketing regardless of which
-    # side of a UTC/BST offset boundary local midnight itself falls on.
-    observed_at = start_of_local_day(local_day) + timedelta(hours=12)
-    s.execute(
-        text(
-            "INSERT INTO weather_observation (source, location, observed_at, temp) "
-            "VALUES (:source, :location, :observed_at, :temp)"
-        ),
-        {
-            "source": "test",
-            "location": "51.50,-0.10",
-            "observed_at": observed_at,
-            "temp": max_temp,
-        },
+def heating_model_record(
+    fitted_at: datetime, usable: bool = True
+) -> HeatingModelRecord:
+    return HeatingModelRecord(
+        fitted_at=fitted_at,
+        window_start=date(2025, 7, 1),
+        window_end=date(2026, 6, 30),
+        usable=usable,
+        unusable_reason=None if usable else "the fit explains too little",
+        days_used=300,
+        threshold=13.0,
+        upper_threshold=14.0,
+        slope=3.76,
+        weight=0.8,
+        r_squared=0.69,
+        baseload=8.0,
+        baseload_measured_days=200,
+        baseload_interpolated_days=50,
+        baseload_held_days=5,
+        noise_base=3.4,
+        noise_per_degree_day=1.2,
+        noise_floor=1.0,
+        thermostat_threshold=None,
+        heating_days=None,
+        non_heating_days=None,
+        label="estimated",
     )
 
 
-def seed_weather_forecast(s: Session, target_date: date, max_temp: float) -> None:
-    s.execute(
-        text(
-            "INSERT INTO weather_forecast "
-            "(id, source, target_date, max_temp, fetched_at) "
-            "VALUES (:id, :source, :target_date, :max_temp, :fetched_at)"
-        ),
-        {
-            "id": f"test-forecast-{target_date.isoformat()}",
-            "source": "test",
-            "target_date": target_date,
-            "max_temp": max_temp,
-            "fetched_at": datetime(2026, 7, 7, tzinfo=UTC),
-        },
+def seed_heating_forecast(
+    client: MariaDBClient,
+    expected_gas: dict[date, float],
+    fitted_at: datetime = datetime(2026, 7, 6, 4, 0, tzinfo=UTC),
+    usable: bool = True,
+) -> int:
+    """Stores one heating model and a forecast row per day, tied to it."""
+    model_id = client.write_heating_model(heating_model_record(fitted_at, usable))
+    client.replace_heating_forecast_days(
+        model_id,
+        [
+            HeatingForecastRecord(day, 5.0, 5.0, gas)
+            for day, gas in expected_gas.items()
+        ],
+        fitted_at,
     )
+    return model_id

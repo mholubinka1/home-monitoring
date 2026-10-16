@@ -1,11 +1,10 @@
 # pylint: disable=too-many-lines
 import logging.config
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from itertools import groupby, pairwise
 from logging import Logger, getLogger
-from typing import NamedTuple, Protocol
+from typing import Protocol
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
@@ -14,6 +13,8 @@ from octopus_app.data.model import (
     CostForecast,
     DailyCostSummary,
     Energy,
+    HeatingForecastRecord,
+    StoredHeatingModel,
 )
 from octopus_app.data.octopus.model import (
     AgileForecastReading,
@@ -48,95 +49,10 @@ MAX_RATE_ESTIMATED_DAYS = 3
 # borrowed rate is still representative.
 RATE_FALLBACK_LOOKBACK_DAYS = 7
 
-# Gas weather regression (#511): a live-computed, nothing-persisted linear
-# regression of daily gas kWh against heating degree days, recomputed fresh
-# on every refresh() run -- deliberately NOT applied to electricity, which
-# keeps the flat average-recent-consumption formula unchanged.
-GAS_TRAINING_WINDOW_DAYS = 7
-GAS_REGRESSION_MIN_PAIRS = 5
-# Below this, the training window's temperatures are treated as effectively
-# constant (e.g. a real week of near-identical weather, or a test fixture
-# that seeds one flat temperature) -- a regression fit through near-zero
-# variance in the input produces a wildly unstable/meaningless slope, so it's
-# safer to fall back to the flat average entirely than trust that slope.
-# 0.01 only trips on genuinely-degenerate all-identical (or near-identical,
-# to float noise) HDD windows, not real-world day-to-day temperature spread.
-GAS_REGRESSION_MIN_HDD_VARIANCE = 0.01
-# HDD base temperature (Celsius) -- the locked design decision from #511's
-# planning session: heating degree days, not raw temperature, is the
-# regression's feature, since gas heating demand tracks "how much colder than
-# comfortable" rather than absolute temperature.
-HDD_BASE_TEMP_C = 15.5
-
-
-def heating_degree_days(max_temp: float) -> float:
-    return max(0.0, HDD_BASE_TEMP_C - max_temp)
-
-
-@dataclass
-class GasWeatherRegression:
-    intercept: float
-    slope: float
-
-    def predict_daily_kwh(self, max_temp: float) -> float:
-        # Floored at zero -- gas consumption can't be negative, but a fitted
-        # intercept can be (plausible with noisier real data than any
-        # fixture here triggers), which would otherwise silently produce a
-        # negative predicted kWh, and so a negative variable cost, for a
-        # mild-enough day.
-        return max(0.0, self.intercept + self.slope * heating_degree_days(max_temp))
-
-
-class GasTrainingDay(NamedTuple):
-    max_temp: float
-    total_kwh: Decimal
-
-
-def fit_gas_weather_regression(
-    pairs: list[GasTrainingDay],
-) -> GasWeatherRegression | None:
-    """Weighted least-squares fit of daily gas kWh against heating degree
-    days, from `pairs` ordered oldest-to-newest.
-
-    Hand-rolled rather than numpy/scikit-learn (per #511's locked design) --
-    this is a single-feature closed-form weighted simple linear regression,
-    not worth a dependency for. Weights follow a linear recency ramp *by rank
-    among the pairs actually passed in* (oldest=1, ..., newest=len(pairs)) --
-    not a fixed 7-slot scheme -- so this degrades gracefully whenever fewer
-    than a full trailing week of (temp, kWh) pairs are available.
-
-    Returns None (a guard, not an error) when there's too little data or the
-    temperatures are too uniform to fit a meaningful slope from -- callers
-    fall back to the flat average-consumption projection in that case.
-    """
-    if len(pairs) < GAS_REGRESSION_MIN_PAIRS:
-        return None
-
-    hdds = [heating_degree_days(p.max_temp) for p in pairs]
-    kwhs = [float(p.total_kwh) for p in pairs]
-    weights = [float(rank) for rank in range(1, len(pairs) + 1)]
-    total_weight = sum(weights)
-
-    mean_hdd = sum(w * x for w, x in zip(weights, hdds)) / total_weight
-    mean_kwh = sum(w * y for w, y in zip(weights, kwhs)) / total_weight
-    variance_hdd = (
-        sum(w * (x - mean_hdd) ** 2 for w, x in zip(weights, hdds)) / total_weight
-    )
-    if variance_hdd < GAS_REGRESSION_MIN_HDD_VARIANCE:
-        return None
-
-    covariance = (
-        sum(w * (x - mean_hdd) * (y - mean_kwh) for w, x, y in zip(weights, hdds, kwhs))
-        / total_weight
-    )
-    slope = covariance / variance_hdd
-    intercept = mean_kwh - slope * mean_hdd
-    return GasWeatherRegression(intercept=intercept, slope=slope)
-
 
 def _decimal_from_float(value: float) -> Decimal:
     # str(), not a bare Decimal(float): float values here (total_seconds(),
-    # the gas regression's predicted kWh) carry binary floating-point noise
+    # the heating model's expected gas) carry binary floating-point noise
     # that Decimal(float) would capture verbatim rather than the value's
     # printed (and intended) precision -- immaterial once rounded at the
     # Numeric(9,2) persistence boundary today, but this is a money
@@ -223,13 +139,11 @@ class CostForecastSource(MeterSource, Protocol):
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]: ...
 
-    def read_weather_observation_daily_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]: ...
+    def read_latest_usable_heating_model(self) -> StoredHeatingModel | None: ...
 
-    def read_weather_forecast_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]: ...
+    def read_heating_forecast_days(
+        self,
+    ) -> list[tuple[int, HeatingForecastRecord]]: ...
 
     def persist_cost_forecast(self, forecast: CostForecast) -> None: ...
 
@@ -824,11 +738,10 @@ class CostForecastRetriever:
                 billing_period.end, future_daily_kwh, as_of
             )
         elif energy == Energy.gas:
-            # Gas only (#511) -- electricity keeps the flat scalar formula
-            # below completely unchanged. This replaces that single-scalar
+            # Gas only -- electricity keeps the flat scalar formula below
+            # completely unchanged. This replaces that single-scalar
             # calculation with a per-remaining-day loop so each day can use
-            # either a weather-regression prediction or the flat average,
-            # depending on forecast data availability for that specific day.
+            # either the heating model's expected gas or the flat average.
             variable_cost = self._project_gas_variable_cost(
                 billing_period.end, as_of, future_daily_kwh, current_rate
             )
@@ -881,57 +794,6 @@ class CostForecastRetriever:
         per_slot_kwh = future_daily_kwh / HALF_HOURS_PER_DAY
         return sum((per_slot_kwh * r.unit_rate for r in remaining_readings), Decimal(0))
 
-    def _fit_gas_weather_regression(
-        self, as_of: datetime
-    ) -> GasWeatherRegression | None:
-        # Trailing 7-day window ending the day *before* as_of's local date
-        # (ADR-0010, local day, not UTC) -- as_of's own local day is
-        # excluded since that day's consumption is still arriving/partial,
-        # not a settled historical data point to train on.
-        as_of_local_date = local_day.to_local_date(as_of)
-        training_end = as_of_local_date - timedelta(days=1)
-        training_start = training_end - timedelta(days=GAS_TRAINING_WINDOW_DAYS - 1)
-
-        consumption = self._client.read_daily_consumption_summary(
-            Energy.gas, training_start, training_end
-        )
-        observed_max_temps = self._client.read_weather_observation_daily_max_temps(
-            training_start, training_end
-        )
-        kwh_by_date = {c.date: c.total_kwh for c in consumption}
-
-        # A day missing either side of the pair (no consumption summary row,
-        # or no weather observation for that local day) is simply excluded
-        # from the training set -- not an error, per #511's locked design.
-        # Sorted ascending so fit_gas_weather_regression's rank-based
-        # recency weighting assigns the oldest available pair weight 1.
-        pairs = [
-            GasTrainingDay(observed_max_temps[d], kwh_by_date[d])
-            for d in sorted(kwh_by_date)
-            if d in observed_max_temps
-        ]
-        regression = fit_gas_weather_regression(pairs)
-        # Logged here (not just left to fall silently into the flat-average
-        # path) so an operator can tell from job_run/logs alone whether
-        # today's gas projection is currently weather-driven or has quietly
-        # degraded to the average method -- e.g. hive-app stalled, or a
-        # genuinely flat weather week guard-skipped the fit.
-        if regression is None:
-            logger.info(
-                f"Gas weather regression skipped ({len(pairs)} training "
-                f"pair(s) available, window {training_start}-{training_end}) "
-                "-- falling back to the average-consumption method for the "
-                "whole remaining period."
-            )
-        else:
-            logger.info(
-                f"Gas weather regression fit from {len(pairs)} training "
-                f"pair(s) (window {training_start}-{training_end}): "
-                f"intercept={regression.intercept:.3f}, "
-                f"slope={regression.slope:.3f}."
-            )
-        return regression
-
     def _hours_remaining_in_day(self, as_of: datetime, day: date) -> Decimal:
         # Uses the same _hours_between helper as _remaining_billing_window,
         # scoped to just this one day -- as_of's own local day gets the
@@ -943,21 +805,24 @@ class CostForecastRetriever:
         day_end = local_day.start_of_local_day(day + timedelta(days=1))
         return _hours_between(max(as_of, day_start), day_end)
 
-    def _gas_day_kwh(
-        self,
-        regression: GasWeatherRegression | None,
-        forecast_max_temps: dict[date, float],
-        day: date,
-        future_daily_kwh: Decimal,
-    ) -> Decimal:
-        max_temp = forecast_max_temps.get(day)
-        if regression is not None and max_temp is not None:
-            return _decimal_from_float(regression.predict_daily_kwh(max_temp))
-        # No forecast row for this specific day, or the regression was
-        # guard-skipped for the whole period -- either way, this day falls
-        # back to the same flat average every other (non-gas, non-Agile)
-        # projection already uses.
-        return future_daily_kwh
+    def _model_expected_gas(self) -> dict[date, Decimal]:
+        # The forecast rows are tied to the model that judged them, and the
+        # job keeps them on the latest USABLE model (an unusable refit
+        # re-judges with the previous one), so that is the model to read --
+        # never the newest row. No usable model, or rows left over from a
+        # different one, means no model figure for any day.
+        stored = self._client.read_latest_usable_heating_model()
+        if stored is None:
+            logger.info(
+                "Gas variable cost: no usable heating model -- using the "
+                "average-consumption method for the whole remaining period."
+            )
+            return {}
+        return {
+            record.date: _decimal_from_float(record.expected_gas)
+            for model_id, record in self._client.read_heating_forecast_days()
+            if model_id == stored.id
+        }
 
     def _project_gas_variable_cost(
         self,
@@ -966,41 +831,33 @@ class CostForecastRetriever:
         future_daily_kwh: Decimal,
         current_rate: Rate,
     ) -> Decimal:
-        # The regression is fit (or guard-skipped) once for the whole
-        # remaining period, not per day -- a guard failure means the flat
-        # average is used for every remaining day, never a per-day retry.
-        regression = self._fit_gas_weather_regression(as_of)
+        expected_gas = self._model_expected_gas()
 
         as_of_local_date = local_day.to_local_date(as_of)
-        forecast_max_temps = self._client.read_weather_forecast_max_temps(
-            as_of_local_date, billing_period_end
-        )
-
         variable_cost = Decimal(0)
-        regression_day_count = 0
+        model_day_count = 0
         day = as_of_local_date
         while day <= billing_period_end:
-            hours_remaining_in_day = self._hours_remaining_in_day(as_of, day)
-            day_kwh = self._gas_day_kwh(
-                regression, forecast_max_temps, day, future_daily_kwh
-            )
-            if regression is not None and day in forecast_max_temps:
-                regression_day_count += 1
+            # The model only projects a week ahead, so a day without a
+            # figure uses the same flat average as every other projection.
+            day_kwh = expected_gas.get(day, future_daily_kwh)
+            if day in expected_gas:
+                model_day_count += 1
             variable_cost += (
-                (hours_remaining_in_day / 24) * day_kwh * current_rate.unit_rate
+                (self._hours_remaining_in_day(as_of, day) / 24)
+                * day_kwh
+                * current_rate.unit_rate
             )
             day += timedelta(days=1)
 
-        # One summary line per refresh, not per day -- a per-day log for a
-        # ~31-day billing period would be noise, but an operator still needs
-        # to see, at a glance, how many of the remaining days were actually
-        # weather-driven versus quietly using the flat-average fallback
-        # (e.g. Open-Meteo's forecast horizon doesn't reach the whole
-        # billing period, or hive-app has been down).
+        # One summary line per refresh, so an operator can see how many of
+        # the remaining days were model-driven and how many used the flat
+        # average (the days beyond the model's week, or all of them when
+        # there is no usable model).
         total_remaining_days = (billing_period_end - as_of_local_date).days + 1
         logger.info(
-            f"Gas variable cost: {regression_day_count}/{total_remaining_days} "
-            "remaining day(s) used the weather regression, the rest used the "
+            f"Gas variable cost: {model_day_count}/{total_remaining_days} "
+            "remaining day(s) used the heating model, the rest used the "
             "flat average."
         )
         return variable_cost

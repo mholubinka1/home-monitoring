@@ -607,56 +607,6 @@ class MariaDBClient(MariaDBClientBase):
             for row in rows
         ]
 
-    def read_weather_observation_daily_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]:
-        # weather_observation has no pre-aggregated daily max (unlike
-        # weather_forecast's one-row-per-target_date shape), so the max is
-        # taken here in Python across whatever observations exist for each
-        # local day (ADR-0010) -- not the raw UTC date, to stay
-        # consistent with how every other local-day bucketing in this app
-        # works. The date range filter below is intentionally generous by a
-        # day on each side of the requested window (observations are queried
-        # by their real observed_at instant, not yet bucketed) -- correctness
-        # comes entirely from the local-day grouping in Python afterward, not
-        # from this coarse SQL-side filter.
-        window_start = local_day.start_of_local_day(start_date - timedelta(days=1))
-        window_end = local_day.start_of_local_day(end_date + timedelta(days=1))
-        wo = weather_observation_table
-        try:
-            with self.session_read_scope() as session:
-                rows = (
-                    session.query(wo.c.observed_at, wo.c.temp)
-                    .filter(
-                        wo.c.observed_at >= window_start,
-                        wo.c.observed_at < window_end,
-                    )
-                    .all()
-                )
-        except (OperationalError, ProgrammingError) as error:
-            if not _is_missing_table_error(error):
-                raise
-            return {}
-
-        daily_max: dict[date, float] = {}
-        for observed_at, temp in rows:
-            # temp is external, cross-app input (hive-app's weather_observation,
-            # read via raw SQL -- see the module-level comment on
-            # weather_observation_table) -- a NaN/Infinity row must not
-            # silently corrupt the daily max or flow into the gas
-            # regression's fit. Treated the same as a missing observation
-            # (None), not as an error: hive-app's own weather clients guard
-            # against persisting NaN/Infinity today, but this read boundary
-            # doesn't assume that holds forever.
-            if temp is None or not math.isfinite(temp):
-                continue
-            day = local_day.to_local_date(observed_at)
-            if start_date <= day <= end_date and (
-                day not in daily_max or temp > daily_max[day]
-            ):
-                daily_max[day] = temp
-        return daily_max
-
     def read_complete_day_mean_temperatures(
         self, start_date: date, end_date: date
     ) -> dict[date, float]:
@@ -752,27 +702,16 @@ class MariaDBClient(MariaDBClientBase):
             if not _is_missing_table_error(error):
                 raise
 
-    def read_weather_forecast_max_temps(
-        self, start_date: date, end_date: date
-    ) -> dict[date, float]:
-        return self._read_weather_forecast_column("max_temp", start_date, end_date)
-
     def read_weather_forecast_mean_temps(
         self, start_date: date, end_date: date
     ) -> dict[date, float]:
-        return self._read_weather_forecast_column("mean_temp", start_date, end_date)
-
-    def _read_weather_forecast_column(
-        self, column: str, start_date: date, end_date: date
-    ) -> dict[date, float]:
         # target_date is already a plain calendar date (one row per forecast
-        # day, per hive-app's model) -- no local-day bucketing needed here,
-        # unlike weather_observation above.
+        # day, per hive-app's model) -- no local-day bucketing needed here.
         wf = weather_forecast_table
         try:
             with self.session_read_scope() as session:
                 rows = (
-                    session.query(wf.c.target_date, wf.c[column])
+                    session.query(wf.c.target_date, wf.c.mean_temp)
                     .filter(
                         wf.c.target_date >= start_date,
                         wf.c.target_date <= end_date,
@@ -783,11 +722,10 @@ class MariaDBClient(MariaDBClientBase):
             if not _is_missing_table_error(error):
                 raise
             return {}
-        # Same NaN/Infinity guard as read_weather_observation_daily_max_temps
-        # above -- the temperature is external, cross-app input (hive-app's
-        # weather_forecast), and a non-finite row must be treated as "no
-        # forecast for that day" (the same as a missing row), not silently
-        # fed into a prediction.
+        # The temperature is external, cross-app input (hive-app's
+        # weather_forecast), so a non-finite row is treated as "no forecast
+        # for that day" (the same as a missing row), not fed into a
+        # projection.
         return {
             target_date: value
             for target_date, value in rows

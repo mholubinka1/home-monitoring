@@ -1,6 +1,6 @@
 # Issues: feature-heating-model
 
-> Wave A (MOD-1, MOD-2: #672) and wave B (MOD-3, MOD-4, MOD-7: #674) are merged. Wave C, PR 1 — MOD-5 and MOD-8 (the job, the tables, the weekly rows) — is built and in review; PR 2 is MOD-6 (the cost forecast adopts the model), started only after PR 1 is merged.
+> Wave A (MOD-1, MOD-2: #672) and wave B (MOD-3, MOD-4, MOD-7: #674) are merged. Wave C PR 1 (MOD-5 and MOD-8: #677) is merged. Wave C PR 2 (MOD-6, the cost forecast adopts the model) is built and in review; the PR description lists the old and new projected totals.
 
 ## MOD-1 · Complete local-day temperatures at the current location, and the effective temperature — [#625](https://github.com/mholubinka1/home-monitoring/issues/625)
 
@@ -119,11 +119,11 @@ The cost forecast takes each remaining day's expected gas from the latest usable
 
 ### Acceptance criteria
 
-- [ ] Given a usable model, then the projected gas cost uses the model's expected gas for the remaining days.
-- [ ] Given no usable model, then the projection equals the existing flat-average result.
-- [ ] The old regression code and tests are removed and replaced by model-based tests.
+- [x] Given a usable model, then the projected gas cost uses the model's expected gas for the remaining days.
+- [x] Given no usable model, then the projection equals the existing flat-average result.
+- [x] The old regression code and tests are removed and replaced by model-based tests.
 - [ ] The PR description lists the old and new projected total for the current period.
-- [ ] The Gas Cost Forecast glossary entry is updated.
+- [x] The Gas Cost Forecast glossary entry is updated.
 
 ---
 
