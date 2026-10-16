@@ -34,7 +34,7 @@ def test_panel_ids_are_unique_within_the_gas_heating_dashboard() -> None:
 
 def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
     # House style: every panel is a chart. The billing-period predictor is a
-    # bar gauge, the one non-chart exception.
+    # bar gauge (planned), the one non-chart exception.
     types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
 
     assert types <= {"timeseries", "barchart", "heatmap", "bargauge"}
@@ -64,3 +64,31 @@ def test_the_gas_heating_dashboard_uses_london_time() -> None:
     variables = {v["name"]: v for v in dashboard["templating"]["list"]}
     assert dashboard["timezone"] == "Europe/London"
     assert variables["timezone"]["query"] == "Europe/London"
+
+
+def _panel_overrides(title: str) -> dict[str, dict[str, object]]:
+    panel = next(
+        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["title"] == title
+    )
+    return {
+        o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
+        for o in panel["fieldConfig"]["overrides"]
+    }
+
+
+def test_the_target_temperature_is_drawn_as_a_step() -> None:
+    overrides = _panel_overrides("Indoor, Target and Outdoor Temperature")
+
+    assert overrides["target"]["custom.lineInterpolation"] == "stepAfter"
+    assert "custom.lineInterpolation" not in overrides["indoor"]
+    assert "custom.lineInterpolation" not in overrides["outdoor"]
+
+
+def test_lines_join_across_missing_points_so_the_hourly_outdoor_line_draws() -> None:
+    panel = next(
+        p
+        for p in _panels(_load(GAS_HEATING_DASHBOARD))
+        if p["title"] == "Indoor, Target and Outdoor Temperature"
+    )
+
+    assert panel["fieldConfig"]["defaults"]["custom"]["spanNulls"] is True

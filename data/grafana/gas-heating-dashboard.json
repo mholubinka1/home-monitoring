@@ -57,7 +57,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Indoor and target temperature from the thermostat (2-minute readings) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step.",
+      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -86,7 +86,7 @@
               "type": "linear"
             },
             "showPoints": "never",
-            "spanNulls": 1800000,
+            "spanNulls": true,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -155,10 +155,6 @@
                   "fixedColor": "green",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "custom.spanNulls",
-                "value": true
               }
             ]
           }
