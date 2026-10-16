@@ -68,12 +68,9 @@ ACCOUNT_RESPONSE = {
 GRID_SUPPLY_POINTS_RESPONSE = {"results": [{"group_id": f"_{REGION}"}]}
 
 
-# Same training/forecast fixture shape as test_cost_forecast_gas.py's
-# tracer-bullet test -- reusing the same numbers means the test below can
-# assert the identical known-correct total (proven exact in the
-# tracer-bullet test) rather than re-deriving new arithmetic -- if it
-# doesn't match, the real wiring diverges from the already-verified
-# regression logic.
+# Same billing-period and gas/electricity fixtures as test_cost_forecast_gas.py,
+# so the total below is the one that file's tests already prove by hand -- if
+# it does not match, the real wiring diverges from the verified logic.
 
 
 def _seed_gas_and_electricity_fixtures(s: Session) -> None:
