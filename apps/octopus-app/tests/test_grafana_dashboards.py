@@ -38,11 +38,12 @@ def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
     # bar gauge (planned), the one non-chart exception.
     types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
 
+    assert types
     assert types <= {"timeseries", "barchart", "heatmap", "bargauge"}
 
 
 @pytest.mark.parametrize("path", DASHBOARD_FILES, ids=lambda p: p.name)
-def test_every_query_runs_against_the_home_monitoring_database(path: Path) -> None:
+def test_every_target_names_the_home_monitoring_dataset(path: Path) -> None:
     # The data source's Database field is what Grafana queries; "dataset" must
     # still name the same database (issue #584).
     for panel in _panels(_load(path)):
