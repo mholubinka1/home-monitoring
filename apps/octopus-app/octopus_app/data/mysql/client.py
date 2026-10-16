@@ -65,7 +65,8 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # weather_observation/weather_forecast/heating_status are owned by hive-app, but
 # live in the same shared `octopus` MariaDB schema this client already connects
-# to. They're declared here as plain Core Table objects against a SEPARATE, unregistered MetaData() instance -- never as ORM classes added to
+# to. They're declared here as plain Core Table objects against a SEPARATE,
+# unregistered MetaData() instance -- never as ORM classes added to
 # mysql/model.py's SQLBase -- so octopus-app's own Schema Sync create_all
 # never mistakenly claims ownership of tables hive-app owns (which would risk
 # drift/ordering races between the two apps' migrations). Column shapes

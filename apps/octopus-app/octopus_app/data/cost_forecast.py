@@ -825,9 +825,9 @@ class CostForecastRetriever:
         }
         if stored_rows and not figures:
             logger.info(
-                "Gas variable cost: the stored forecast days belong to an "
-                "older heating model than the latest usable one -- using the "
-                "average-consumption method until the job rewrites them."
+                "Gas variable cost: the stored forecast days do not match the "
+                "latest usable heating model -- using the average-consumption "
+                "method until the job rewrites them."
             )
         return figures
 

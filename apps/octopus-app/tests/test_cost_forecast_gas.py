@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 import responses
 from sqlalchemy.orm import Session
 from tests.weather_fixtures import heating_model_record
@@ -375,15 +376,6 @@ def test_a_forecast_colder_than_the_recent_average_raises_gas_projected_total_co
     assert _latest_gas_projected_total_cost(mariadb_client) == Decimal("149.35")
 
 
-def _refresh_gas_projection(
-    mariadb_client: MariaDBClient, as_of: datetime | None = None
-) -> Decimal:
-    _mock_billing_period("2026-07-07", "2026-08-07")
-    with mariadb_client.session_write_scope() as s:
-        _seed_electricity_and_gas_fixtures(s)
-    return _refresh_seeded_gas_projection(mariadb_client, as_of)
-
-
 def _refresh_seeded_gas_projection(
     mariadb_client: MariaDBClient, as_of: datetime | None = None
 ) -> Decimal:
@@ -477,9 +469,17 @@ def test_figures_outside_the_remaining_days_are_ignored(
 
 @responses.activate
 def test_no_heating_model_falls_back_to_the_flat_average_for_the_whole_period(
-    mariadb_client: MariaDBClient,
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    assert _refresh_gas_projection(mariadb_client) == _FLAT_AVERAGE_PROJECTED_TOTAL
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    with mariadb_client.session_write_scope() as s:
+        _seed_electricity_and_gas_fixtures(s)
+
+    with caplog.at_level("INFO"):
+        projected = _refresh_seeded_gas_projection(mariadb_client)
+
+    assert projected == _FLAT_AVERAGE_PROJECTED_TOTAL
+    assert "no usable heating model" in caplog.text
 
 
 @responses.activate
@@ -515,7 +515,7 @@ def test_a_newer_unusable_refit_does_not_hide_the_latest_usable_models_forecast(
 
 @responses.activate
 def test_forecast_rows_tied_to_a_different_model_than_the_latest_usable_one_are_ignored(
-    mariadb_client: MariaDBClient,
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     # A newer usable model has been fitted but the job has not yet rewritten
     # the forecast: the old rows belong to the older model.
@@ -527,9 +527,11 @@ def test_forecast_rows_tied_to_a_different_model_than_the_latest_usable_one_are_
         heating_model_record(datetime(2026, 7, 7, 4, 0, tzinfo=UTC))
     )
 
-    assert (
-        _refresh_seeded_gas_projection(mariadb_client) == _FLAT_AVERAGE_PROJECTED_TOTAL
-    )
+    with caplog.at_level("INFO"):
+        projected = _refresh_seeded_gas_projection(mariadb_client)
+
+    assert projected == _FLAT_AVERAGE_PROJECTED_TOTAL
+    assert "do not match the latest usable heating model" in caplog.text
 
 
 class _FakeWrappedError(Exception):
