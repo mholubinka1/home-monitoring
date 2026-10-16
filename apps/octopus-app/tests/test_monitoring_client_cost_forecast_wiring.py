@@ -164,7 +164,7 @@ def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiri
         _seed_gas_and_electricity_fixtures(s)
     _seed_heating_forecast(
         mariadb_client,
-        {date(2026, 7, 7) + timedelta(days=offset): 63.0 for offset in range(31)},
+        {date(2026, 7, 7) + timedelta(days=offset): 63.0 for offset in range(7)},
     )
 
     settings = ApplicationSettings(
@@ -188,7 +188,7 @@ def test_gas_heating_model_forecast_runs_through_the_real_monitoring_client_wiri
     with mariadb_client.session_read_scope() as session:
         gas_row = session.query(model.cost_forecast).filter_by(energy="G").one()
 
-    # Same expected total as test_cost_forecast_gas.py's tracer-bullet test
-    # (identical fixture shape): £3.65 actual-to-date + £145.70 remaining
-    # (31 days * 63.0 kWh/day @ 7.00p + 29.00p standing) = £149.35.
-    assert gas_row.projected_total_cost == Decimal("149.35")
+    # The model covers a week, as the job writes it: £3.65 actual-to-date +
+    # £120.50 remaining (7 days * 63.0 kWh and 24 days * the flat 48.0 kWh,
+    # all @ 7.00p, plus 31 days of 29.00p standing) = £124.15.
+    assert gas_row.projected_total_cost == Decimal("124.15")

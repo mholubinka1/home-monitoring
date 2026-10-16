@@ -1,11 +1,8 @@
 from datetime import UTC, date, datetime
-from decimal import Decimal
 
 import responses
-from sqlalchemy.orm import Session
 
 from octopus_app.data.model import HeatingForecastRecord, HeatingModelRecord
-from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 
 GRAPHQL_ENDPOINT = "https://api.octopus.energy/v1/graphql/"
@@ -33,16 +30,6 @@ def mock_billing_period(start: str, end: str, is_fixed: bool = True) -> None:
             }
         },
         status=200,
-    )
-
-
-def seed_daily_consumption_summary(
-    s: Session, day: date, total_kwh: str, energy: str = "G"
-) -> None:
-    s.add(
-        model.daily_consumption_summary(
-            energy=energy, date=day, total_kwh=Decimal(total_kwh)
-        )
     )
 
 
