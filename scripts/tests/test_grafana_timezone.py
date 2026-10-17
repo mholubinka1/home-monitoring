@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DASHBOARD = REPO_ROOT / "data" / "grafana" / "dashboard.json"
-REFERENCE_QUERIES = REPO_ROOT / "data" / "grafana" / "mariadb" / "queries.md"
+DASHBOARD = REPO_ROOT / "data" / "grafana" / "electricity-dashboard.json"
+REFERENCE_QUERIES = (
+    REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md"
+)
 DEFAULT_TIMEZONE = "Europe/London"
 
 
