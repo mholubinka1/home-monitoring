@@ -1,6 +1,6 @@
 # Grafana Queries
 
-One SQL block per panel, documenting the live dashboard. Reconciled directly against [`data/grafana/dashboard.json`](../dashboard.json) — a full export of the dashboard's JSON model — rather than against the specs, so this file now describes what's actually deployed, not just what was planned. Re-sync both files together whenever the dashboard changes; this doc and the JSON export are meant to never drift apart again.
+One SQL block per panel, documenting the live dashboard. Reconciled directly against [`data/grafana/electricity-dashboard.json`](../electricity-dashboard.json) — a full export of the dashboard's JSON model — rather than against the specs, so this file now describes what's actually deployed, not just what was planned. Re-sync both files together whenever the dashboard changes; this doc and the JSON export are meant to never drift apart again.
 
 **Status**: `agile_forecast` and `cost_forecast` are confirmed live and in use (no longer spec-only) — `cost_forecast` backs both the Billing Period Progress panel and the `billing_period_start`/`billing_period_end` dashboard variables; `agile_forecast` backs Agile Prices and the Cheapest Time Window table. The tariff-comparison feature these queries originally assumed was dropped entirely and never came back. The Gas row and Health row documented in earlier revisions of this file are **no longer part of the dashboard** — see the callout at the bottom of this file before assuming that was intentional.
 
@@ -577,4 +577,4 @@ ORDER BY t.yearweek;
 - **Row 5 — Health**: Last Successful Run per Job and AgilePredict/Kraken Reachability. Neither appears in the current JSON export.
 - **Standing Charge vs Unit-Rate Cost Split** (stacked bar) and the old **Cheapest N-Hour Window Today/Tomorrow** table (superseded by the new Cheapest Time Window matrix above) — also absent.
 
-If gas monitoring and the health-check panels are meant to still be live, they may exist on a different dashboard than the one exported here (`data/grafana/dashboard.json`, titled **"pi-desktop: octopus-energy"**).
+If gas monitoring and the health-check panels are meant to still be live, they may exist on a different dashboard than the one exported here (`data/grafana/electricity-dashboard.json`, titled **"pi-desktop: octopus-energy"**).

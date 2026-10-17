@@ -37,7 +37,7 @@ explained in plain language in [docs/heating-model.md](docs/heating-model.md).
   `libs/common/common/mariadb/model.py` for the tables both share.
 - **Grafana** (not included in this repo) — point its MySQL data source at the MariaDB
   instance to build dashboards. Two dashboards are kept here as importable JSON:
-  `data/grafana/dashboard.json` (electricity) and `data/grafana/gas-heating-dashboard.json`
+  `data/grafana/electricity-dashboard.json` (electricity) and `data/grafana/gas-heating-dashboard.json`
   (gas, heating and weather), each documented in `data/grafana/mariadb/`.
 
 ## Configuration
@@ -91,7 +91,7 @@ Open-Meteo's daily forecast, the Grafana day panels) uses one timezone, the "loc
   apps' `config.yml`. The apps read separate files, so the two values must match. An
   unknown name stops the app at startup, naming `timezone`.
 - Set the dashboard's `timezone` variable to the same zone (Dashboard settings, Variables).
-  The dashboard is imported from `data/grafana/dashboard.json`, so also set that
+  The dashboard is imported from `data/grafana/electricity-dashboard.json`, so also set that
   variable's `query` and `current` values in the JSON, or a re-import puts the old zone
   back. The gas and heating dashboard (`data/grafana/gas-heating-dashboard.json`) has the
   same variable and needs the same edit.
