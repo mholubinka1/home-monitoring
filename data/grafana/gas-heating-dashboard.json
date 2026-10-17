@@ -12,10 +12,22 @@
   "__elements": {},
   "__requires": [
     {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    },
+    {
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
       "version": "10.4.2"
+    },
+    {
+      "type": "panel",
+      "id": "heatmap",
+      "name": "Heatmap",
+      "version": ""
     },
     {
       "type": "datasource",
@@ -220,7 +232,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  w.observed_at AS time,\n  w.temp AS outdoor\nFROM weather_observation w\nWHERE $__timeFilter(w.observed_at)\n  AND w.temp IS NOT NULL\n  AND w.location = (\n    SELECT l.location FROM weather_observation l\n    ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n  )\n  AND (\n    COALESCE(w.source, '') <> 'open-meteo-archive'\n    OR NOT EXISTS (\n      SELECT 1 FROM weather_observation live\n      WHERE live.location = w.location\n        AND live.observed_at = w.observed_at\n        AND COALESCE(live.source, '') <> 'open-meteo-archive'\n        AND live.temp IS NOT NULL\n    )\n  )\nORDER BY w.observed_at;",
+          "rawSql": "SELECT\n  observed_at AS time,\n  temp AS outdoor\nFROM (\n  SELECT\n    w.observed_at,\n    w.temp,\n    ROW_NUMBER() OVER (\n      PARTITION BY w.observed_at\n      ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n    ) AS preference\n  FROM weather_observation w\n  WHERE $__timeFilter(w.observed_at)\n    AND w.temp IS NOT NULL\n    AND w.location = (\n      SELECT l.location FROM weather_observation l\n      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n    )\n) ranked\nWHERE preference = 1\nORDER BY observed_at;",
           "refId": "B",
           "sql": {
             "columns": [
@@ -243,6 +255,1476 @@
       ],
       "title": "Indoor, Target and Outdoor Temperature",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The line is the daily mean outdoor temperature for complete London days (right axis); the dashed line is the forecast mean for today and the next days.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gas_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unit_cost_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "unit cost"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "standing_charge_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "standing charge"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outdoor_mean"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.insertNulls",
+                "value": 129600000
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "displayName",
+                "value": "outdoor mean"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "forecast_mean"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.insertNulls",
+                "value": 129600000
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "forecast mean"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, gas_kwh\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    s.total_kwh AS gas_kwh\n  FROM daily_consumption_summary s\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, unit_cost_gbp, standing_charge_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(s.total_kwh * pr.unit_rate / 100, 4) AS unit_cost_gbp,\n    ROUND(pr.standing_charge / 100, 4) AS standing_charge_gbp\n  FROM daily_consumption_summary s\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH wx AS (\n  SELECT observed_at, temp, shortwave_radiation, sunshine_duration\n  FROM (\n    SELECT\n      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    AVG(temp) AS mean_temp,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp,\n    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)\n      AS sunshine_hours,\n    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)\n      AS radiation_kwh_m2\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT time, outdoor_mean\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(mean_temp, 1) AS outdoor_mean\n  FROM daily\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "C",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, forecast_mean\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC') AS time,\n    f.mean_temp AS forecast_mean\n  FROM weather_forecast f\n  WHERE f.mean_temp IS NOT NULL\n    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Daily Gas and Outdoor Temperature (${gas_unit})",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Minutes per day the thermostat reported a boost (readings x the 2-minute poll interval). The cost series is minutes / 60 x the boiler's gas input (the Boiler gas input variable, kW) x that day's gas unit rate: estimated, assuming the boiler fires at full output the whole time. Set the variable to 0 to show minutes only.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "boost_minutes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "boost minutes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "extra_cost_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "displayName",
+                "value": "extra gas cost (estimated; assumes full output)"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, boost_minutes, extra_cost_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    boost_minutes,\n    IF(\n      IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) > 0,\n      ROUND(boost_minutes / 60 * IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) * (\n        SELECT pr.unit_rate\n        FROM agreement a\n        JOIN product_rate pr\n          ON pr.product_code = a.product_code\n         AND pr.region = ${region:sqlstring}\n         AND pr.valid_from <= CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC')\n        WHERE a.energy = 'G'\n          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n        ORDER BY pr.valid_from DESC\n        LIMIT 1\n      ) / 100, 4),\n      NULL\n    ) AS extra_cost_gbp\n  FROM (\n    SELECT\n      DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,\n      COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes\n    FROM heating_status\n    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND polled_at <= $__timeTo()\n    GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))\n  ) b\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Boost Minutes and Estimated Extra Gas Cost",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Minutes per day (readings x the 2-minute poll interval) with a comfort target active (target at or above the Comfort target setting) and the room more than the Margin below it. A day on the frost setting counts zero whatever the temperature.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minutes_below_target"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "displayName",
+                "value": "minutes below target"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, minutes_below_target\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    minutes_below_target\n  FROM (\n    SELECT\n      DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,\n      IF(\n        IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL) IS NULL OR IF(${comfort_margin:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_margin:sqlstring} AS DECIMAL(8, 2)), NULL) IS NULL,\n        NULL,\n        COUNT(CASE\n          WHEN target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)\n           AND current_temp < target_temp - IF(${comfort_margin:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_margin:sqlstring} AS DECIMAL(8, 2)), NULL)\n          THEN 1 END) * 2\n      ) AS minutes_below_target\n    FROM heating_status\n    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND polled_at <= $__timeTo()\n    GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))\n  ) b\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Minutes Below Target (comfort target ${comfort_target} C, margin ${comfort_margin} C)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Daily minimum, mean and maximum outdoor temperature (shaded between minimum and maximum) for complete London days, with the day's sunshine hours and solar radiation (kWh per square metre) on the right axis. Live readings are preferred over the archive.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 129600000,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "min_temp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "displayName",
+                "value": "minimum"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mean_temp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "displayName",
+                "value": "mean"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "max_temp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "displayName",
+                "value": "maximum"
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "minimum"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sunshine_hours"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: h"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "displayName",
+                "value": "sunshine hours"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "radiation_kwh_m2"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "displayName",
+                "value": "solar radiation (kWh/m2)"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH wx AS (\n  SELECT observed_at, temp, shortwave_radiation, sunshine_duration\n  FROM (\n    SELECT\n      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    AVG(temp) AS mean_temp,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp,\n    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)\n      AS sunshine_hours,\n    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)\n      AS radiation_kwh_m2\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT time, min_temp, mean_temp, max_temp, sunshine_hours, radiation_kwh_m2\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(min_temp, 1) AS min_temp,\n    ROUND(mean_temp, 1) AS mean_temp,\n    ROUND(max_temp, 1) AS max_temp,\n    ROUND(sunshine_hours, 1) AS sunshine_hours,\n    ROUND(radiation_kwh_m2, 2) AS radiation_kwh_m2\n  FROM daily\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Daily Outdoor Temperature Band with Sunshine",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 80
+              },
+              {
+                "color": "dark-red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "currencyGBP"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "billing_period_cost_gbp"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Current Spend"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "projected_cost_gbp"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Projected Spend"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 37
+      },
+      "id": 6,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "max"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT actual_cost_to_date AS billing_period_cost_gbp, projected_total_cost AS projected_cost_gbp\nFROM cost_forecast\nWHERE energy = 'G'\nORDER BY computed_at DESC\nLIMIT 1;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Gas Billing Period Progress ($gas_billing_period_start → $gas_billing_period_end)${gas_rates_estimated_note}",
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": {
+            "applyTo": {
+              "id": "byName",
+              "options": "billing_period_cost_gbp"
+            },
+            "configRefId": "A",
+            "mappings": [
+              {
+                "fieldName": "billing_period_cost_gbp",
+                "handlerKey": "field.name",
+                "reducerId": "max"
+              }
+            ]
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {}
+        }
+      ],
+      "type": "bargauge",
+      "description": "The latest gas row of the cost forecast: cost so far against the projected total for the billing period. It shows whatever the cost forecast currently computes (since the heating model was adopted, each remaining day's expected gas comes from the model)."
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Monthly gas for the last 12 months against the 12 months before them ('last year'), drawn on the same months. A month's figure is the average of its complete gas days times the days in the month, so it is an estimate; the dots (right axis) show how many complete days each month had. A month with fewer than 10 complete days is left out.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "this_year_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "displayName",
+                "value": "last 12 months"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_year_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "displayName",
+                "value": "the 12 months before"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "days_counted_this_year"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 6
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 31
+              },
+              {
+                "id": "unit",
+                "value": "suffix: days"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "complete days (last 12 months)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "days_counted_last_year"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 6
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 31
+              },
+              {
+                "id": "unit",
+                "value": "suffix: days"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "complete days (12 months before)"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 8,
+        "y": 37
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH usable AS (\n  SELECT s.date, s.total_kwh\n  FROM daily_consumption_summary s\n  WHERE s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n    AND s.date >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 23 MONTH, '%Y-%m-01')\n),\nmonths AS (\n  SELECT\n    DATE_FORMAT(date, '%Y-%m-01') AS month_start,\n    COUNT(*) AS days_counted,\n    AVG(total_kwh) * DAY(LAST_DAY(MIN(date))) AS month_kwh\n  FROM usable\n  GROUP BY DATE_FORMAT(date, '%Y-%m-01')\n  HAVING COUNT(*) >= 10\n)\nSELECT\n  CONVERT_TZ(CAST(\n    IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n       month_start, month_start + INTERVAL 12 MONTH) AS DATETIME\n  ), '${timezone}', 'UTC') AS time,\n  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         ROUND(month_kwh, 0), NULL)) AS this_year_kwh,\n  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         ROUND(month_kwh, 0), NULL)) AS last_year_kwh,\n  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         days_counted, NULL)) AS days_counted_this_year,\n  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         days_counted, NULL)) AS days_counted_last_year\nFROM months\nGROUP BY 1\nORDER BY 1;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Monthly Gas (scaled to the full month), last 12 months against the 12 before",
+      "type": "timeseries",
+      "timeFrom": "400d"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "hideTimeOverride": true,
+      "id": 8,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "cellValues": {
+          "unit": "kwatth"
+        },
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "min": 0,
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "RdYlGn",
+          "steps": 64
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": true
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  CONVERT_TZ(\n    TIMESTAMP(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')))\n      + INTERVAL HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) HOUR,\n    '${timezone}', 'UTC'\n  ) AS time,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Monday' THEN c.est_kwh END), 4) AS `Monday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Tuesday' THEN c.est_kwh END), 4) AS `Tuesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Wednesday' THEN c.est_kwh END), 4) AS `Wednesday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Thursday' THEN c.est_kwh END), 4) AS `Thursday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Friday' THEN c.est_kwh END), 4) AS `Friday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Saturday' THEN c.est_kwh END), 4) AS `Saturday`,\n  ROUND(AVG(CASE WHEN DAYNAME(CONVERT_TZ(c.period_from, 'UTC', '${timezone}')) = 'Sunday' THEN c.est_kwh END), 4) AS `Sunday`\nFROM consumption c\nJOIN daily_consumption_summary s\n  ON s.date = DATE(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nWHERE c.energy = 'G'\n  AND s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n  AND c.period_from >= NOW() - INTERVAL 45 DAY\nGROUP BY HOUR(CONVERT_TZ(c.period_from, 'UTC', '${timezone}'))\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "timeFrom": "now/d",
+      "timeShift": "0d/d",
+      "title": "Gas Heatmap (Hour-by-Hour, Last 45 Days)",
+      "type": "heatmap",
+      "description": "Average gas per half-hour reading for each hour of the day, by weekday, London time, over the last 45 days (the raw retention window). Only complete gas days are included."
     }
   ],
   "refresh": "5m",
@@ -270,17 +1752,189 @@
         "query": "Europe/London",
         "skipUrlSync": false,
         "type": "constant"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT DISTINCT region FROM product_rate;",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Region",
+        "multi": false,
+        "name": "region",
+        "options": [],
+        "query": "SELECT DISTINCT region FROM product_rate;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "kWh",
+          "value": "kWh"
+        },
+        "description": "Whether the Daily Gas panel shows kWh or pounds (unit cost and standing charge).",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Daily gas unit",
+        "multi": false,
+        "name": "gas_unit",
+        "options": [
+          {
+            "selected": true,
+            "text": "kWh",
+            "value": "kWh"
+          },
+          {
+            "selected": false,
+            "text": "pounds",
+            "value": "pounds"
+          }
+        ],
+        "query": "kWh,pounds",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "12",
+          "value": "12"
+        },
+        "description": "The boiler's gas input at full output, for the estimated boost cost, as digits only (no spaces or units). About 12 kW was measured on the 6 October 2026 test evening.",
+        "hide": 0,
+        "label": "Boiler gas input (kW, 0 = minutes only)",
+        "name": "boiler_kw",
+        "options": [
+          {
+            "selected": true,
+            "text": "12",
+            "value": "12"
+          }
+        ],
+        "query": "12",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "15",
+          "value": "15"
+        },
+        "description": "A target at or above this counts as a comfort target; below it is the frost setting. Digits only (no spaces or units); anything else shows no data.",
+        "hide": 0,
+        "label": "Comfort target (C)",
+        "name": "comfort_target",
+        "options": [
+          {
+            "selected": true,
+            "text": "15",
+            "value": "15"
+          }
+        ],
+        "query": "15",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "1.0",
+          "value": "1.0"
+        },
+        "description": "How far below its target the room must be for a minute to count. Digits only (no spaces or units); anything else shows no data.",
+        "hide": 0,
+        "label": "Margin below target (C)",
+        "name": "comfort_margin",
+        "options": [
+          {
+            "selected": true,
+            "text": "1.0",
+            "value": "1.0"
+          }
+        ],
+        "query": "1.0",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT DATE_FORMAT(billing_period_start, '%Y-%m-%d') AS billing_period_start\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Gas billing period start",
+        "multi": false,
+        "name": "gas_billing_period_start",
+        "options": [],
+        "query": "SELECT DATE_FORMAT(billing_period_start, '%Y-%m-%d') AS billing_period_start\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT DATE_FORMAT(billing_period_end, '%Y-%m-%d') AS billing_period_end\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Gas billing period end",
+        "multi": false,
+        "name": "gas_billing_period_end",
+        "options": [],
+        "query": "SELECT DATE_FORMAT(billing_period_end, '%Y-%m-%d') AS billing_period_end\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT IF(rates_estimated, CONCAT(' ⚠ estimated rates: ', estimated_days), '') AS rates_estimated_note\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Gas estimated rates note",
+        "multi": false,
+        "name": "gas_rates_estimated_note",
+        "options": [],
+        "query": "SELECT IF(rates_estimated, CONCAT(' ⚠ estimated rates: ', estimated_days), '') AS rates_estimated_note\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
       }
     ]
   },
   "time": {
-    "from": "now-21d",
-    "to": "now"
+    "from": "now-14d",
+    "to": "now+7d"
   },
   "timepicker": {},
   "timezone": "Europe/London",
   "title": "pi-desktop: gas-heating-monitoring",
   "uid": "gas-heating-monitoring",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
