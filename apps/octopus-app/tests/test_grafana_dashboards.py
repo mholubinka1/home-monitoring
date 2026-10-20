@@ -354,7 +354,10 @@ def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
     assert "days_counted" not in json.dumps(panel["fieldConfig"])
     assert series == ["yoy_pct_change"]
     # Threshold colours only colour each bar by its own value in scheme mode.
-    assert panel["fieldConfig"]["defaults"]["custom"]["gradientMode"] == "scheme"
+    custom = panel["fieldConfig"]["defaults"]["custom"]
+    assert custom["gradientMode"] == "scheme"
+    # A line, like the electricity year-on-year panel, not bars.
+    assert custom["drawStyle"] == "line"
     assert "t.month_start - INTERVAL 12 MONTH" in sql  # the same month a year ago
     assert "HAVING COUNT(*) >= 10" in sql
     steps = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]

@@ -1350,9 +1350,9 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "barAlignment": 1,
-            "drawStyle": "bars",
-            "fillOpacity": 70,
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 9,
             "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
@@ -1367,7 +1367,7 @@
               "type": "linear"
             },
             "showPoints": "never",
-            "spanNulls": true,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
