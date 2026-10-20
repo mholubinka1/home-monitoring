@@ -19,7 +19,7 @@ After using the gas/heating dashboard the user found two things wrong: the forec
 
 ## Implementation Decisions
 
-- Panel 1 gets query C, `outdoor_forecast`: one row per forecast day (latest fetch per source and date, rows with a mean only), stamped at 12:00 London on the target date, kept only if later than the newest outdoor reading of the current location. A second point at the newest actual reading (same value as the last actual) is included so the dashed line joins the solid one. Drawn dashed, same green as outdoor.
+- Panel 1 gets query C, `outdoor_forecast`: one row per forecast day (the newest fetch for each date across sources, rows with a mean only, today or later), stamped at 12:00 London on the target date, kept only if later than the newest outdoor reading of the current location. A second point at the newest actual reading (same value as the last actual) is included so the dashed line joins the solid one. Drawn dashed, same green as outdoor.
 - Panel 2 loses query D, the `forecast_mean` override and the forecast sentences in its description.
 - Dashboard range is unchanged (`now-14d` to `now+7d`).
 - Panel 7 query: keep the scaled monthly figure, compute `yoy_pct_change` = (month - same month a year earlier) / same month a year earlier x 100, for the last 12 months; a month lacking a usable comparator (under 10 complete days either year) is left out. Bars, unit percent, no days series. The title keeps the prefix "Monthly Gas".

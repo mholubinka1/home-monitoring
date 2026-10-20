@@ -310,9 +310,7 @@ def _query(title: str, ref_id: str) -> str:
     return next(t for t in _panel(title)["targets"] if t["refId"] == ref_id)["rawSql"]
 
 
-def test_the_forecast_outdoor_line_continues_the_outdoor_line_on_the_temperatures_panel() -> (
-    None
-):
+def test_the_forecast_outdoor_line_continues_outdoor() -> None:
     sql = _query(TEMPERATURES, "C")
     overrides = _panel_overrides(TEMPERATURES)
 
@@ -331,6 +329,7 @@ def test_a_forecast_day_is_hidden_once_an_outdoor_reading_covers_it() -> None:
     assert "WITH latest AS (" in sql
     assert "> latest.observed_at" in sql
     assert "UNION ALL" in sql
+    assert "f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP()" in sql
     # The newest fetch wins when a day has several rows; the id is text.
     assert "ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1" in sql
     assert "MAX(f2.id)" not in sql
@@ -354,4 +353,8 @@ def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
     assert "days_counted" not in sql
     assert "days_counted" not in json.dumps(panel["fieldConfig"])
     assert series == ["yoy_pct_change"]
+    assert "t.month_start - INTERVAL 12 MONTH" in sql  # the same month a year ago
+    assert "HAVING COUNT(*) >= 10" in sql
+    steps = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    assert [(s["color"], s["value"]) for s in steps] == [("green", None), ("red", 0)]
     assert panel["fieldConfig"]["defaults"]["unit"] == "percent"

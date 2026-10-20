@@ -290,7 +290,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest AS (\n  SELECT w.observed_at, w.temp\n  FROM weather_observation w\n  WHERE w.temp IS NOT NULL\n    AND w.location = (\n      SELECT l.location FROM weather_observation l\n      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n    )\n  ORDER BY w.observed_at DESC, (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n  LIMIT 1\n)\nSELECT time, outdoor_forecast\nFROM (\n  SELECT observed_at AS time, temp AS outdoor_forecast\n  FROM latest\n\n  UNION ALL\n\n  SELECT\n    CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n    f.mean_temp AS outdoor_forecast\n  FROM weather_forecast f\n  CROSS JOIN latest\n  WHERE f.mean_temp IS NOT NULL\n    AND f.id = (\n      SELECT f2.id FROM weather_forecast f2\n      WHERE f2.target_date = f.target_date AND f2.mean_temp IS NOT NULL\n      ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1\n    )\n    AND CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') > latest.observed_at\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "rawSql": "WITH latest AS (\n  SELECT w.observed_at, w.temp\n  FROM weather_observation w\n  WHERE w.temp IS NOT NULL\n    AND w.location = (\n      SELECT l.location FROM weather_observation l\n      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n    )\n  ORDER BY w.observed_at DESC, (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n  LIMIT 1\n)\nSELECT time, outdoor_forecast\nFROM (\n  SELECT observed_at AS time, temp AS outdoor_forecast\n  FROM latest\n\n  UNION ALL\n\n  SELECT\n    CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n    f.mean_temp AS outdoor_forecast\n  FROM weather_forecast f\n  CROSS JOIN latest\n  WHERE f.mean_temp IS NOT NULL\n    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n    AND f.id = (\n      SELECT f2.id FROM weather_forecast f2\n      WHERE f2.target_date = f.target_date AND f2.mean_temp IS NOT NULL\n      ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1\n    )\n    AND CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') > latest.observed_at\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "C",
           "sql": {
             "columns": [
@@ -1338,7 +1338,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Each of the last 12 months against the same month a year earlier, as a percentage change in gas: above 0 is more gas than a year ago (red), below 0 is less (green). A month's figure is the average of its complete gas days times the days in the month, so it is an estimate and a part-filled month compares fairly. A month is left out when it or its year-earlier month has fewer than 10 complete gas days.",
+      "description": "Each of the last 12 months against the same month a year earlier, as a percentage change in gas: above 0 is more gas than a year ago (red), below 0 is less (green). A month's figure is the average of its complete gas days times the days in the month, so it is an estimate: the current month is projected from the days so far, and a month with few complete days is noisier. A month is left out when it or its year-earlier month has fewer than 10 complete gas days.",
       "fieldConfig": {
         "defaults": {
           "color": {
