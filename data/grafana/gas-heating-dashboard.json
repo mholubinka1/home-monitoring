@@ -69,7 +69,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step.",
+      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -169,6 +169,35 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outdoor_forecast"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "outdoor forecast"
+              }
+            ]
           }
         ]
       },
@@ -251,6 +280,35 @@
             ],
             "limit": 50
           }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest AS (\n  SELECT w.observed_at, w.temp\n  FROM weather_observation w\n  WHERE w.temp IS NOT NULL\n    AND w.location = (\n      SELECT l.location FROM weather_observation l\n      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n    )\n  ORDER BY w.observed_at DESC, (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n  LIMIT 1\n)\nSELECT time, outdoor_forecast\nFROM (\n  SELECT observed_at AS time, temp AS outdoor_forecast\n  FROM latest\n\n  UNION ALL\n\n  SELECT\n    CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n    f.mean_temp AS outdoor_forecast\n  FROM weather_forecast f\n  CROSS JOIN latest\n  WHERE f.mean_temp IS NOT NULL\n    AND f.id = (\n      SELECT MAX(f2.id) FROM weather_forecast f2\n      WHERE f2.target_date = f.target_date AND f2.mean_temp IS NOT NULL\n    )\n    AND CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') > latest.observed_at\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "C",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
         }
       ],
       "title": "Indoor, Target and Outdoor Temperature",
@@ -261,7 +319,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The line is the daily mean outdoor temperature for complete London days (right axis); the dashed line is the forecast mean for today and the next days.",
+      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The line is the daily mean outdoor temperature for complete London days (right axis).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -437,63 +495,6 @@
                 "value": "outdoor mean"
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "forecast_mean"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.insertNulls",
-                "value": 129600000
-              },
-              {
-                "id": "custom.spanNulls",
-                "value": false
-              },
-              {
-                "id": "unit",
-                "value": "celsius"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "line"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    10
-                  ]
-                }
-              },
-              {
-                "id": "displayName",
-                "value": "forecast mean"
-              }
-            ]
           }
         ]
       },
@@ -587,35 +588,6 @@
           "rawQuery": true,
           "rawSql": "WITH wx AS (\n  SELECT observed_at, temp, shortwave_radiation, sunshine_duration\n  FROM (\n    SELECT\n      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    AVG(temp) AS mean_temp,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp,\n    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)\n      AS sunshine_hours,\n    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)\n      AS radiation_kwh_m2\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT time, outdoor_mean\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(mean_temp, 1) AS outdoor_mean\n  FROM daily\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "C",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        },
-        {
-          "dataset": "home_monitoring",
-          "datasource": {
-            "type": "mysql",
-            "uid": "${DS_MYSQL}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT time, forecast_mean\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC') AS time,\n    f.mean_temp AS forecast_mean\n  FROM weather_forecast f\n  WHERE f.mean_temp IS NOT NULL\n    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
-          "refId": "D",
           "sql": {
             "columns": [
               {
@@ -1366,11 +1338,11 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Monthly gas for the last 12 months against the 12 months before them ('last year'), drawn on the same months. A month's figure is the average of its complete gas days times the days in the month, so it is an estimate; the dots (right axis) show how many complete days each month had. A month with fewer than 10 complete days is left out.",
+      "description": "Each of the last 12 months against the same month a year earlier, as a percentage change in gas: above 0 is more gas than a year ago (red), below 0 is less (green). A month's figure is the average of its complete gas days times the days in the month, so it is an estimate and a part-filled month compares fairly. A month is left out when it or its year-earlier month has fewer than 10 complete gas days.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "fixed"
+            "mode": "thresholds"
           },
           "custom": {
             "axisBorderShow": false,
@@ -1404,7 +1376,7 @@
               "mode": "off"
             }
           },
-          "decimals": 0,
+          "decimals": 1,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1412,156 +1384,25 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
               }
             ]
-          }
+          },
+          "unit": "percent"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "this_year_kwh"
+              "options": "yoy_pct_change"
             },
             "properties": [
               {
-                "id": "color",
-                "value": {
-                  "fixedColor": "orange",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "kwatth"
-              },
-              {
                 "id": "displayName",
-                "value": "last 12 months"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "last_year_kwh"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "kwatth"
-              },
-              {
-                "id": "displayName",
-                "value": "the 12 months before"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "days_counted_this_year"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "text",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 6
-              },
-              {
-                "id": "custom.showPoints",
-                "value": "always"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 31
-              },
-              {
-                "id": "unit",
-                "value": "suffix: days"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              },
-              {
-                "id": "displayName",
-                "value": "complete days (last 12 months)"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "days_counted_last_year"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "text",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "points"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.pointSize",
-                "value": 6
-              },
-              {
-                "id": "custom.showPoints",
-                "value": "always"
-              },
-              {
-                "id": "min",
-                "value": 0
-              },
-              {
-                "id": "max",
-                "value": 31
-              },
-              {
-                "id": "unit",
-                "value": "suffix: days"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              },
-              {
-                "id": "displayName",
-                "value": "complete days (12 months before)"
+                "value": "change on the same month a year ago"
               }
             ]
           }
@@ -1597,7 +1438,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH usable AS (\n  SELECT s.date, s.total_kwh\n  FROM daily_consumption_summary s\n  WHERE s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n    AND s.date >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 23 MONTH, '%Y-%m-01')\n),\nmonths AS (\n  SELECT\n    DATE_FORMAT(date, '%Y-%m-01') AS month_start,\n    COUNT(*) AS days_counted,\n    AVG(total_kwh) * DAY(LAST_DAY(MIN(date))) AS month_kwh\n  FROM usable\n  GROUP BY DATE_FORMAT(date, '%Y-%m-01')\n  HAVING COUNT(*) >= 10\n)\nSELECT\n  CONVERT_TZ(CAST(\n    IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n       month_start, month_start + INTERVAL 12 MONTH) AS DATETIME\n  ), '${timezone}', 'UTC') AS time,\n  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         ROUND(month_kwh, 0), NULL)) AS this_year_kwh,\n  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         ROUND(month_kwh, 0), NULL)) AS last_year_kwh,\n  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         days_counted, NULL)) AS days_counted_this_year,\n  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),\n         days_counted, NULL)) AS days_counted_last_year\nFROM months\nGROUP BY 1\nORDER BY 1;",
+          "rawSql": "WITH usable AS (\n  SELECT s.date, s.total_kwh\n  FROM daily_consumption_summary s\n  WHERE s.energy = 'G'\n    AND s.total_kwh > 0\n    AND (\n      s.half_hour_count IS NULL\n      OR s.half_hour_count = TIMESTAMPDIFF(\n        MINUTE,\n        CONVERT_TZ(CAST(s.date AS DATETIME), '${timezone}', 'UTC'),\n        CONVERT_TZ(CAST(s.date + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n      ) / 30\n    )\n    AND s.date >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 23 MONTH, '%Y-%m-01')\n),\nmonths AS (\n  SELECT\n    CAST(DATE_FORMAT(date, '%Y-%m-01') AS DATE) AS month_start,\n    AVG(total_kwh) * DAY(LAST_DAY(MIN(date))) AS month_kwh\n  FROM usable\n  GROUP BY CAST(DATE_FORMAT(date, '%Y-%m-01') AS DATE)\n  HAVING COUNT(*) >= 10\n)\nSELECT\n  CONVERT_TZ(CAST(t.month_start AS DATETIME), '${timezone}', 'UTC') AS time,\n  ROUND((t.month_kwh - c.month_kwh) / c.month_kwh * 100, 1) AS yoy_pct_change\nFROM months t\nJOIN months c ON c.month_start = t.month_start - INTERVAL 12 MONTH\nWHERE t.month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01')\nORDER BY time;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1618,7 +1459,7 @@
           }
         }
       ],
-      "title": "Monthly Gas (scaled to the full month), last 12 months against the 12 before",
+      "title": "Monthly Gas Year-on-Year Change (scaled to the full month)",
       "type": "timeseries",
       "timeFrom": "400d"
     },

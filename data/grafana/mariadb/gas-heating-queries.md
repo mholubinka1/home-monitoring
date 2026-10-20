@@ -13,7 +13,7 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 ## Dashboard settings and variables
 
 - **Time zone**: `Europe/London`, so every axis is in London time. All stored times are UTC and Grafana converts them for display.
-- **Time range**: `now-14d` to `now+7d`, refreshing every 5 minutes (the thermostat is polled every 2 minutes). A Grafana time chart can only draw as far right as the dashboard range ends, so the end is 7 days ahead for the forecast temperature on the Daily Gas panel; the temperatures panel has nothing to draw in those days. The monthly panel and the heatmap carry their own ranges.
+- **Time range**: `now-14d` to `now+7d`, refreshing every 5 minutes (the thermostat is polled every 2 minutes). A Grafana time chart can only draw as far right as the dashboard range ends, so the end is 7 days ahead for the forecast outdoor temperature on the temperatures panel. The monthly panel and the heatmap carry their own ranges.
 - `${timezone}`: hidden constant, default `Europe/London`. The zone that defines a local day for the daily panels (every `CONVERT_TZ` below); it must match the apps' `timezone` setting (see the README). Edit it in the `query` and `current` fields of the JSON, or a re-import puts the old zone back.
 
 - `${region}`: the GSP region code, `SELECT DISTINCT region FROM product_rate;`, for the gas rate lookups.
@@ -49,7 +49,7 @@ cost_forecast             (octopus) billing_period_start/end, actual_cost_to_dat
 
 ### Indoor, Target and Outdoor Temperature (time series)
 
-Three lines: **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
+Three lines: **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather, then a dashed **outdoor forecast** (green) that continues the outdoor line to the right with the forecast daily mean temperature. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
 
 Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Boost Minutes panel counts them at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
 
@@ -95,6 +95,45 @@ ORDER BY observed_at;
 
 **Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (24 readings between 18:50 and 19:40 UTC; the rows around the boosts are listed below): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and stepped to 23 C in the 19:14 to 19:18 buckets and again at 19:24, with the boost flag set in the 19:18 and 19:24 buckets, consistent with the recorded heating-on windows to bucket resolution (the boost flag comes from a separate read of the same rows; the target rises with the demand, and the exact on and off times are within a bucket). Rows at 2-minute buckets (indoor C, target C, boost flag): 19:12 20.6, 7, 0; 19:14 20.7, 23, 0; 19:16 20.7, 23, 0; 19:18 20.7, 23, 1; 19:20 20.8, 7, 0; 19:22 20.7, 7, 0; 19:24 20.7, 23, 1; 19:26 20.8, 7, 0 (the 19:00 bucket has no reading). The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over 25 September to 16 October (the thermostat history starts on 3 October, so about 13 days of readings), with 16-minute buckets (an example; Grafana chooses the interval), it returns about 1,160 buckets in under a second, and the outdoor query 519 hourly rows. The daylight-saving check for this panel is deferred until after the first London clock change on 25 October 2026 (the thermostat history starts on 3 October); the panel groups by UTC time and Grafana converts for display, so nothing in its queries depends on the local day. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
 
+Query C, outdoor forecast (the forecast is one mean per day, so it is stamped at 12:00 London on its day, and a day only draws when that stamp is later than the newest outdoor reading of the current location; the newest reading itself is included once, so the dashed line starts where the solid one ends; when several forecast rows exist for a day the newest row, the highest `id`, is used). As real readings arrive they pass the stamp and the forecast day drops out, so actuals overwrite the forecast:
+
+```sql
+WITH latest AS (
+  SELECT w.observed_at, w.temp
+  FROM weather_observation w
+  WHERE w.temp IS NOT NULL
+    AND w.location = (
+      SELECT l.location FROM weather_observation l
+      ORDER BY l.observed_at DESC, l.id DESC LIMIT 1
+    )
+  ORDER BY w.observed_at DESC, (COALESCE(w.source, '') = 'open-meteo-archive'), w.id
+  LIMIT 1
+)
+SELECT time, outdoor_forecast
+FROM (
+  SELECT observed_at AS time, temp AS outdoor_forecast
+  FROM latest
+
+  UNION ALL
+
+  SELECT
+    CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,
+    f.mean_temp AS outdoor_forecast
+  FROM weather_forecast f
+  CROSS JOIN latest
+  WHERE f.mean_temp IS NOT NULL
+    AND f.id = (
+      SELECT MAX(f2.id) FROM weather_forecast f2
+      WHERE f2.target_date = f.target_date AND f2.mean_temp IS NOT NULL
+    )
+    AND CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') > latest.observed_at
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+**Checked read-only against the Pi on 20 October 2026 at 20:07 UTC.** The newest outdoor reading was 20:00 UTC at 11.5 C, and the query returned that point followed by the forecast days 21 to 26 October: 21 October 9.8 C stamped 11:00 UTC (midday BST), 25 October 11.5 C stamped 12:00 UTC (midday GMT, the clocks having changed on the night of 24 October), and so on. 20 October's own forecast (11.9 C, stamped 11:00 UTC) is absent because readings already cover it.
+
 ---
 
 ## Row 2 — Gas
@@ -122,7 +161,7 @@ AND (
 
 ### Daily Gas and Outdoor Temperature (time series)
 
-Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis and the forecast mean as a dashed line for today and the next days. The dashboard range ends 7 days ahead, which is what lets the forecast draw. Only one of queries A and B returns rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
+Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis. Only one of queries A and B returns rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
 
 Query A, kWh:
 
@@ -235,22 +274,6 @@ FROM (
     CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,
     ROUND(mean_temp, 1) AS outdoor_mean
   FROM daily
-) d
-WHERE $__timeFilter(time)
-ORDER BY time;
-```
-
-Query D, forecast mean (one row per forecast day from `weather_forecast`):
-
-```sql
-SELECT time, forecast_mean
-FROM (
-  SELECT
-    CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC') AS time,
-    f.mean_temp AS forecast_mean
-  FROM weather_forecast f
-  WHERE f.mean_temp IS NOT NULL
-    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
 ) d
 WHERE $__timeFilter(time)
 ORDER BY time;
@@ -414,9 +437,9 @@ LIMIT 1;
 
 **Checked read-only against the Pi on 16 October 2026:** 12.41 cost so far, 32.76 projected, the same figures as the latest gas row of `cost_forecast`.
 
-### Monthly Gas (scaled to the full month), last 12 months against the 12 before (time series)
+### Monthly Gas Year-on-Year Change (scaled to the full month) (time series)
 
-Bars for the last 12 months (the SQL columns are `this_year_kwh` and `last_year_kwh`) and the 12 months before them, drawn on the same months, with dots on the right axis for the number of complete gas days each month had. A month's figure is the average of its complete days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26); the current month is projected from the days so far. The 12-month cut-off uses the London date, not the server's. A month with fewer than 10 complete days is left out. Compared with the electricity "Monthly Total Consumption": the same monthly bars on a time axis from `daily_consumption_summary` (columns: a month-start time and the kWh), with a second 12-month series drawn on the same months, the scaling and the dots.
+One bar per month for the last 12 months (the SQL column is `yoy_pct_change`): the percentage change in gas against the same month a year earlier, so above 0 (red) is more gas than a year ago and below 0 (green) is less. There are no day counts on the panel. A month's figure is the average of its complete gas days times the days in the month, so it is an estimate (a month with 26 usable days of 31 is scaled up by 31 / 26) and a part-filled month compares fairly; the current month is projected from the days so far. The 12-month cut-off uses the London date, not the server's. A month with fewer than 10 complete days, or whose year-earlier month has fewer than 10, is left out. Compared with the electricity "Consumption Year-on-Year Percentage Change": the same idea (percentage change on the year before, from `daily_consumption_summary`), but by month instead of by week, with the scaling and without the rolling average.
 
 ```sql
 WITH usable AS (
@@ -436,32 +459,22 @@ WITH usable AS (
 ),
 months AS (
   SELECT
-    DATE_FORMAT(date, '%Y-%m-01') AS month_start,
-    COUNT(*) AS days_counted,
+    CAST(DATE_FORMAT(date, '%Y-%m-01') AS DATE) AS month_start,
     AVG(total_kwh) * DAY(LAST_DAY(MIN(date))) AS month_kwh
   FROM usable
-  GROUP BY DATE_FORMAT(date, '%Y-%m-01')
+  GROUP BY CAST(DATE_FORMAT(date, '%Y-%m-01') AS DATE)
   HAVING COUNT(*) >= 10
 )
 SELECT
-  CONVERT_TZ(CAST(
-    IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
-       month_start, month_start + INTERVAL 12 MONTH) AS DATETIME
-  ), '${timezone}', 'UTC') AS time,
-  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
-         ROUND(month_kwh, 0), NULL)) AS this_year_kwh,
-  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
-         ROUND(month_kwh, 0), NULL)) AS last_year_kwh,
-  MAX(IF(month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
-         days_counted, NULL)) AS days_counted_this_year,
-  MAX(IF(month_start < DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01'),
-         days_counted, NULL)) AS days_counted_last_year
-FROM months
-GROUP BY 1
-ORDER BY 1;
+  CONVERT_TZ(CAST(t.month_start AS DATETIME), '${timezone}', 'UTC') AS time,
+  ROUND((t.month_kwh - c.month_kwh) / c.month_kwh * 100, 1) AS yoy_pct_change
+FROM months t
+JOIN months c ON c.month_start = t.month_start - INTERVAL 12 MONTH
+WHERE t.month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 11 MONTH, '%Y-%m-01')
+ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 16 October 2026.** November 2025 to October 2026 against the year before: for example November 2025 647 kWh from 30 complete days (last year 673 from 27), January 2026 1,269 kWh from 31 days (1,234 from 27), and the current October 309 kWh projected from 14 days. March 2026 has only 14 complete days, so its 653 kWh is a larger extrapolation, which the dots show.
+**Checked read-only against the Pi on 20 October 2026.** The query returned all 12 months from November 2025 to October 2026, for example November 2025 -3.8, January 2026 +2.8, September 2026 +28.1 and October 2026 +15.0 (311 kWh projected from 18 complete days against 270 kWh in October 2025, which matches +15.2 before the rounding of the bar). July 2026 shows +975.8: July 2025 had only 20 complete days averaging 0.66 kWh a day (219 kWh against 20), so that bar is large because last July's gas was unusually low, not because of the calculation. Months are stamped at their London midnight in UTC (1 July 2026 is `2026-06-30 23:00:00`).
 
 ### Gas Heatmap (Hour-by-Hour, Last 45 Days) (heatmap)
 

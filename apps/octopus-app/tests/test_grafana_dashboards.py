@@ -224,9 +224,8 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
 
 def test_a_missing_day_is_a_gap_on_the_daily_temperature_lines() -> None:
     overrides = _panel_overrides("Daily Gas and Outdoor Temperature (${gas_unit})")
-    for series in ("outdoor_mean", "forecast_mean"):
-        assert overrides[series]["custom.spanNulls"] is False, series
-        assert overrides[series]["custom.insertNulls"] == 129600000, series
+    assert overrides["outdoor_mean"]["custom.spanNulls"] is False
+    assert overrides["outdoor_mean"]["custom.insertNulls"] == 129600000
 
     band = _panel("Daily Outdoor Temperature Band with Sunshine")
     custom = band["fieldConfig"]["defaults"]["custom"]
@@ -305,3 +304,51 @@ def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:
     comfort = next(q for q in queries if "minutes_below_target" in q)
     for name in ("comfort_target", "comfort_margin"):
         assert f"${{{name}:sqlstring}} REGEXP" in comfort
+
+
+def _query(title: str, ref_id: str) -> str:
+    return next(t for t in _panel(title)["targets"] if t["refId"] == ref_id)["rawSql"]
+
+
+def test_the_forecast_outdoor_line_continues_the_outdoor_line_on_the_temperatures_panel() -> (
+    None
+):
+    sql = _query(TEMPERATURES, "C")
+    overrides = _panel_overrides(TEMPERATURES)
+
+    assert "AS outdoor_forecast" in sql
+    assert "FROM weather_forecast" in sql
+    assert overrides["outdoor_forecast"]["custom.lineStyle"]["fill"] == "dash"
+    assert overrides["outdoor_forecast"]["color"] == overrides["outdoor"]["color"]
+
+
+def test_a_forecast_day_is_hidden_once_an_outdoor_reading_covers_it() -> None:
+    # Actuals overwrite the forecast: only forecast stamps later than the
+    # newest outdoor reading draw, and one join point at that reading keeps the
+    # dashed line attached to the solid one.
+    sql = _query(TEMPERATURES, "C")
+
+    assert "WITH latest AS (" in sql
+    assert "> latest.observed_at" in sql
+    assert "UNION ALL" in sql
+
+
+def test_the_daily_gas_panel_no_longer_carries_the_forecast() -> None:
+    panel = _panel("Daily Gas and Outdoor Temperature (${gas_unit})")
+
+    assert "weather_forecast" not in " ".join(t["rawSql"] for t in panel["targets"])
+    assert "forecast_mean" not in json.dumps(panel)
+    assert "forecast" not in panel["description"].lower()
+
+
+def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
+    panel = next(p for p in _gas_panels() if p["title"].startswith("Monthly Gas"))
+    sql = panel["targets"][0]["rawSql"]
+    series = [o["matcher"]["options"] for o in panel["fieldConfig"]["overrides"]]
+
+    assert "AS yoy_pct_change" in sql
+    assert "DAY(LAST_DAY(" in sql  # still scaled to the month's full days
+    assert "days_counted" not in sql
+    assert "days_counted" not in json.dumps(panel["fieldConfig"])
+    assert series == ["yoy_pct_change"]
+    assert panel["fieldConfig"]["defaults"]["unit"] == "percent"
