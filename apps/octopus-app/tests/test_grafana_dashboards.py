@@ -358,6 +358,9 @@ def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
     assert custom["gradientMode"] == "scheme"
     # A line, like the electricity year-on-year panel, not bars.
     assert custom["drawStyle"] == "line"
+    # One quiet month a year ago must not flatten the other eleven.
+    defaults = panel["fieldConfig"]["defaults"]
+    assert (defaults["min"], defaults["max"]) == (-100, 100)
     assert "t.month_start - INTERVAL 12 MONTH" in sql  # the same month a year ago
     assert "HAVING COUNT(*) >= 10" in sql
     steps = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]

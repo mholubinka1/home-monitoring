@@ -1338,7 +1338,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Each of the last 12 months against the same month a year earlier, as a percentage change in gas: above 0 is more gas than a year ago (red), below 0 is less (green). A month's figure is the average of its complete gas days times the days in the month, so it is an estimate: the current month is projected from the days so far, and a month with few complete days is noisier. A month is left out when it or its year-earlier month has fewer than 10 complete gas days.",
+      "description": "Each of the last 12 months against the same month a year earlier, as a percentage change in gas: above 0 is more gas than a year ago (red), below 0 is less (green). A month's figure is the average of its complete gas days times the days in the month, so it is an estimate: the current month is projected from the days so far, and a month with few complete days is noisier. The axis is capped at +/-100% so that one unusually low month a year ago (a large percentage rise) does not flatten the rest; a point beyond the cap runs off the top and its value still shows on hover. A month is left out when it or its year-earlier month has fewer than 10 complete gas days.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1391,7 +1391,9 @@
               }
             ]
           },
-          "unit": "percent"
+          "unit": "percent",
+          "min": -100,
+          "max": 100
         },
         "overrides": [
           {
