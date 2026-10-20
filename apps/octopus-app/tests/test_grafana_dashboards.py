@@ -331,6 +331,9 @@ def test_a_forecast_day_is_hidden_once_an_outdoor_reading_covers_it() -> None:
     assert "WITH latest AS (" in sql
     assert "> latest.observed_at" in sql
     assert "UNION ALL" in sql
+    # The newest fetch wins when a day has several rows; the id is text.
+    assert "ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1" in sql
+    assert "MAX(f2.id)" not in sql
 
 
 def test_the_daily_gas_panel_no_longer_carries_the_forecast() -> None:

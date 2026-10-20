@@ -95,7 +95,7 @@ ORDER BY observed_at;
 
 **Checked read-only against the Pi on 16 October 2026, for the 6 October test evening** (24 readings between 18:50 and 19:40 UTC; the rows around the boosts are listed below): indoor held 20.6 to 20.8 C; the target read 7 C (frost) and stepped to 23 C in the 19:14 to 19:18 buckets and again at 19:24, with the boost flag set in the 19:18 and 19:24 buckets, consistent with the recorded heating-on windows to bucket resolution (the boost flag comes from a separate read of the same rows; the target rises with the demand, and the exact on and off times are within a bucket). Rows at 2-minute buckets (indoor C, target C, boost flag): 19:12 20.6, 7, 0; 19:14 20.7, 23, 0; 19:16 20.7, 23, 0; 19:18 20.7, 23, 1; 19:20 20.8, 7, 0; 19:22 20.7, 7, 0; 19:24 20.7, 23, 1; 19:26 20.8, 7, 0 (the 19:00 bucket has no reading). The target query keeps the last reading of each bucket (the 6 October evening's 7 to 23 C steps come through intact at 2-minute buckets). Over 25 September to 16 October (the thermostat history starts on 3 October, so about 13 days of readings), with 16-minute buckets (an example; Grafana chooses the interval), it returns about 1,160 buckets in under a second, and the outdoor query 519 hourly rows. The daylight-saving check for this panel is deferred until after the first London clock change on 25 October 2026 (the thermostat history starts on 3 October); the panel groups by UTC time and Grafana converts for display, so nothing in its queries depends on the local day. For 8 October 15:00 to 20:00 UTC the outdoor query returned one row per hour, taking the live reading where both sources existed (16:00: live 14.4 C over the archive's 13.8 C) and the archive's 13.8 C at 15:00 where only the archive had a reading.
 
-Query C, outdoor forecast (the forecast is one mean per day, so it is stamped at 12:00 London on its day, and a day only draws when that stamp is later than the newest outdoor reading of the current location; the newest reading itself is included once, so the dashed line starts where the solid one ends; when several forecast rows exist for a day the newest row, the highest `id`, is used). As real readings arrive they pass the stamp and the forecast day drops out, so actuals overwrite the forecast:
+Query C, outdoor forecast (the forecast is one mean per day, so it is stamped at 12:00 London on its day, and a day only draws when that stamp is later than the newest outdoor reading of the current location; the newest reading itself is included once, so the dashed line starts where the solid one ends; when several forecast rows exist for a day (one per source; the `id` is a text value, source name and date, so it says nothing about age) the one with the latest `fetched_at` is used). As real readings arrive they pass the stamp and the forecast day drops out, so actuals overwrite the forecast:
 
 ```sql
 WITH latest AS (
@@ -123,8 +123,9 @@ FROM (
   CROSS JOIN latest
   WHERE f.mean_temp IS NOT NULL
     AND f.id = (
-      SELECT MAX(f2.id) FROM weather_forecast f2
+      SELECT f2.id FROM weather_forecast f2
       WHERE f2.target_date = f.target_date AND f2.mean_temp IS NOT NULL
+      ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1
     )
     AND CONVERT_TZ(CAST(f.target_date AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') > latest.observed_at
 ) d
@@ -474,7 +475,7 @@ WHERE t.month_start >= DATE_FORMAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${ti
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 20 October 2026.** The query returned all 12 months from November 2025 to October 2026, for example November 2025 -3.8, January 2026 +2.8, September 2026 +28.1 and October 2026 +15.0 (311 kWh projected from 18 complete days against 270 kWh in October 2025, which matches +15.2 before the rounding of the bar). July 2026 shows +975.8: July 2025 had only 20 complete days averaging 0.66 kWh a day (219 kWh against 20), so that bar is large because last July's gas was unusually low, not because of the calculation. Months are stamped at their London midnight in UTC (1 July 2026 is `2026-06-30 23:00:00`).
+**Checked read-only against the Pi on 20 October 2026.** The query returned all 12 months from November 2025 to October 2026, for example November 2025 -3.8, January 2026 +2.8, September 2026 +28.1 and October 2026 +15.0 (311 kWh projected from 18 complete days against 270 kWh in October 2025, which matches +15.2 before the rounding of the bar). July 2026 shows +975.8: July 2025 had only 20 complete days averaging 0.66 kWh a day (July 2026 scaled to 219 kWh against 20 kWh for July 2025), so that bar is large because last July's gas was unusually low, not because of the calculation. Months are stamped at their London midnight in UTC (1 July 2026 is `2026-06-30 23:00:00`).
 
 ### Gas Heatmap (Hour-by-Hour, Last 45 Days) (heatmap)
 
