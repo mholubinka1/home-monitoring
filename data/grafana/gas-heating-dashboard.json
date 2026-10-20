@@ -1353,7 +1353,7 @@
             "barAlignment": 1,
             "drawStyle": "bars",
             "fillOpacity": 70,
-            "gradientMode": "none",
+            "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
