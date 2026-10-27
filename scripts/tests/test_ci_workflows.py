@@ -554,3 +554,47 @@ def test_code_changes_run_the_full_test_suite() -> None:
     step = _step(BUILD_FILE, BUILD_JOB, "Run tests")
 
     assert step.get("if") == "success() && needs.checks.outputs.lane == 'code'"
+
+
+ON_MAIN = "github.ref == 'refs/heads/main'"
+IMAGES_CHANGED = "needs.checks.outputs.images == 'true'"
+PUSH_STEPS = ["Push the octopus-app image", "Push the hive-app image"]
+
+
+def test_branches_build_both_images_without_logging_in_or_pushing() -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, "Build the images without pushing")
+
+    assert (
+        step.get("if")
+        == f"success() && {IMAGES_CHANGED} && github.ref != 'refs/heads/main'"
+    )
+    script = str(step["run"])
+    assert "deployments/octopus-app/Dockerfile" in script
+    assert "deployments/hive-app/Dockerfile" in script
+    assert "--push" not in script and "docker login" not in script
+
+
+@pytest.mark.parametrize("name", PUSH_STEPS)
+def test_only_main_pushes_the_latest_image_and_only_when_an_image_input_changed(
+    name: str,
+) -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, name)
+
+    assert step.get("if") == (
+        f"success() && {IMAGES_CHANGED} && {ON_MAIN} && github.event_name == 'push'"
+    )
+    assert step["env"]["TAG"].endswith(
+        ":latest"
+    ), "branches no longer publish a dev tag"
+
+
+def test_no_other_step_touches_docker_hub() -> None:
+    steps = _steps(BUILD_FILE, BUILD_JOB)
+    pushing = [
+        step["name"]
+        for step in steps
+        if "docker login" in str(step.get("with", {}).get("command", ""))
+        or "docker login" in str(step.get("run", ""))
+    ]
+
+    assert sorted(pushing) == sorted(PUSH_STEPS)

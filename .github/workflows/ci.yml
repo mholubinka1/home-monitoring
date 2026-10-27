@@ -313,36 +313,22 @@ jobs:
             echo "::warning::Could not push the coverage baseline raise to ${GITHUB_REF_NAME}; the next run will raise it."
           fi
 
-      - name: Prepare
-        if: success()
-        id: prepare
+      # Branches build the images to prove the Dockerfiles still work, but only main
+      # publishes: nothing deploys a branch image. Under a fixed local tag, so each
+      # build replaces the last instead of piling up on the runner.
+      - name: Build the images without pushing
+        if: success() && needs.checks.outputs.images == 'true' && github.ref != 'refs/heads/main'
         run: |
-          echo "docker_image=${DOCKER_REGISTRY}/${DOCKER_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "hive_app_docker_image=${DOCKER_REGISTRY}/${HIVE_APP_DOCKER_IMAGE}" >> "$GITHUB_OUTPUT"
+          docker buildx build --tag octopus-app:ci -f deployments/octopus-app/Dockerfile .
+          docker buildx build --tag hive-app:ci -f deployments/hive-app/Dockerfile .
 
-      - name: Docker info
-        run: |
-          docker version
-          docker info
-          docker ps
-
-      - name: Get Docker Image Tag
-        if: success()
-        id: tag
-        shell: bash
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          if [ "$BRANCH_NAME" != 'main' ]; then image_tag='dev'; else image_tag='latest'; fi
-          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
-
-      - name: Docker Login, Build, and Push
-        if: success() && github.event_name == 'push'
+      - name: Push the octopus-app image
+        if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: nick-fields/retry@v4
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          TAG: ${{ steps.prepare.outputs.docker_image }}:${{ steps.tag.outputs.tag }}
+          TAG: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE }}:latest
         with:
           max_attempts: 3
           retry_wait_seconds: 15
@@ -360,13 +346,13 @@ jobs:
             # libs/common/; only the -f path changed for the #530 Dockerfile relocation.
             docker buildx build --push --tag "$TAG" -f deployments/octopus-app/Dockerfile .
 
-      - name: Docker Login, Build, and Push (hive-app)
-        if: success() && github.event_name == 'push'
+      - name: Push the hive-app image
+        if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: nick-fields/retry@v4
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          TAG: ${{ steps.prepare.outputs.hive_app_docker_image }}:${{ steps.tag.outputs.tag }}
+          TAG: ${{ env.DOCKER_REGISTRY }}/${{ env.HIVE_APP_DOCKER_IMAGE }}:latest
         with:
           max_attempts: 3
           retry_wait_seconds: 15
