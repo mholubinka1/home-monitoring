@@ -42,8 +42,8 @@ def test_superseded_branch_runs_are_cancelled_but_main_runs_never_are(
         f"main run replaces an older pending one and skips its image build: {group!r}"
     )
     assert "github.workflow" in group, (
-        "the group must include the workflow name, otherwise the two workflows on the "
-        f"same ref cancel each other: {group!r}"
+        "the group must include the workflow name, otherwise any other workflow on the "
+        f"same ref would cancel this one: {group!r}"
     )
 
 

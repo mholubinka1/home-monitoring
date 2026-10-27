@@ -83,8 +83,8 @@ needs:
   keeps the start and end leaked-container sweeps.
 - **The quality-checks composite action is inlined** into the `checks` job. It existed only
   to share steps with the fork-PR workflow, which ADR-0013 removed.
-- **A change classifier script** runs early in `checks` and exposes its results as job
-  outputs:
+- **A change classifier script** runs early in `checks`. `lane` and `images` become job
+  outputs for `build`; `changed_md` is only used inside `checks`:
   - On a branch, it diffs the branch tip against its merge-base with `origin/main`. This
     means the whole branch, not just the last push.
   - On `main`, it diffs from where `main` was before the push, so a push of several

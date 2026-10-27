@@ -46,7 +46,8 @@ COARSE_WEIGHTS = (0.0, 0.2, 0.4, 0.6, WEIGHT_MAX)
 
 
 # A fit sees FIT_WINDOW_DAYS, each with a baseload looking back
-# BASELOAD_WINDOW_DAYS, so this is all the history a fit can use.
+# BASELOAD_WINDOW_DAYS. Away days are looked for across all the history given,
+# so a test about older away days must seed more (as the 1700-day test does).
 HISTORY_DAYS = FIT_WINDOW_DAYS + BASELOAD_WINDOW_DAYS
 
 
