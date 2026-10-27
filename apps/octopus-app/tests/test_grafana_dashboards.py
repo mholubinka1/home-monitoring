@@ -425,6 +425,10 @@ def test_the_model_chart_title_carries_the_fit_and_its_label() -> None:
         assert part in query
     assert "m.fitted_at" in query
     assert "no usable model yet" in query
+    # A long title is cut at the right, so the label and date come first.
+    assert (
+        query.index("m.label") < query.index("m.fitted_at") < query.index("m.baseload")
+    )
 
 
 def _rate_lookup(sql: str) -> str:

@@ -576,7 +576,7 @@ ORDER BY time;
 
 ### Heating Model: gas against effective temperature (XY chart)
 
-Each dot is one day the model has judged (query A): the day's effective temperature across and its gas up, from `heating_day_verdict`, for the latest usable model and without away days (an away day says nothing about the house). The line (query B) is that model: flat at the baseload at and above the threshold, rising by the slope for every degree below it; three points are enough (the coldest and warmest day, and the kink at the threshold). The panel title carries the numbers through the hidden `${model_summary}` variable (baseload, threshold, slope, R2, when it was fitted, and `estimated` or `confirmed`). The chart ignores the dashboard time range: it shows every judged day. The line uses the model's current baseload, while each day was judged against the moving baseload of its own day, so the dots sit around the line and not exactly on it.
+Each dot is one day the model has judged (query A): the day's effective temperature across and its gas up, from `heating_day_verdict`, for the latest usable model and without away days (an away day says nothing about the house). The line (query B) is that model: flat at the baseload at and above the threshold, rising by the slope for every degree below it; three points are enough (the coldest and warmest day, and the kink at the threshold). The formula (baseload + slope x degrees below the threshold) is deliberately repeated here, not read from `heating_day_verdict.expected_gas`: the line must exist at every temperature, including ones no day had, and each day's own expected gas used its moving baseload. If the model job's formula ever changes, change query B with it. The panel title carries the numbers through the hidden `${model_summary}` variable (`estimated` or `confirmed` and when it was fitted first, then baseload, threshold, slope and R2, so that Grafana's cutting of a long title takes the least important end). The chart ignores the dashboard time range: it shows every judged day. The line uses the model's current baseload, while each day was judged against the moving baseload of its own day, so the dots sit around the line and not exactly on it.
 
 **Chart type.** The XY chart (a beta panel in Grafana 10.4) is used with a manual series mapping: query A as points, query B as a line, both on the effective-temperature axis. If a real-Grafana check shows it misbehaves, the fallback is the Trend panel (numeric x axis) with one query returning the dots and the line as columns of one table; that switch changes only this panel.
 
@@ -623,10 +623,9 @@ The `${model_summary}` variable query:
 ```sql
 SELECT COALESCE((
   SELECT CONCAT(
-    'baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),
-    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a'),
-    ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),
-    ', ', m.label
+    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),
+    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),
+    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')
   )
   FROM heating_model m
   WHERE m.usable = 1
@@ -635,4 +634,4 @@ SELECT COALESCE((
 ), 'no usable model yet') AS model_summary;
 ```
 
-**Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). The title text was `baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68, fitted 23 Oct 2026, estimated`.
+**Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.
