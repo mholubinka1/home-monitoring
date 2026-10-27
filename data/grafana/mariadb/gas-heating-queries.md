@@ -758,7 +758,7 @@ Two lines, week by week: this year's heating efficiency (gas above the baseload 
 
 **Which weeks.** By default a week is plotted only when its stored status is `shown` in both years, that is at least 5 complete gas days, at least 1.5 degree-days a day and at least 0.5 kWh a day of heating gas (the rules and their evidence are in [the week rules note](../../../.agent-docs/research/year-on-year-week-rules.md)). The `${all_weeks}` switch (decided with the user) lifts the two measurability guards: with `yes` a week is plotted when its status is `shown`, `too mild` or `heating off` in both years and its efficiency can be computed (a week with no degree-days at all cannot). Weeks with fewer than 5 gas days stay out either way. The weeks the switch brings back can look wild: the week of 8 June 2026 has 0.06 degree-days a day and works out to 65.8 kWh per degree-day.
 
-**Title.** The hidden `${yoy_summary}` variable fills the panel title, over the panel's own 400-day range: how many weeks are shown, how many are left out and why (too few days, too mild, heating off, or no week last year), and the baseload of each year (the average of the shown weeks' baseloads, last year first). A reader sees what the guards removed. The panel is labelled estimated, says winter baseload is interpolated, and never claims why efficiency changed. A missing week breaks the line (a null is inserted after 10 days).
+**Title.** The hidden `${yoy_summary}` variable fills the panel title, over the panel's own 400-day range: how many weeks are shown, how many are left out and why (too few days, too mild, heating off, or no week last year), and the baseload of each year (the average of the shown weeks' baseloads, last year first; a 5-day week counts the same as a 7-day one). The count uses the same timestamp comparison as the panel's 400-day range, so the title counts exactly the weeks the panel can draw. A reader sees what the guards removed. The panel is labelled estimated, says winter baseload is interpolated, and never claims why efficiency changed. A missing week breaks the line (a null is inserted after 10 days).
 
 ```sql
 SELECT time, this_year_kwh_per_dd, last_year_kwh_per_dd
@@ -792,7 +792,7 @@ SELECT COALESCE((
     SUM(f.reason = 'no last year'), ' without a last-year week), baseload ',
     IFNULL(ROUND(AVG(IF(f.ok = 1, f.last_baseload, NULL)), 1), 'n/a'), ' to ',
     IFNULL(ROUND(AVG(IF(f.ok = 1, f.this_baseload, NULL)), 1), 'n/a'),
-    ' kWh/day (last year to this), winter baseload interpolated'
+    ' kWh/day (average of the weeks shown, last year to this), winter baseload interpolated'
   )
   FROM (
     SELECT
@@ -819,14 +819,14 @@ SELECT COALESCE((
            l.status = 'shown'), 0) AS last_ok
       FROM heating_week w
       LEFT JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY
-      WHERE w.week_start >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) - INTERVAL 400 DAY
+      WHERE CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') >= UTC_TIMESTAMP() - INTERVAL 400 DAY
     ) p
   ) f
   HAVING COUNT(*) > 0
 ), 'no weeks yet') AS yoy_summary;
 ```
 
-**Checked read-only against the Pi on 27 October 2026.** The default returned the 14 weeks that pass the guards in both years, from 17 November 2025 (3.735 this year, 3.071 last) to 16 March 2026 (2.089 and 1.939), the same values as the table. Its title text was `14 weeks shown, 41 left out (5 too few days, 34 too mild, 2 heating off, 0 without a last-year week), baseload 7.4 to 6.9 kWh/day (last year to this), winter baseload interpolated`. With `${all_weeks}` set to `yes` the query returned 28 weeks and the title `28 weeks shown, 27 left out (7 too few days, 19 too mild, 0 heating off, 1 without a last-year week), ...`.
+**Checked read-only against the Pi on 27 October 2026.** The default returned the 14 weeks that pass the guards in both years, from 17 November 2025 (3.735 this year, 3.071 last) to 16 March 2026 (2.089 and 1.939), the same values as the table. Its title text was `14 weeks shown, 40 left out (5 too few days, 33 too mild, 2 heating off, 0 without a last-year week), baseload 7.4 to 6.9 kWh/day (average of the weeks shown, last year to this), winter baseload interpolated`. With `${all_weeks}` set to `yes` the query returned 28 weeks over the whole history, 27 of them inside the panel's 400 days, and the title `27 weeks shown, 27 left out (7 too few days, 19 too mild, 0 heating off, 1 without a last-year week), baseload 6.9 to 7.0 kWh/day (average of the weeks shown, last year to this), ...`.
 
 ### Saving from a Thermostat 1 C Lower, by Month (kWh or pounds, estimated) (time series)
 

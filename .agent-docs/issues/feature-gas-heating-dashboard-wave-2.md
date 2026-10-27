@@ -71,7 +71,7 @@ Two lines, this year and last year (last year's weeks lined up 364 days earlier)
 
 - [x] Only weeks with status `shown` in both years are plotted; others are gaps (14 weeks on the Pi, the same values as the table).
 - [ ] The title shows the shown and left-out counts with reasons and the baseload for each year (the summary variable returns this text on the Pi; needs the real-Grafana look at the whole dashboard).
-- [x] Given the 'show every complete week' switch, then the guards are lifted and left-out weeks appear (28 weeks instead of 14; short weeks stay out, decided with the user).
+- [x] Given the 'show every complete week' switch, then the guards are lifted and left-out weeks appear (27 weeks inside the panel's 400 days, 28 over all history, instead of 14; short weeks stay out, decided with the user).
 - [x] Last year's weeks come from the same definitions as this year's (common degree-day threshold, each week's own moving baseload): both years are rows of the same `heating_week` table computed by the model job.
 - [x] The query joins this year's week to the week 364 days earlier and contains no guard or baseload logic (it reads only the stored status and efficiency; a test pins this).
 

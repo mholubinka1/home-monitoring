@@ -777,7 +777,7 @@ def test_the_average_target_line_uses_only_comfort_target_readings() -> None:
         for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
         if v["name"] == "yoy_summary"
     )
-    assert "INTERVAL 400 DAY" in summary["query"]
+    assert "UTC_TIMESTAMP() - INTERVAL 400 DAY" in summary["query"]
 
 
 def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> None:
