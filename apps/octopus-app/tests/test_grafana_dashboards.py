@@ -711,6 +711,8 @@ def test_the_switch_and_the_title_summary_are_dashboard_variables() -> None:
         "too few days",
         "too mild",
         "heating off",
+        "without a last-year week",
+        "WHEN p.last_status IS NULL THEN 'no last year'",
         "baseload",
         "${all_weeks:sqlstring}",
         "interpolated",
