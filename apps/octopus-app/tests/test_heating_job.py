@@ -1,10 +1,18 @@
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 
 import pytest
 
 from common import local_day
+from octopus_app.data import heating_model
 from octopus_app.data.heating_job import HeatingModelJob
-from octopus_app.data.heating_model import THRESHOLDS, WEIGHT_MAX, UnusableReason
+from octopus_app.data.heating_model import (
+    BASELOAD_WINDOW_DAYS,
+    FIT_WINDOW_DAYS,
+    THRESHOLDS,
+    WEIGHT_MAX,
+    UnusableReason,
+)
 from octopus_app.data.heating_weeks import WeekStatus
 from octopus_app.data.model import HeatingModelRecord
 from octopus_app.data.mysql import model
@@ -28,6 +36,36 @@ LAST_GAS_DAY = date(2026, 10, 12)
 TODAY = date(2026, 10, 13)
 NOW = datetime(2026, 10, 13, 4, 0, tzinfo=UTC)  # the 04:00 daily job, next morning
 
+# These tests are about what the job does with a fit, not the fit's precision
+# (test_heating_model_fit.py covers that on the full grid). A coarse grid is a
+# subset of the full one and is ~16x cheaper, which matters on the CI runner.
+# The threshold bootstrap keeps the full grid: on a coarse one its uncertainty
+# band collapses onto the fitted threshold.
+COARSE_THRESHOLDS = tuple(t for t in THRESHOLDS if round(t * 2) == t * 2)
+COARSE_WEIGHTS = (0.0, 0.2, 0.4, 0.6, WEIGHT_MAX)
+
+
+# A fit sees FIT_WINDOW_DAYS, each with a baseload looking back
+# BASELOAD_WINDOW_DAYS, so this is all the history a fit can use.
+HISTORY_DAYS = FIT_WINDOW_DAYS + BASELOAD_WINDOW_DAYS
+
+
+@pytest.fixture(autouse=True)
+def _coarse_fit_grid(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if request.node.get_closest_marker("full_fit_grid"):
+        return
+    monkeypatch.setattr(
+        heating_model,
+        "fit_heating_model",
+        partial(
+            heating_model.fit_heating_model,
+            thresholds=COARSE_THRESHOLDS,
+            weights=COARSE_WEIGHTS,
+        ),
+    )
+
 
 def _model_count(client: MariaDBClient) -> int:
     with client.session_read_scope() as session:
@@ -37,7 +75,7 @@ def _model_count(client: MariaDBClient) -> int:
 def test_the_first_refresh_stores_a_usable_model_close_to_the_planted_one(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
 
     HeatingModelJob(mariadb_client).refresh(now=NOW)
 
@@ -52,7 +90,9 @@ def test_the_first_refresh_stores_a_usable_model_close_to_the_planted_one(
 def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _, gas = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    _, gas = seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
+    )
     seed_forecast_means(
         mariadb_client, {TODAY + timedelta(days=i): 6.0 + i for i in range(7)}
     )
@@ -92,7 +132,9 @@ def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model
 def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rejudges(
     mariadb_client: MariaDBClient,
 ) -> None:
-    means, _ = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    means, _ = seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
+    )
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     seed_weather_day(mariadb_client, TODAY, means[LAST_GAS_DAY])
@@ -122,7 +164,7 @@ def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rejudges(
 def test_the_model_is_refitted_once_it_is_seven_local_days_old(
     mariadb_client: MariaDBClient, age: timedelta, refits: bool
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
 
@@ -160,7 +202,7 @@ def test_an_unusable_fit_stores_the_reason_and_writes_no_rows(
 def test_a_later_unusable_refit_is_recorded_and_the_day_is_rejudged_with_the_old_model(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     first = mariadb_client.read_latest_heating_model()
@@ -189,7 +231,9 @@ def test_a_later_unusable_refit_is_recorded_and_the_day_is_rejudged_with_the_old
 def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _, gas = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    _, gas = seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
+    )
     older = {d: g for d, g in gas.items() if d < LAST_GAS_DAY - timedelta(days=100)}
     with mariadb_client.session_write_scope() as session:
         session.query(model.daily_consumption_summary).filter(
@@ -218,7 +262,7 @@ def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
 def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_raise(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     seed_forecast_means(mariadb_client, {TODAY: 6.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
@@ -244,7 +288,7 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
 ) -> None:
     # The live fit lands on the 0.8 cap; the next day's run reads it back from
     # the table and must not trip the weight's range check.
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     seed_forecast_means(mariadb_client, {TODAY: 6.0})
     mariadb_client.write_heating_model(
         HeatingModelRecord(
@@ -285,7 +329,7 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
 def test_a_stored_usable_model_missing_a_number_names_it_when_it_fails(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     with mariadb_client.session_write_scope() as session:
@@ -306,7 +350,7 @@ def test_no_usable_gas_days_writes_nothing_and_does_not_raise(
 def test_with_no_usable_gas_left_the_old_forecast_is_removed_and_nothing_raises(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     seed_forecast_means(mariadb_client, {TODAY: 6.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
@@ -338,7 +382,7 @@ def test_history_older_than_the_rolling_windows_still_gets_verdicts_and_weeks(
 def test_a_holiday_is_judged_away_and_does_not_pull_the_baseload_down(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     holiday_start = date(2026, 6, 29)  # a Monday
     seed_holiday(mariadb_client, holiday_start, 14, 0.5)
 
@@ -366,7 +410,9 @@ def test_a_holiday_is_judged_away_and_does_not_pull_the_baseload_down(
 def test_only_forecast_days_with_a_mean_get_a_row_and_use_yesterdays_observed_mean(
     mariadb_client: MariaDBClient,
 ) -> None:
-    means, _ = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    means, _ = seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
+    )
     seed_forecast_means(
         mariadb_client,
         {TODAY: 5.0, TODAY + timedelta(days=1): 7.0, TODAY + timedelta(days=3): 9.0},
@@ -390,7 +436,7 @@ def test_a_forecast_for_yesterday_stands_in_for_a_missing_observed_mean(
     # Weather was observed only to the 11th: yesterday (the 12th) has no observed
     # mean, but the forecast table has one for it and for today.
     seed_planted_history(
-        mariadb_client, last_day=LAST_GAS_DAY - timedelta(days=1), days=730
+        mariadb_client, last_day=LAST_GAS_DAY - timedelta(days=1), days=HISTORY_DAYS
     )
     yesterday = TODAY - timedelta(days=1)
     seed_forecast_means(mariadb_client, {yesterday: 4.0, TODAY: 6.0})
@@ -411,7 +457,9 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
     mariadb_client: MariaDBClient,
 ) -> None:
     today = local_day.to_local_date(datetime.now(UTC))
-    seed_planted_history(mariadb_client, last_day=today - timedelta(days=1), days=730)
+    seed_planted_history(
+        mariadb_client, last_day=today - timedelta(days=1), days=HISTORY_DAYS
+    )
 
     run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
     run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
@@ -428,7 +476,7 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
 def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     seed_forecast_means(mariadb_client, {TODAY: 5.0, TODAY + timedelta(days=1): 7.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
@@ -440,10 +488,13 @@ def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
     assert mariadb_client.read_heating_forecast_days() == []
 
 
+# The upper threshold sits a few 0.1 C steps above the fitted one, so this needs
+# the fit on the full grid.
+@pytest.mark.full_fit_grid
 def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
 
     HeatingModelJob(mariadb_client).refresh(now=NOW)
 
@@ -467,7 +518,7 @@ def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(
 def test_without_heating_status_history_the_model_is_only_estimated(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
 
     HeatingModelJob(mariadb_client).refresh(now=NOW)
 
@@ -482,7 +533,9 @@ def test_without_heating_status_history_the_model_is_only_estimated(
 def test_thermostat_readings_agreeing_with_the_gas_threshold_confirm_the_model(
     mariadb_client: MariaDBClient,
 ) -> None:
-    means, _ = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    means, _ = seed_planted_history(
+        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
+    )
     recent = [LAST_GAS_DAY - timedelta(days=i) for i in range(1, 300)]
     cold = sorted(
         (d for d in recent if effective_of(means, d) < 11.0),
@@ -511,7 +564,7 @@ def test_thermostat_readings_agreeing_with_the_gas_threshold_confirm_the_model(
 def test_the_job_is_not_ready_for_a_first_fit_once_a_model_exists(
     mariadb_client: MariaDBClient,
 ) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=730)
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
 
