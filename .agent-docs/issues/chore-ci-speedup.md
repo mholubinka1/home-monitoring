@@ -178,8 +178,8 @@ Branches are not required to be up to date.
 
 ### Acceptance criteria
 
-- [x] Given a PR whose `checks` or `build` job failed, then it cannot merge.
-- [x] Given a docs-only PR whose `build` job was skipped, then it can merge.
-- [x] Branches are not required to be up to date before merging.
+- [ ] Given a PR whose `checks` or `build` job failed, then it cannot merge.
+- [ ] Given a docs-only PR whose `build` job was skipped, then it can merge.
+- [ ] Branches are not required to be up to date before merging.
 
 ---
