@@ -830,7 +830,7 @@ SELECT COALESCE((
 
 ### Saving from a Thermostat 1 C Lower, by Month (kWh or pounds, estimated) (time series)
 
-Monthly bars of the estimated gas a thermostat 1 C lower would have saved, in kWh or pounds (the **Daily gas unit** variable, decided with the user; A is the kWh query and B the pounds one, only one returns rows). A month's saving is the latest usable model's **slope** (kWh per degree of cold) times the number of days that month judged `needed` (away days excluded); only days the model has judged count, so the current month is partial. In pounds each needed day is priced at that day's unit rate (the rate lookup is copied from the daily gas panel's query B and a test pins the two together); the standing charge does not change with the setpoint, so it is not included. As elsewhere, pounds exist only from 1 July 2026, when the Pi's gas rates start.
+Monthly bars of the estimated gas a thermostat 1 C lower would have saved, in kWh or pounds (the **Daily gas unit** variable, decided with the user; A is the kWh query and B the pounds one, only one returns rows). A month's saving is the latest usable model's **slope** (kWh per degree of cold) times the number of days that month judged `needed` (away days excluded); only days the model has judged count, so the current month is partial. A month with judged days but none needed shows 0 in both units. In pounds each needed day is priced at that day's unit rate (the rate lookup is copied from the daily gas panel's query B and a test pins the two together); the standing charge does not change with the setpoint, so it is not included. As elsewhere, pounds exist only from 1 July 2026, when the Pi's gas rates start.
 
 The line is the average thermostat target (right axis, degrees) over the readings at or above the `${comfort_target}` box, that is when the heating was set to comfort. It does not depend on the model's judgement of the day: a warm day with a comfort target (a boost) counts. A comfort target that is not a number gives no line. The thermostat record starts on 3 October 2026, so earlier months have no line. The reading-to-month join runs over the whole `heating_status` table each refresh, which is fine at this size (about 12,000 rows) and worth a time-range limit if the table grows to millions.
 
@@ -889,7 +889,7 @@ WITH model AS (
 saved AS (
   SELECT
     CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE) AS month_start,
-    ROUND(SUM(model.slope * pr.unit_rate / 100), 2) AS saving_gbp
+    ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp
   FROM heating_day_verdict v
   JOIN model ON v.model_id = model.id
   JOIN agreement a
@@ -907,7 +907,6 @@ saved AS (
     )
   WHERE ${gas_unit:sqlstring} = 'pounds'
     AND v.away = 0
-    AND v.needed = 1
   GROUP BY CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE)
 ),
 targets AS (
@@ -931,4 +930,4 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 27 October 2026.** The slope was 3.753 kWh per degree: December 2025 and January 2026 each had 31 needed days, 3.753 x 31 = 116.3 kWh; February 2026 had 24 (90.1), March 14 (52.5), April 29 (108.8) and October 2026 so far 9 (33.8). In pounds October 2026 was 2.90 (33.8 kWh at about 8.58p); earlier months have no price. The average comfort target for October 2026 was 18.69 C (readings on 4, 6 and 7 October, the test evenings). With the usable-model test made to match no model both queries return no rows.
+**Checked read-only against the Pi on 27 October 2026.** The slope was 3.753 kWh per degree: December 2025 and January 2026 each had 31 needed days, 3.753 x 31 = 116.3 kWh; February 2026 had 24 (90.1), March 14 (52.5), April 29 (108.8) and October 2026 so far 9 (33.8). In pounds October 2026 was 2.90 (33.8 kWh at about 8.58p), July to September 2026 were 0.00 (no needed days, the same as in kWh); earlier months have no price. The average comfort target for October 2026 was 18.69 C (readings on 4, 6 and 7 October, the test evenings). With the usable-model test made to match no model both queries return no rows.

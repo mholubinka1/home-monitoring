@@ -759,8 +759,11 @@ def test_the_pounds_saving_prices_each_needed_day_at_its_own_rate() -> None:
     pounds = _query(SETPOINT_SAVING, "B")
     actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
 
-    assert "ROUND(SUM(model.slope * pr.unit_rate / 100), 2) AS saving_gbp" in pounds
-    assert "v.needed = 1" in pounds
+    assert (
+        "ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp"
+    ) in pounds
+    # A month with judged days but none needed is a zero bar in both units.
+    assert "AND v.needed = 1" not in pounds
     assert "${gas_unit:sqlstring} = 'pounds'" in pounds
     assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "v.date")
     # The standing charge does not change with the setpoint.
