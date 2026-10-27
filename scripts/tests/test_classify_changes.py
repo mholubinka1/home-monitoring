@@ -63,7 +63,7 @@ class _Repo:
             self.write(path, f"changed {path}\n")
         self.commit("change")
 
-    def classify(self, ref_name: str) -> dict[str, str]:
+    def classify(self, ref_name: str, before: str = "") -> dict[str, str]:
         output = self.root.parent / "github_output"
         output.write_text("")
         subprocess.run(
@@ -73,6 +73,7 @@ class _Repo:
                 **os.environ,
                 "GITHUB_REF_NAME": ref_name,
                 "GITHUB_OUTPUT": str(output),
+                "PUSH_BEFORE": before,
             },
             capture_output=True,
             text=True,
@@ -241,3 +242,37 @@ def test_changed_markdown_lists_only_the_markdown_files_that_still_exist(
         ".agent-docs/specs/new.md",
         "README.md",
     ]
+
+
+def test_a_push_of_several_commits_to_main_is_judged_as_a_whole(repo: _Repo) -> None:
+    before = repo._git("rev-parse", "HEAD")
+    repo.change("libs/common/common/config.py")
+    repo.change("README.md")  # the last commit alone looks docs-only
+
+    result = repo.classify("main", before=before)
+
+    assert result["lane"] == "code"
+    assert result["images"] == "true"
+
+
+@pytest.mark.parametrize(
+    "before", ["0000000000000000000000000000000000000000", "f" * 40]
+)
+def test_a_main_push_with_an_unusable_before_falls_back_to_the_first_parent(
+    repo: _Repo, before: str
+) -> None:
+    repo.change("README.md")
+
+    assert repo.classify("main", before=before)["lane"] == "docs"
+
+
+def test_moving_code_into_docs_is_still_a_code_change(repo: _Repo) -> None:
+    repo.branch("feature")
+    (repo.root / "docs").mkdir()
+    repo._git("mv", "apps/octopus-app/octopus_app/main.py", "docs/main.md")
+    repo.commit("move")
+
+    result = repo.classify("feature")
+
+    assert result["lane"] == "code"
+    assert result["images"] == "true"

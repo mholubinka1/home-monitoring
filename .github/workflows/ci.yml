@@ -33,7 +33,6 @@ jobs:
       images: ${{ steps.classify.outputs.images }}
     steps:
       - name: Fail fast if the runner disk is nearly full
-        shell: bash
         env:
           MIN_FREE_GB: 5
         run: |
@@ -56,6 +55,8 @@ jobs:
 
       - name: Classify the change
         id: classify
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
         run: bash .github/scripts/classify-changes.sh
 
       - name: Install uv
@@ -203,7 +204,6 @@ jobs:
       HIVE_APP_DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/hive-app
     steps:
       - name: Fail fast if the runner disk is nearly full
-        shell: bash
         env:
           MIN_FREE_GB: 5
         run: |
@@ -261,7 +261,6 @@ jobs:
 
       - name: Run tests
         if: success() && needs.checks.outputs.lane == 'code'
-        shell: bash
         env:
           # Python 3.12+'s sys.monitoring tracer: far cheaper than the default on
           # CPU-bound tests (test_heating_job.py: 107 s -> 83 s locally).
@@ -282,7 +281,6 @@ jobs:
         # runner's bash is fail-fast), and continue-on-error is the backstop for anything
         # those guards miss.
         continue-on-error: true
-        shell: bash
         run: |
           skip() {
             echo "::warning::$1; the next run will try again."

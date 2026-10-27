@@ -25,12 +25,24 @@ full_run() {
 }
 
 if [ "${GITHUB_REF_NAME:-}" = "main" ]; then
-  base=$(git rev-parse --verify --quiet HEAD^1) || full_run "no parent commit"
+  # A push can carry several commits (a rebase-merge, a direct push): judge them all,
+  # from the tip main had before the push. A new or unknown `before` (all zeros on a
+  # branch's first push, or gone after a force-push) falls back to the first parent.
+  before="${PUSH_BEFORE:-}"
+  if [ -n "$before" ] && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+    base=$before
+  else
+    base=$(git rev-parse --verify --quiet HEAD^1) || full_run "no parent commit"
+  fi
 else
   base=$(git merge-base origin/main HEAD 2>/dev/null) || full_run "no merge-base with origin/main"
 fi
-changed=$(git diff --name-only "$base" HEAD) || full_run "git diff failed"
-changed_md=$(git diff --name-only --diff-filter=d "$base" HEAD -- '*.md') || full_run "git diff failed"
+# --no-renames: a moved file counts at both its old and new path, so moving code into
+# docs/ is still a code change. quotePath off: non-ASCII paths come out as they are.
+# Paths with spaces are not supported in changed_md (none exist in this repo).
+diff=(git -c core.quotePath=false diff --no-renames --name-only "$base" HEAD)
+changed=$("${diff[@]}") || full_run "git diff failed"
+changed_md=$("${diff[@]}" --diff-filter=d -- '*.md') || full_run "git diff failed"
 
 lane=docs
 images=false

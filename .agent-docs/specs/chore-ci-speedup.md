@@ -87,12 +87,14 @@ needs:
   outputs:
   - On a branch, it diffs the branch tip against its merge-base with `origin/main`. This
     means the whole branch, not just the last push.
-  - On `main`, it diffs the commit against its first parent.
+  - On `main`, it diffs from where `main` was before the push, so a push of several
+    commits is judged as a whole. If that commit is unknown, it uses the first parent.
+  - Renames count at both their old and new path.
 
-  It reports:
-  - `docs`: every changed path is `*.md`, `.agent-docs/**` or `docs/**`.
-  - `grafana`: some changed path is under `data/grafana/` and nothing else is code.
-  - `code`: any other path, including `.github/`, `pyproject.toml`, `uv.lock` and
+  It reports a `lane`, plus `images` and `changed_md`:
+  - `lane=docs`: every changed path is `*.md`, `.agent-docs/**` or `docs/**`.
+  - `lane=grafana`: some changed path is under `data/grafana/` and nothing else is code.
+  - `lane=code`: any other path, including `.github/`, `pyproject.toml`, `uv.lock` and
     `deployments/`.
   - `images`: an image input changed. Image inputs are `deployments/**`, app and lib
     source outside tests, any `pyproject.toml` and `uv.lock`.
@@ -124,8 +126,10 @@ needs:
   `heating_model.fit_heating_model` with a `functools.partial` of the original that uses a
   coarse grid: thresholds 8.0 to 18.0 °C in 0.5 °C steps, weights 0 to 0.8 in 0.2 steps.
   The grid constants are bound as default arguments, so patching the constants would have
-  no effect. Seeded histories shrink from 730 days to the shortest each test needs.
-  `heating_model.py` itself does not change.
+  no effect. One test opts out with a `full_fit_grid` marker, because the bootstrap's
+  upper threshold sits only a few 0.1 °C steps above the fitted one. Seeded histories
+  shrink from 730 days to 485, the fit window plus the baseload window: all the history a
+  fit can use. `heating_model.py` itself does not change.
 - **Pricing tests.** The two tests that fail a rate fetch patch
   `octopus_app.common.decorator.time.sleep`, as the transport tests already do.
 - **Required checks** (after merge, via the GitHub API): both jobs become required status

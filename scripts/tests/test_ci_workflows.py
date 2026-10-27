@@ -610,3 +610,11 @@ def test_dependabot_opens_routine_update_prs_weekly() -> None:
 
     assert uv["schedule"]["interval"] == "weekly"
     assert uv["groups"]["python-packages"]["patterns"] == ["*"]
+
+
+def test_the_classifier_sees_where_main_was_before_the_push() -> None:
+    # A push to main can carry several commits; judging only the last one could miss
+    # code or image changes in the earlier ones.
+    step = _step("ci.yml", "checks", "Classify the change")
+
+    assert step["env"]["PUSH_BEFORE"] == "${{ github.event.before }}"

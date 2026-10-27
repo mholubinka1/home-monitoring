@@ -38,7 +38,7 @@ NOW = datetime(2026, 10, 13, 4, 0, tzinfo=UTC)  # the 04:00 daily job, next morn
 
 # These tests are about what the job does with a fit, not the fit's precision
 # (test_heating_model_fit.py covers that on the full grid). A coarse grid is a
-# subset of the full one and is ~16x cheaper, which matters on the CI runner.
+# subset of the full one with 16x fewer candidates, which matters on the CI runner.
 # The threshold bootstrap keeps the full grid: on a coarse one its uncertainty
 # band collapses onto the fitted threshold.
 COARSE_THRESHOLDS = tuple(t for t in THRESHOLDS if round(t * 2) == t * 2)
