@@ -26,6 +26,11 @@ jobs:
   checks:
     name: Checks
     runs-on: [self-hosted, linux, ARM64]
+    # What kind of change this push is decides how much of CI it needs: see
+    # .github/scripts/classify-changes.sh. Anything it can't judge runs everything.
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+      images: ${{ steps.classify.outputs.images }}
     steps:
       - name: Fail fast if the runner disk is nearly full
         shell: bash
@@ -49,6 +54,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Classify the change
+        id: classify
+        run: bash .github/scripts/classify-changes.sh
+
       - name: Install uv
         uses: astral-sh/setup-uv@v10.0.1
         with:
@@ -67,9 +76,11 @@ jobs:
         run: npm install -g markdownlint-cli markdown-link-check
 
       - name: Verify uv.lock is consistent with pyproject.toml
+        if: steps.classify.outputs.lane == 'code'
         run: uv lock --check
 
       - name: Install project dependencies
+        if: steps.classify.outputs.lane == 'code'
         # --all-packages: this is a uv workspace (apps/octopus-app, apps/hive-app,
         # libs/common) whose root has no [project.dependencies] of its own. A plain
         # `uv sync` only installs the root project's (empty) closure, leaving every
@@ -79,6 +90,7 @@ jobs:
         run: uv sync --locked --all-packages
 
       - name: Validate pyproject.toml
+        if: steps.classify.outputs.lane == 'code'
         run: >-
           uv run --with 'validate-pyproject[all]' validate-pyproject
           pyproject.toml
@@ -87,25 +99,31 @@ jobs:
           libs/common/pyproject.toml
 
       - name: Audit dependencies for known vulnerabilities
+        if: steps.classify.outputs.lane == 'code'
         run: uv audit
 
       - name: Type check with mypy
+        if: steps.classify.outputs.lane == 'code'
         run: uv run mypy apps/octopus-app/octopus_app apps/hive-app/hive_app libs/common/common
 
       - name: Check import ordering with isort
+        if: steps.classify.outputs.lane == 'code'
         run: uv run isort --check-only --profile black apps/ libs/
 
       - name: Check code formatting with black
+        if: steps.classify.outputs.lane == 'code'
         run: uv run black --check apps/ libs/
 
       - name: Check linting with ruff
+        if: steps.classify.outputs.lane == 'code'
         run: uv run ruff check --no-fix apps/ libs/
 
       - name: Check linting with pylint
+        if: steps.classify.outputs.lane == 'code'
         run: uv run pylint apps libs
 
       - name: Check YAML style with yamllint
-        run: uv run --with yamllint yamllint .
+        run: uv run --no-project --with yamllint yamllint .
 
       - name: Lint GitHub Actions workflows with actionlint
         uses: docker://rhysd/actionlint:1.7.12
@@ -113,23 +131,29 @@ jobs:
           args: -color
 
       - name: Lint shell scripts with shellcheck
-        run: git ls-files -z '*.sh' | xargs -0 -r uv run --with shellcheck-py shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 -r uv run --no-project --with shellcheck-py shellcheck
 
       - name: Check spelling with codespell
-        run: uv run --with codespell codespell --skip=uv.lock
+        run: uv run --no-project --with codespell codespell --skip=uv.lock
 
       - name: Check markdown style
         run: markdownlint '**/*.md' --ignore node_modules
 
       - name: Check markdown links
+        # Only the Markdown files this change touched: checking every link on every
+        # push cost over a minute. A link that dies on its own is caught when its file
+        # is next edited.
+        if: steps.classify.outputs.changed_md != ''
+        env:
+          CHANGED_MD: ${{ steps.classify.outputs.changed_md }}
         # markdown-link-check only retries HTTP 429, and its `timeout` is per request, so a
         # dropped or refused connection (reported as "Status: 0") is never retried. Retry
         # the whole check instead; a link that is genuinely dead fails every attempt and
         # still fails the build.
         run: |
+          read -ra files <<<"$CHANGED_MD"
           for attempt in 1 2 3; do
-            if find . -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" \
-              -print0 | xargs -0 -r markdown-link-check --config .markdown-link-check.json; then
+            if markdown-link-check --config .markdown-link-check.json "${files[@]}"; then
               exit 0
             fi
             echo "::warning::Markdown link check failed (attempt ${attempt} of 3)"
@@ -141,6 +165,7 @@ jobs:
           exit 1
 
       - name: Security analysis with bandit
+        if: steps.classify.outputs.lane == 'code'
         # Scoped to non-test application code only, same as always: bandit's own
         # assert-used/hardcoded-password checks are expected noise in test code
         # (mirrors .pre-commit-config.yaml's bandit hook, which has
@@ -167,6 +192,8 @@ jobs:
   build:
     name: Tests and images
     needs: checks
+    # Skipped for docs-only changes; a skipped job still satisfies a required check.
+    if: needs.checks.outputs.lane != 'docs'
     runs-on: [self-hosted, linux, ARM64]
     permissions:
       contents: write
@@ -227,8 +254,13 @@ jobs:
         # run the combined test suite.
         run: uv sync --locked --all-packages
 
+      - name: Run the dashboard and scripts tests
+        if: success() && needs.checks.outputs.lane == 'grafana'
+        # A Grafana-only change: only the scripts tests read the dashboards.
+        run: uv run pytest scripts/tests
+
       - name: Run tests
-        if: success()
+        if: success() && needs.checks.outputs.lane == 'code'
         shell: bash
         env:
           # Python 3.12+'s sys.monitoring tracer: far cheaper than the default on
@@ -244,7 +276,7 @@ jobs:
           uv run pytest --cov --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under="$BASELINE"
 
       - name: Raise coverage baseline
-        if: success() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && needs.checks.outputs.lane == 'code'
         # Raising the baseline is a nicety, never a gate: nothing here may fail a build
         # whose tests passed. Every command on the raise path is guarded below (the
         # runner's bash is fail-fast), and continue-on-error is the backstop for anything

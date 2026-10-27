@@ -160,7 +160,10 @@ def test_the_disk_guard_still_explains_itself_when_docker_is_down(
 def _baseline_script() -> str:
     steps = _steps("ci.yml", "build")
     (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
-    assert step["if"] == "success() && github.event_name == 'push'"
+    assert (
+        step["if"]
+        == "success() && github.event_name == 'push' && needs.checks.outputs.lane == 'code'"
+    )
     return str(step["run"])
 
 
@@ -467,3 +470,87 @@ def test_the_tests_run_under_the_cheap_coverage_tracer() -> None:
         "without sys.monitoring, coverage makes the CPU-bound tests several times slower "
         "on the runner"
     )
+
+
+# The lanes. The classifier (see test_classify_changes.py) says what kind of change a
+# push is; these pin which steps each kind runs.
+PYTHON_CHECKS = [
+    "Verify uv.lock is consistent with pyproject.toml",
+    "Install project dependencies",
+    "Validate pyproject.toml",
+    "Audit dependencies for known vulnerabilities",
+    "Type check with mypy",
+    "Check import ordering with isort",
+    "Check code formatting with black",
+    "Check linting with ruff",
+    "Check linting with pylint",
+    "Security analysis with bandit",
+]
+ALWAYS_CHECKS = [
+    "Check YAML style with yamllint",
+    "Lint GitHub Actions workflows with actionlint",
+    "Lint shell scripts with shellcheck",
+    "Check spelling with codespell",
+    "Check markdown style",
+    "Scan for secrets with gitleaks",
+]
+
+
+def _step(workflow_file: str, job: str, name: str) -> dict[str, Any]:
+    steps = _steps(workflow_file, job)
+    return steps[_index_of(steps, name)]
+
+
+def test_the_checks_job_classifies_the_change_right_after_checkout() -> None:
+    checks = _workflow("ci.yml")["jobs"]["checks"]
+    steps = checks["steps"]
+    classify = _index_of(steps, "Classify the change")
+
+    assert classify == _index_of(steps, "Checkout repository") + 1
+    assert steps[classify]["id"] == "classify"
+    assert ".github/scripts/classify-changes.sh" in steps[classify]["run"]
+    for output in ("lane", "images"):
+        assert (
+            checks["outputs"][output] == f"${{{{ steps.classify.outputs.{output} }}}}"
+        )
+
+
+@pytest.mark.parametrize("name", PYTHON_CHECKS)
+def test_the_python_checks_run_only_for_code(name: str) -> None:
+    assert (
+        _step("ci.yml", "checks", name).get("if")
+        == "steps.classify.outputs.lane == 'code'"
+    )
+
+
+@pytest.mark.parametrize("name", ALWAYS_CHECKS)
+def test_the_cheap_lints_run_for_every_change(name: str) -> None:
+    assert "if" not in _step("ci.yml", "checks", name)
+
+
+def test_the_link_check_runs_only_on_the_markdown_files_that_changed() -> None:
+    step = _step("ci.yml", "checks", "Check markdown links")
+
+    assert step.get("if") == "steps.classify.outputs.changed_md != ''"
+    assert step["env"]["CHANGED_MD"] == "${{ steps.classify.outputs.changed_md }}"
+    assert "find ." not in step["run"], "the link check must not walk every file"
+
+
+def test_docs_only_changes_skip_the_tests_and_images_job() -> None:
+    assert (
+        _workflow("ci.yml")["jobs"]["build"].get("if")
+        == "needs.checks.outputs.lane != 'docs'"
+    )
+
+
+def test_grafana_changes_run_only_the_scripts_tests() -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, "Run the dashboard and scripts tests")
+
+    assert step.get("if") == "success() && needs.checks.outputs.lane == 'grafana'"
+    assert "pytest scripts/tests" in step["run"]
+
+
+def test_code_changes_run_the_full_test_suite() -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, "Run tests")
+
+    assert step.get("if") == "success() && needs.checks.outputs.lane == 'code'"

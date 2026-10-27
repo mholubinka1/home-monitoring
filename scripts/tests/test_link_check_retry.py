@@ -66,6 +66,7 @@ def _run_step(
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "FAKE_FAILURES": str(failures),
             "FAKE_CALLS_FILE": str(calls_file),
+            "CHANGED_MD": "doc.md",
         },
         capture_output=True,
         text=True,
