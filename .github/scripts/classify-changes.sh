@@ -47,9 +47,10 @@ diff=(git -c core.quotePath=false diff --no-renames --name-only "$base" HEAD)
 changed=$("${diff[@]}") || full_run "git diff failed"
 changed_md=$("${diff[@]}" --diff-filter=d -- '*.md') || full_run "git diff failed"
 # A deleted (or moved) file can break a link in a Markdown file that did not change,
-# so then every Markdown file gets its links checked.
+# and a new link-check config applies to every file, so then every Markdown file gets
+# its links checked.
 deleted=$("${diff[@]}" --diff-filter=D) || full_run "git diff failed"
-if [ -n "$deleted" ]; then
+if [ -n "$deleted" ] || grep -qx '.markdown-link-check.json' <<<"$changed"; then
   changed_md=$(git ls-files '*.md') || full_run "git ls-files failed"
 fi
 
@@ -67,7 +68,7 @@ while IFS= read -r path; do
   esac
   case "$path" in
     *.md) ;;
-    deployments/* | uv.lock | pyproject.toml | */pyproject.toml | \
+    deployments/* | .dockerignore | uv.lock | pyproject.toml | */pyproject.toml | \
       apps/octopus-app/octopus_app/* | apps/hive-app/hive_app/* | libs/common/common/*)
       images=true
       ;;

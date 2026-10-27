@@ -98,7 +98,7 @@ needs:
   - `lane=code`: any other path, including `.github/`, `pyproject.toml`, `uv.lock` and
     `deployments/`.
   - `images`: an image input changed. Image inputs are `deployments/**` except Markdown,
-    app and lib source outside tests, any `pyproject.toml` and `uv.lock`.
+    `.dockerignore`, app and lib source outside tests, any `pyproject.toml` and `uv.lock`.
   - `changed_md`: the list of changed Markdown files, or every Markdown file when
     anything was deleted or moved.
 

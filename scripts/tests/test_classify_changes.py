@@ -137,6 +137,7 @@ def test_a_branch_changing_only_tests_runs_the_code_lane_without_images(
         "uv.lock",
         "pyproject.toml",
         "apps/hive-app/pyproject.toml",
+        ".dockerignore",
     ],
 )
 def test_a_branch_changing_an_image_input_runs_the_code_lane_with_images(
@@ -317,3 +318,10 @@ def test_deleting_a_file_checks_the_links_in_every_markdown_file(repo: _Repo) ->
 
     assert result["lane"] == "docs"
     assert sorted(result["changed_md"].split()) == ["README.md"]
+
+
+def test_changing_the_link_check_config_checks_every_markdown_file(repo: _Repo) -> None:
+    repo.branch("feature")
+    repo.change(".markdown-link-check.json")
+
+    assert repo.classify("feature")["changed_md"].split() == ["README.md"]
