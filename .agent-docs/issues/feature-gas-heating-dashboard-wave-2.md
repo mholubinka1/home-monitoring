@@ -103,7 +103,7 @@ Monthly bars of the estimated saving (pounds and kWh) from a thermostat 1 C lowe
 
 ### What to build
 
-The wave-1 daily gas panel gains lighter "expected gas" bars for today and the next 7 days from the forecast-day table.
+The wave-1 daily gas panel gains lighter "expected gas" bars for the 7 days the model job forecasts (today and the next 6) from the forecast-day table.
 
 ### Acceptance criteria
 
