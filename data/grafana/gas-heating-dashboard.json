@@ -319,7 +319,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The lighter bars are the heating model's expected gas for today and the next days (none when there is no usable model); in pounds they use the unit rate and standing charge in force on the day, so a rate change inside the week is not foreseen. The line is the daily mean outdoor temperature for complete London days (right axis).",
+      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The lighter bars are the heating model's estimated gas for today and the next days (none when there is no usable model); in pounds they use the unit rate and standing charge in force on the day, so a rate change inside the week is not foreseen. The line is the daily mean outdoor temperature for complete London days (right axis).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -515,7 +515,7 @@
               },
               {
                 "id": "displayName",
-                "value": "expected gas"
+                "value": "expected gas (estimated)"
               },
               {
                 "id": "custom.fillOpacity",
@@ -549,7 +549,7 @@
               },
               {
                 "id": "displayName",
-                "value": "expected unit cost"
+                "value": "expected unit cost (estimated)"
               },
               {
                 "id": "custom.fillOpacity",
@@ -1923,7 +1923,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  x AS effective_temp,\n  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh\nFROM (\n  SELECT\n    m.baseload,\n    m.slope,\n    m.threshold,\n    CASE pts.k\n      WHEN 0 THEN LEAST(r.lo, m.threshold)\n      WHEN 1 THEN m.threshold\n      ELSE GREATEST(r.hi, m.threshold)\n    END AS x\n  FROM heating_model m\n  CROSS JOIN (\n    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi\n    FROM heating_day_verdict d\n    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n      AND d.away = 0\n  ) r\n  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts\n  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n) f\nORDER BY x;",
+          "rawSql": "SELECT\n  x AS effective_temp,\n  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh\nFROM (\n  SELECT\n    m.baseload,\n    m.slope,\n    m.threshold,\n    CASE pts.k\n      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)\n      WHEN 1 THEN m.threshold\n      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)\n    END AS x\n  FROM heating_model m\n  CROSS JOIN (\n    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi\n    FROM heating_day_verdict d\n    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n      AND d.away = 0\n  ) r\n  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts\n  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n) f\nORDER BY x;",
           "refId": "B",
           "sql": {
             "columns": [

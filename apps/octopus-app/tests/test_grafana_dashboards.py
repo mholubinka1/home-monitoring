@@ -419,10 +419,17 @@ def test_the_model_chart_title_carries_the_fit_and_its_label() -> None:
     assert "${model_summary}" in _model_chart()["title"]
     assert variable["hide"] == 2
     query = variable["query"]
+    assert "m.usable = 1" in query
+    assert "ORDER BY m.id DESC" in query
     for part in ("m.baseload", "m.threshold", "m.slope", "m.r_squared", "m.label"):
         assert part in query
     assert "m.fitted_at" in query
     assert "no usable model yet" in query
+
+
+def _rate_lookup(sql: str) -> str:
+    start = sql.index("JOIN agreement a")
+    return sql[start : sql.index("WHERE ${gas_unit:sqlstring}", start)]
 
 
 def _expected_queries() -> dict[str, str]:
@@ -450,6 +457,9 @@ def test_expected_gas_bars_come_from_the_forecast_days_of_the_latest_usable_mode
     assert "f.expected_gas * pr.unit_rate / 100" in pounds
     assert "AS expected_unit_cost_gbp" in pounds
     assert "AS expected_standing_charge_gbp" in pounds
+    # Expected pounds are priced exactly as the actual ones are (query B).
+    actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
+    assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "f.date")
 
 
 def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
@@ -467,3 +477,5 @@ def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
         assert expected["color"] == overrides[actual]["color"], series
     for series in ("expected_unit_cost_gbp", "expected_standing_charge_gbp"):
         assert overrides[series]["custom.stacking"]["mode"] == "normal"
+    for series in ("expected_kwh", "expected_unit_cost_gbp"):
+        assert overrides[series]["displayName"].endswith("(estimated)"), series

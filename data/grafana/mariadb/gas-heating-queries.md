@@ -169,7 +169,7 @@ AND (
 
 ### Daily Gas and Outdoor Temperature (time series)
 
-Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis. Only one of queries A and B returns rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
+Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis. Only A and D (kWh) or B and E (pounds) return rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
 
 Query A, kWh:
 
@@ -294,7 +294,7 @@ ORDER BY time;
 - **Pounds (B):** 14 October is unit cost 1.1548 (13.45352 kWh x 8.58396p) plus standing charge 0.2924, 1.4472 together; the same day rebuilt from the raw half-hour readings with the cost forecast's own formula (sum of kWh x unit rate, plus the standing charge) is 1.4473. Pounds only exist from 1 July 2026: the Pi holds gas rates from 30 June 2026 only, so earlier days have no rate and draw as gaps in the pounds view.
 - **Outdoor (C):** 3 October 15.7 C, 4 October 16.2 C, ... 15 October 17.2 C, and none for the current day (not complete yet).
 
-Queries D and E, the expected gas bars (lighter bars for today and the next days, from `heating_forecast_day`; D when the unit is kWh, E when it is pounds, like A and B). Only the forecast rows judged by the **latest usable** heating model are used (the cost forecast makes the same choice, so a refit that fails never leaves the bars on a stale model), and only from today's London date on, so a stalled model job cannot draw expected bars over days that have passed. With no usable model there are no expected bars. In pounds the expected kWh is priced with the rate and standing charge in force at the day's London midnight, the same lookup as query B, so a rate change inside the week is not foreseen. The bars stack the same way as the actual ones and are drawn with a lower fill opacity and an `expected` label.
+Queries D and E, the expected gas bars (lighter bars for today and the next days, from `heating_forecast_day`; D when the unit is kWh, E when it is pounds, like A and B). Only the forecast rows judged by the **latest usable** heating model are used (the cost forecast makes the same choice, so a refit that fails never leaves the bars on a stale model), and only from today's London date on, so a stalled model job cannot draw expected bars over days that have passed. With no usable model there are no expected bars. In pounds the expected kWh is priced with the rate and standing charge in force at the day's London midnight, the same lookup as query B, so a rate change inside the week is not foreseen, and a forecast day with no agreement or rate row has no pounds bar (a gap, not a zero). The bars are labelled `estimated` because the model is. The forecast outdoor temperature that used to sit beside them on this panel now lives on the temperatures panel. The bars stack the same way as the actual ones and are drawn with a lower fill opacity and an `expected` label.
 
 ```sql
 SELECT time, expected_kwh
@@ -601,9 +601,9 @@ FROM (
     m.slope,
     m.threshold,
     CASE pts.k
-      WHEN 0 THEN LEAST(r.lo, m.threshold)
+      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)
       WHEN 1 THEN m.threshold
-      ELSE GREATEST(r.hi, m.threshold)
+      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)
     END AS x
   FROM heating_model m
   CROSS JOIN (
