@@ -1942,6 +1942,736 @@
       ],
       "title": "Heating Model: gas against effective temperature (${model_summary})",
       "type": "xychart"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Each day's gas split into where it went, in kWh or pounds (the Daily gas unit switch). The slices add up to the day's gas: baseload (the steady use of hot water and cooking), heating used, the normal variation around what the model expected, and gas beyond that normal variation. That last part is 'excess' on a day that needed heating and 'avoidable' on a day that did not, each in a lighter shade for 'possible' (1 to 2 normal variations over) and a darker one for 'clear' (more than 2). Only the part beyond the normal variation is counted, so the totals in the legend are a floor. A day that used less than the model expected shows smaller baseload and heating slices, so the bar is always the day's real gas. In pounds the bars also carry the standing charge, so a bar is the day's cost. Away days and days without a complete gas figure are gaps. Estimated: the model's verdicts are coarse and carry its own label.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baseload_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "baseload"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baseload_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "baseload"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "heating_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "heating used"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "heating_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "heating used"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "normal_variation_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "super-light-blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "normal variation"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "normal_variation_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "super-light-blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "normal variation"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "excess_possible_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "excess (possible)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "excess_possible_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "excess (possible)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "excess_clear_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "excess (clear)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "excess_clear_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "excess (clear)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avoidable_possible_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "avoidable (possible)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avoidable_possible_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "avoidable (possible)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avoidable_clear_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "avoidable (clear)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avoidable_clear_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "avoidable (clear)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "standing_charge_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "standing charge"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, baseload_kwh, heating_kwh, normal_variation_kwh, excess_possible_kwh, excess_clear_kwh, avoidable_possible_kwh, avoidable_clear_kwh\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS baseload_kwh,\n    GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS heating_kwh,\n    GREATEST(v.normal_variation, 0) AS normal_variation_kwh,\n    IF(v.needed = 1, v.possible, 0) AS excess_possible_kwh,\n    IF(v.needed = 1, v.clear, 0) AS excess_clear_kwh,\n    IF(v.needed = 1, 0, v.possible) AS avoidable_possible_kwh,\n    IF(v.needed = 1, 0, v.clear) AS avoidable_clear_kwh\n  FROM heating_day_verdict v\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND v.away = 0\n    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, baseload_gbp, heating_gbp, normal_variation_gbp, excess_possible_gbp, excess_clear_gbp, avoidable_possible_gbp, avoidable_clear_gbp, standing_charge_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND((v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0))) * pr.unit_rate / 100, 4) AS baseload_gbp,\n    ROUND((GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0))) * pr.unit_rate / 100, 4) AS heating_gbp,\n    ROUND((GREATEST(v.normal_variation, 0)) * pr.unit_rate / 100, 4) AS normal_variation_gbp,\n    ROUND((IF(v.needed = 1, v.possible, 0)) * pr.unit_rate / 100, 4) AS excess_possible_gbp,\n    ROUND((IF(v.needed = 1, v.clear, 0)) * pr.unit_rate / 100, 4) AS excess_clear_gbp,\n    ROUND((IF(v.needed = 1, 0, v.possible)) * pr.unit_rate / 100, 4) AS avoidable_possible_gbp,\n    ROUND((IF(v.needed = 1, 0, v.clear)) * pr.unit_rate / 100, 4) AS avoidable_clear_gbp,\n    ROUND(pr.standing_charge / 100, 4) AS standing_charge_gbp\n  FROM heating_day_verdict v\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND v.away = 0\n    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Where the Gas Went (${gas_unit})",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "How much gas the house uses above its baseload for each degree of cold: over a rolling 7 days, the sum of (gas minus the day's moving baseload) divided by the sum of degree-days (degrees below the model's threshold, on the effective temperature). Lower means less heating gas for the same cold, so a fall after a change is a good sign, but the line never says why it moved. A gap means the window had fewer than 5 complete gas days, or less than 1.5 degree-days a day on average (too mild to measure: dividing by almost nothing makes any wobble look huge). Away days are left out. The panel shows the last 400 days whatever the dashboard range: a trend needs more than two weeks, and mild spells (like most of October) leave gaps. Estimated, like the model it uses.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 129600000,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "kwh_per_degree_day"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: kWh per degree-day"
+              },
+              {
+                "id": "displayName",
+                "value": "gas above baseload per degree-day"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 69
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH model AS (\n  SELECT m.threshold\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1\n),\ndays AS (\n  SELECT\n    v.date,\n    v.actual_gas - v.baseload AS above_baseload,\n    GREATEST(0, model.threshold - v.effective_temp) AS degree_days\n  FROM heating_day_verdict v\n  CROSS JOIN model\n  WHERE v.away = 0\n    AND v.effective_temp IS NOT NULL\n    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n)\nSELECT time, kwh_per_degree_day\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(d.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(SUM(w.above_baseload) / SUM(w.degree_days), 3) AS kwh_per_degree_day\n  FROM days d\n  JOIN days w ON w.date BETWEEN d.date - INTERVAL 6 DAY AND d.date\n  GROUP BY d.date\n  HAVING COUNT(*) >= 5\n     AND SUM(w.degree_days) >= 1.5 * COUNT(*)\n) r\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling)",
+      "type": "timeseries",
+      "timeFrom": "400d",
+      "hideTimeOverride": true
     }
   ],
   "refresh": "5m",

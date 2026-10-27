@@ -501,3 +501,144 @@ def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
         assert overrides[series]["custom.stacking"]["mode"] == "normal"
     for series in ("expected_kwh", "expected_unit_cost_gbp"):
         assert overrides[series]["displayName"].endswith("(estimated)"), series
+
+
+WHERE_THE_GAS_WENT = "Where the Gas Went (${gas_unit})"
+KWH_SLICES = (
+    "baseload_kwh",
+    "heating_kwh",
+    "normal_variation_kwh",
+    "excess_possible_kwh",
+    "excess_clear_kwh",
+    "avoidable_possible_kwh",
+    "avoidable_clear_kwh",
+)
+GBP_SLICES = tuple(name.replace("_kwh", "_gbp") for name in KWH_SLICES) + (
+    "standing_charge_gbp",
+)
+
+
+def test_where_the_gas_went_is_a_stacked_bar_chart_with_range_totals_in_the_legend() -> (
+    None
+):
+    panel = _panel(WHERE_THE_GAS_WENT)
+    overrides = _panel_overrides(WHERE_THE_GAS_WENT)
+
+    assert panel["type"] == "timeseries"
+    assert panel["fieldConfig"]["defaults"]["custom"]["drawStyle"] == "bars"
+    assert panel["options"]["legend"]["calcs"] == ["sum"]
+    assert panel["options"]["legend"]["displayMode"] == "table"
+    for series in KWH_SLICES + GBP_SLICES:
+        assert overrides[series]["custom.stacking"]["mode"] == "normal", series
+    assert {overrides[s]["unit"] for s in KWH_SLICES} == {"kwatth"}
+    assert {overrides[s]["unit"] for s in GBP_SLICES} == {"currencyGBP"}
+
+
+def test_the_slices_of_a_day_come_from_the_latest_usable_models_verdicts() -> None:
+    kwh = _query(WHERE_THE_GAS_WENT, "A")
+
+    for series in KWH_SLICES:
+        assert f"AS {series}" in kwh, series
+    assert "FROM heating_day_verdict v" in kwh
+    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in kwh
+    assert "v.away = 0" in kwh  # an away day is a neutral gap
+    assert "${gas_unit:sqlstring} = 'kWh'" in kwh
+
+
+def test_a_day_below_the_models_expectation_shrinks_the_expected_slices() -> None:
+    # Heating gives way first, then baseload, so the bar is the day's real gas.
+    kwh = _query(WHERE_THE_GAS_WENT, "A")
+
+    assert (
+        "GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS heating_kwh"
+        in kwh
+    )
+    assert (
+        "v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0)) "
+        "AS baseload_kwh"
+    ) in kwh
+    assert "GREATEST(v.normal_variation, 0) AS normal_variation_kwh" in kwh
+
+
+def test_possible_and_clear_gas_is_excess_when_needed_and_avoidable_otherwise() -> None:
+    kwh = _query(WHERE_THE_GAS_WENT, "A")
+
+    assert "IF(v.needed = 1, v.possible, 0) AS excess_possible_kwh" in kwh
+    assert "IF(v.needed = 1, v.clear, 0) AS excess_clear_kwh" in kwh
+    assert "IF(v.needed = 1, 0, v.possible) AS avoidable_possible_kwh" in kwh
+    assert "IF(v.needed = 1, 0, v.clear) AS avoidable_clear_kwh" in kwh
+
+
+def test_in_pounds_every_slice_is_priced_and_the_standing_charge_makes_the_cost() -> (
+    None
+):
+    pounds = _query(WHERE_THE_GAS_WENT, "B")
+    actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
+
+    for series in GBP_SLICES:
+        assert f"AS {series}" in pounds, series
+    assert "${gas_unit:sqlstring} = 'pounds'" in pounds
+    assert "v.away = 0" in pounds
+    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in pounds
+    # Priced exactly as the daily gas panel's actual pounds are.
+    assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "v.date")
+    assert "/ 100, 4) AS baseload_gbp" in pounds
+
+
+def test_the_shades_say_excess_or_avoidable_and_possible_or_clear() -> None:
+    overrides = _panel_overrides(WHERE_THE_GAS_WENT)
+
+    for unit in ("kwh", "gbp"):
+        names = {
+            kind: overrides[f"{kind}_{unit}"]["displayName"]
+            for kind in (
+                "excess_possible",
+                "excess_clear",
+                "avoidable_possible",
+                "avoidable_clear",
+            )
+        }
+        assert len(set(names.values())) == 4
+        assert "excess" in names["excess_possible"]
+        assert "possible" in names["excess_possible"]
+        assert "excess" in names["excess_clear"]
+        assert "clear" in names["excess_clear"]
+        assert "avoidable" in names["avoidable_possible"]
+        assert "avoidable" in names["avoidable_clear"]
+        # Each pair is two shades of one hue.
+        assert (
+            overrides[f"excess_possible_{unit}"]["color"]
+            != overrides[f"excess_clear_{unit}"]["color"]
+        )
+    for kwh in KWH_SLICES:
+        gbp = kwh.replace("_kwh", "_gbp")
+        assert overrides[kwh]["color"] == overrides[gbp]["color"], kwh
+        assert overrides[kwh]["displayName"] == overrides[gbp]["displayName"], kwh
+
+
+EFFICIENCY = "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling)"
+
+
+def test_the_efficiency_trend_divides_gas_above_baseload_by_degree_days() -> None:
+    sql = _query(EFFICIENCY, "A")
+
+    assert "v.actual_gas - v.baseload AS above_baseload" in sql
+    assert "GREATEST(0, model.threshold - v.effective_temp) AS degree_days" in sql
+    assert "JOIN days w ON w.date BETWEEN d.date - INTERVAL 6 DAY AND d.date" in sql
+    assert "SUM(w.above_baseload) / SUM(w.degree_days)" in sql
+    assert "v.away = 0" in sql
+    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in sql
+    assert "ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1" in sql
+
+
+def test_a_window_with_too_little_cold_or_too_few_days_is_a_gap() -> None:
+    sql = _query(EFFICIENCY, "A")
+
+    assert "HAVING COUNT(*) >= 5" in sql
+    assert "SUM(w.degree_days) >= 1.5 * COUNT(*)" in sql
+    # A trend needs more than the dashboard's two weeks; mild spells are gaps.
+    assert _panel(EFFICIENCY)["timeFrom"] == "400d"
+    assert _panel(EFFICIENCY)["hideTimeOverride"] is True
+    custom = _panel(EFFICIENCY)["fieldConfig"]["defaults"]["custom"]
+    assert custom["spanNulls"] is False
+    assert custom["insertNulls"] == 129600000

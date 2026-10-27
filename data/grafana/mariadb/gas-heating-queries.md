@@ -637,3 +637,112 @@ SELECT COALESCE((
 ```
 
 **Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). With the usable-model test made to match no model (`m.usable = 2`), queries A and B return no rows and the summary variable returns `no usable model yet`. The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.
+
+### Where the Gas Went (kWh or pounds) (stacked bars)
+
+Each day's gas as stacked bars that add up to the day's gas, from `heating_day_verdict` for the latest usable model, in kWh or pounds (the **Daily gas unit** variable; A is the kWh query and B the pounds one, only one returns rows). The seven slices are **baseload**, **heating used**, **normal variation**, and the gas beyond the normal variation: **excess** on a day that needed heating (`needed = 1`) and **avoidable** on a day that did not, each in a lighter shade for **possible** (1 to 2 normal variations over) and a darker one for **clear** (more than 2). Only the part beyond the normal variation is counted, so the totals are a floor. In pounds each slice is priced at the day's unit rate (the lookup is copied from the daily gas panel's query B, and a test pins the two together) and a standing charge slice is added, so a bar is the day's cost. The legend is a table on the right with the **sum** of each series over the dashboard time range.
+
+A day that used less gas than the model expected has a negative normal variation in the table. A stacked bar cannot show that and still equal the day's gas, so the shortfall comes off the expected slices (decided with the user): heating used is the expected heating less the shortfall, down to zero, and if the day used less than the baseload, the baseload slice shrinks too. Normal variation is shown only when positive. Away days (`away = 1`) and days without a complete gas figure (no verdict row) are gaps. The panel is labelled estimated because the verdicts are coarse (the model's R-squared is about 0.7).
+
+Query A, kWh:
+
+```sql
+SELECT time, baseload_kwh, heating_kwh, normal_variation_kwh, excess_possible_kwh, excess_clear_kwh, avoidable_possible_kwh, avoidable_clear_kwh
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') AS time,
+    v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS baseload_kwh,
+    GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS heating_kwh,
+    GREATEST(v.normal_variation, 0) AS normal_variation_kwh,
+    IF(v.needed = 1, v.possible, 0) AS excess_possible_kwh,
+    IF(v.needed = 1, v.clear, 0) AS excess_clear_kwh,
+    IF(v.needed = 1, 0, v.possible) AS avoidable_possible_kwh,
+    IF(v.needed = 1, 0, v.clear) AS avoidable_clear_kwh
+  FROM heating_day_verdict v
+  WHERE ${gas_unit:sqlstring} = 'kWh'
+    AND v.away = 0
+    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+Query B, pounds:
+
+```sql
+SELECT time, baseload_gbp, heating_gbp, normal_variation_gbp, excess_possible_gbp, excess_clear_gbp, avoidable_possible_gbp, avoidable_clear_gbp, standing_charge_gbp
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND((v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0))) * pr.unit_rate / 100, 4) AS baseload_gbp,
+    ROUND((GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0))) * pr.unit_rate / 100, 4) AS heating_gbp,
+    ROUND((GREATEST(v.normal_variation, 0)) * pr.unit_rate / 100, 4) AS normal_variation_gbp,
+    ROUND((IF(v.needed = 1, v.possible, 0)) * pr.unit_rate / 100, 4) AS excess_possible_gbp,
+    ROUND((IF(v.needed = 1, v.clear, 0)) * pr.unit_rate / 100, 4) AS excess_clear_gbp,
+    ROUND((IF(v.needed = 1, 0, v.possible)) * pr.unit_rate / 100, 4) AS avoidable_possible_gbp,
+    ROUND((IF(v.needed = 1, 0, v.clear)) * pr.unit_rate / 100, 4) AS avoidable_clear_gbp,
+    ROUND(pr.standing_charge / 100, 4) AS standing_charge_gbp
+  FROM heating_day_verdict v
+  JOIN agreement a
+    ON a.energy = 'G'
+   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from
+   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+  JOIN product_rate pr
+    ON pr.id = (
+      SELECT pr2.id FROM product_rate pr2
+      WHERE pr2.product_code = a.product_code
+        AND pr2.region = ${region:sqlstring}
+        AND pr2.valid_from <= CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC')
+      ORDER BY pr2.valid_from DESC
+      LIMIT 1
+    )
+  WHERE ${gas_unit:sqlstring} = 'pounds'
+    AND v.away = 0
+    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** The kWh slices add up to `daily_consumption_summary.total_kwh` on all 660 judged days (largest difference 0.000000), and the pounds slices plus the standing charge add up to the daily gas panel's unit cost plus standing charge on all 107 priced days (largest difference 0.000). Examples (kWh): 14 October (not needed): baseload 8.24, normal variation 3.52, avoidable (possible) 1.69, which is 13.45; 21 October (used less than expected): baseload 3.61 and nothing else, because the day used 3.61 kWh against a baseload of 8.23. With the usable-model test made to match no model (`m.usable = 2`) both queries return no rows.
+
+### Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling) (time series)
+
+A line of how much gas the house uses above its baseload for each degree of cold: for each day, over that day and the six before it, the sum of (the day's gas minus its moving baseload) divided by the sum of degree-days, where a day's degree-days are the degrees its effective temperature is below the latest usable model's threshold. Lower means less heating gas for the same cold. It never says why it moved. Away days are left out of both sums, and a day with no verdict row (no complete gas figure) simply is not in the window.
+
+A window is a gap when it has fewer than **5** judged days, or when its degree-days are under **1.5 a day on average** (the same cut-off the year-on-year design uses for weeks): dividing by almost no cold makes any wobble look huge. The 1.5 was chosen with the user. Gas above baseload is not clamped at zero, so a warm week that used less than the baseload gives a small or even negative figure. The panel shows the last 400 days whatever the dashboard range (like the monthly panel), because a trend needs more than two weeks and October's mild weather leaves the last two weeks empty.
+
+```sql
+WITH model AS (
+  SELECT m.threshold
+  FROM heating_model m
+  WHERE m.usable = 1
+  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1
+),
+days AS (
+  SELECT
+    v.date,
+    v.actual_gas - v.baseload AS above_baseload,
+    GREATEST(0, model.threshold - v.effective_temp) AS degree_days
+  FROM heating_day_verdict v
+  CROSS JOIN model
+  WHERE v.away = 0
+    AND v.effective_temp IS NOT NULL
+    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+)
+SELECT time, kwh_per_degree_day
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(d.date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(SUM(w.above_baseload) / SUM(w.degree_days), 3) AS kwh_per_degree_day
+  FROM days d
+  JOIN days w ON w.date BETWEEN d.date - INTERVAL 6 DAY AND d.date
+  GROUP BY d.date
+  HAVING COUNT(*) >= 5
+     AND SUM(w.degree_days) >= 1.5 * COUNT(*)
+) r
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** 15 January 2026: 7 judged days, 257.629 kWh above baseload over 53.497 degree-days (threshold 13 C), which is 4.816, and the panel query returned the same 4.816. 10 March 2026 returned no row (no judged days in its window). Across the whole history 270 days have a value (from -0.416 to 7.003), and none falls in the last 14 days. With the usable-model test made to match no model, the query returns no rows.

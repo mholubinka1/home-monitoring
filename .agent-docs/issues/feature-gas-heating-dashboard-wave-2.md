@@ -31,11 +31,11 @@ Stacked daily bars of five slices that sum to actual gas (baseload, expected hea
 
 ### Acceptance criteria
 
-- [ ] For any day the stacked slices sum to the day's gas.
-- [ ] Legend totals match the verdict table for the selected range.
-- [ ] Given the pounds option, then totals equal the day's cost.
-- [ ] Away and unsettled days are neutral gaps.
-- [ ] A not-needed day shows avoidable only when clearly warm.
+- [x] For any day the stacked slices sum to the day's gas (checked on the Pi for all 660 judged days; a day below expectation shrinks the expected slices, decided with the user).
+- [ ] Legend totals match the verdict table for the selected range (the legend is Grafana's sum of the series, which equal the verdict slices; needs the real-Grafana look).
+- [x] Given the pounds option, then totals equal the day's cost (checked on the Pi for all 107 priced days).
+- [x] Away and unsettled days are neutral gaps (away days are filtered out; unsettled days have no verdict row).
+- [x] A not-needed day shows avoidable only when clearly warm (avoidable is the beyond-normal gas of a day with `needed = 0`, which is a day at or above the threshold's upper end; 14 October shows 1.69 kWh).
 
 ---
 
@@ -51,9 +51,9 @@ A rolling 7-day line of (gas above the moving baseload) per degree-day, hidden f
 
 ### Acceptance criteria
 
-- [ ] The line equals the 7-day sum of gas above baseload divided by the 7-day sum of degree-days.
-- [ ] Windows below the minimum degree-days show a gap.
-- [ ] The query and the minimum are documented.
+- [x] The line equals the 7-day sum of gas above baseload divided by the 7-day sum of degree-days (15 January 2026: 257.629 / 53.497 = 4.816 by hand and by the panel query).
+- [x] Windows below the minimum degree-days show a gap (under 1.5 degree-days a day on average, or under 5 judged days; the last 14 days of mild October are all gaps).
+- [x] The query and the minimum are documented (queries document, "Heating Efficiency").
 
 ---
 
