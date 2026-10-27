@@ -276,3 +276,31 @@ def test_moving_code_into_docs_is_still_a_code_change(repo: _Repo) -> None:
 
     assert result["lane"] == "code"
     assert result["images"] == "true"
+
+
+def test_markdown_the_grafana_tests_read_runs_the_grafana_lane(repo: _Repo) -> None:
+    repo.branch("feature")
+    repo.change("data/grafana/mariadb/electricity-queries.md")
+
+    assert repo.classify("feature")["lane"] == "grafana"
+
+
+def test_markdown_under_deployments_is_code_because_tests_read_it(repo: _Repo) -> None:
+    repo.branch("feature")
+    repo.change("deployments/hive-app/REAUTH_RUNBOOK.md")
+
+    result = repo.classify("feature")
+
+    assert result["lane"] == "code"
+    assert result["images"] == "false", "no image copies a runbook"
+
+
+def test_the_full_run_fallback_checks_the_links_in_every_markdown_file(
+    repo: _Repo,
+) -> None:
+    repo._git("checkout", "--orphan", "unrelated")
+    repo.change("docs/new.md")
+
+    result = repo.classify("unrelated")
+
+    assert sorted(result["changed_md"].split()) == ["README.md", "docs/new.md"]

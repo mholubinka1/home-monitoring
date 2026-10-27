@@ -254,10 +254,11 @@ jobs:
         # run the combined test suite.
         run: uv sync --locked --all-packages
 
-      - name: Run the dashboard and scripts tests
+      - name: Run the dashboard tests
         if: success() && needs.checks.outputs.lane == 'grafana'
-        # A Grafana-only change: only the scripts tests read the dashboards.
-        run: uv run pytest scripts/tests
+        # A Grafana-only change: only the tests that read data/grafana/, picked by name
+        # since they live in more than one package.
+        run: uv run pytest -k grafana
 
       - name: Run tests
         if: success() && needs.checks.outputs.lane == 'code'
@@ -320,6 +321,9 @@ jobs:
           docker buildx build --tag octopus-app:ci -f deployments/octopus-app/Dockerfile .
           docker buildx build --tag hive-app:ci -f deployments/hive-app/Dockerfile .
 
+      # main publishes `latest` only when an image input changed. If a push here fails,
+      # re-run the failed job: a later main push that changes no image input will not
+      # republish.
       - name: Push the octopus-app image
         if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: nick-fields/retry@v4

@@ -31,8 +31,8 @@ needs:
 
 - A **docs-only change** (Markdown, `.agent-docs/`, `docs/`) runs the cheap lints only and
   is green in about 5 minutes. The `build` job is skipped.
-- A **Grafana-only change** (`data/grafana/`) also runs the quick scripts tests that read
-  the dashboards.
+- A **Grafana-only change** (`data/grafana/`) also runs the quick tests that read the
+  dashboards.
 - A **code change** runs every check and the full test suite, which is much cheaper now,
   and is green in about 15 minutes.
 - **Images** are built only when something that goes into them changed. They are pushed
@@ -92,7 +92,8 @@ needs:
   - Renames count at both their old and new path.
 
   It reports a `lane`, plus `images` and `changed_md`:
-  - `lane=docs`: every changed path is `*.md`, `.agent-docs/**` or `docs/**`.
+  - `lane=docs`: every changed path is `*.md`, `.agent-docs/**` or `docs/**`, outside
+    `data/grafana/` and `deployments/`. Tests read the Markdown in those two directories.
   - `lane=grafana`: some changed path is under `data/grafana/` and nothing else is code.
   - `lane=code`: any other path, including `.github/`, `pyproject.toml`, `uv.lock` and
     `deployments/`.
@@ -112,11 +113,13 @@ needs:
   - gitleaks (kept, as today).
 
   The markdown link check runs only on `changed_md`, and is skipped when that list is
-  empty. When `code` is set, the job also runs `uv lock --check`, `uv sync`, pyproject
+  empty. On the full-run fallback, `changed_md` lists every Markdown file. The cheap lints
+  run with `uv run --no-project`, so they need no project sync. When `code` is set, the job also runs `uv lock --check`, `uv sync`, pyproject
   validation, `uv audit`, mypy, isort, black, ruff, pylint (unchanged) and bandit.
 - **`build` lanes.** The job is skipped at job level when the change is docs-only. A
   skipped job satisfies a required check.
-  - Grafana-only: sync and run only the scripts tests.
+  - Grafana-only: sync and run only the tests with `grafana` in their name. A test pins
+    that every test reading `data/grafana/` is named that way.
   - Code: the full suite with coverage under `COVERAGE_CORE=sysmon`, then the coverage
     baseline raise as today.
   - `images`: build both images. Log in and push only on `main`, as `latest`. On branches,

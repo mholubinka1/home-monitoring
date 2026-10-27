@@ -1,5 +1,7 @@
 # Remove the hosted-only fork-PR fallback workflow (supersedes part of ADR-0012)
 
+> **Note**: `ci-checks.yml` and `ci-arm64.yml` were later merged into one push-only workflow, `.github/workflows/ci.yml` (spec `chore-ci-speedup`); the push-only trigger decision below is unchanged.
+
 ADR-0012 added `ci-fork-checks.yml` so external contributors' fork PRs would still get automated checks once the self-hosted runner went push-only. On review, its justification didn't hold: it always ran on `ubuntu-latest`, never the self-hosted runner, so it was never actually protecting anything beyond what the push-only trigger redesign already closed by itself. What it provided instead was a convenience — an automated pre-check on incoming contribution PRs — for a solo-maintainer project with no history of external contributors, where CODEOWNERS already forces a human to look at every PR before merge regardless of whether an automated check ran.
 
 Keeping it meant carrying real, ongoing complexity for that convenience: a trusted-checkout pattern spread across two files, two fork-trust gaps that Copilot's review caught and required fixing, and one residual gap (`pyproject.toml`-driven tool config can still be used by a fork to silence findings) that ADR-0012 explicitly accepted rather than fixed, because closing it fully would mean hardcoding every lint tool's flags instead of letting them read the project config. None of that complexity was earning its keep against a threat model — accidental or malicious — that doesn't currently exist for this repo.

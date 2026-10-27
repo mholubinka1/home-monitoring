@@ -35,9 +35,9 @@ already do. Production code is unchanged.
 
 ### What to build
 
-A small script that says what kind of change a commit is. On a branch, it compares the
-tip with its merge-base with `main`. On `main`, it compares the commit with its first
-parent. It prints GitHub Actions outputs:
+A small script that says what kind of change a push is. On a branch, it compares the
+tip with its merge-base with `main`. On `main`, it compares from where `main` was
+before the push. It prints GitHub Actions outputs:
 
 - `docs`
 - `grafana`
@@ -60,7 +60,8 @@ by subprocess against a throwaway git repo.
 - [ ] Given `.github/` changes, then the result is code.
 - [ ] Given no merge-base or a git error, then the result is code and images.
 - [ ] Given an empty diff, then the result is docs.
-- [ ] Given a commit on `main`, then it is judged against its first parent only.
+- [ ] Given a push to `main`, then all its commits are judged together, from where
+      `main` was before the push, or from the first parent if that is unknown.
 - [ ] `changed_md` lists exactly the changed Markdown files that still exist.
 
 ---

@@ -1,5 +1,7 @@
 # Self-hosted CI triggers on push only; fork PRs get a separate hosted-only workflow
 
+> **Note**: `ci-checks.yml` and `ci-arm64.yml` were later merged into one push-only workflow, `.github/workflows/ci.yml` (spec `chore-ci-speedup`); the push-only trigger decision below is unchanged.
+>
 > **Note**: everything below about `ci-fork-checks.yml` itself — its introduction, its later composite-action extraction, and the two fork-trust fixes to it — was reversed in [ADR-0013](0013-remove-fork-pr-fallback-workflow.md); the file no longer exists. The push-only trigger redesign for `ci-checks.yml`/`ci-arm64.yml` is unaffected and still stands.
 
 Before this change, both `ci-checks.yml` and `ci-arm64.yml` triggered on `pull_request`, and `ci-arm64.yml` was already self-hosted — meaning a stranger's fork PR against this public repo could execute arbitrary code (via `actions/checkout` of the PR head) on the self-hosted ARM64 runner. We removed `pull_request` from both self-hosted workflows entirely, relying on GitHub matching required status checks to a PR's head commit SHA regardless of which event produced the check run: a `push` to a branch already satisfies that branch's own PR checks, so same-repo PRs lose no coverage. A new `ci-fork-checks.yml`, gated to run only when `head.repo.full_name != github.repository`, covers external contributors on `ubuntu-latest` — GitHub's own sandboxed, ephemeral infrastructure — so the self-hosted runner never receives a `pull_request` event at all.

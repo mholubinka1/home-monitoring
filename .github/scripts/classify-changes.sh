@@ -2,14 +2,16 @@
 # Says what kind of change this push is, so CI only does the work it needs.
 #
 # A branch is judged as a whole: its tip against its merge-base with origin/main. A
-# commit on main is judged against its first parent (the main it was merged into).
+# push to main is judged from where main was before it (PUSH_BEFORE).
 # Writes to $GITHUB_OUTPUT:
-#   lane=docs|grafana|code  docs: only *.md, .agent-docs/ or docs/ changed
+#   lane=docs|grafana|code  docs: only *.md, .agent-docs/ or docs/ changed, outside
+#                                 data/grafana/ and deployments/
 #                           grafana: data/grafana/ changed and nothing that is code
 #                           code: anything else
 #   images=true|false       something that goes into an app image changed
 #   changed_md=<paths>      space-separated changed Markdown files that still exist
-# If the diff can't be worked out, it says code and images: the full run.
+# If the diff can't be worked out, it says code and images and lists every Markdown
+# file: the full run.
 set -uo pipefail
 
 output="${GITHUB_OUTPUT:-/dev/stdout}"
@@ -19,7 +21,7 @@ full_run() {
   {
     echo "lane=code"
     echo "images=true"
-    echo "changed_md="
+    echo "changed_md=$(git ls-files '*.md' | tr '\n' ' ' | sed 's/ *$//')"
   } >>"$output"
   exit 0
 }
@@ -48,9 +50,12 @@ lane=docs
 images=false
 while IFS= read -r path; do
   [ -n "$path" ] || continue
+  # Directories before the *.md rule: tests read the Markdown under data/grafana/ and
+  # deployments/, so changing it is not docs-only.
   case "$path" in
-    *.md | .agent-docs/* | docs/*) ;;
     data/grafana/*) [ "$lane" = docs ] && lane=grafana ;;
+    deployments/*) lane=code ;;
+    *.md | .agent-docs/* | docs/*) ;;
     *) lane=code ;;
   esac
   case "$path" in

@@ -543,11 +543,32 @@ def test_docs_only_changes_skip_the_tests_and_images_job() -> None:
     )
 
 
-def test_grafana_changes_run_only_the_scripts_tests() -> None:
-    step = _step(BUILD_FILE, BUILD_JOB, "Run the dashboard and scripts tests")
+def test_grafana_changes_run_only_the_dashboard_tests() -> None:
+    # Dashboard tests live in more than one package (scripts/tests and the octopus-app
+    # tests), so they are picked by name rather than by directory.
+    step = _step(BUILD_FILE, BUILD_JOB, "Run the dashboard tests")
 
     assert step.get("if") == "success() && needs.checks.outputs.lane == 'grafana'"
-    assert "pytest scripts/tests" in step["run"]
+    assert step["run"] == "uv run pytest -k grafana"
+
+
+def test_every_test_that_reads_the_grafana_files_has_grafana_in_its_name() -> None:
+    # Otherwise a Grafana-only change would skip it.
+    tests_root = WORKFLOWS_DIR.parents[1]
+    grafana_dir = '/ "data" / "grafana"'
+    readers = [
+        path
+        for package in ("apps", "libs", "scripts")
+        for path in (tests_root / package).rglob("test_*.py")
+        if grafana_dir in path.read_text(encoding="utf-8")
+        and path != Path(__file__).resolve()
+    ]
+
+    assert readers, "expected at least one dashboard test"
+    for path in readers:
+        assert (
+            "grafana" in path.name
+        ), f"{path} reads the Grafana files but -k grafana misses it"
 
 
 def test_code_changes_run_the_full_test_suite() -> None:
