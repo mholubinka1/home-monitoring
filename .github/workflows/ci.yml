@@ -321,9 +321,9 @@ jobs:
           docker buildx build --tag octopus-app:ci -f deployments/octopus-app/Dockerfile .
           docker buildx build --tag hive-app:ci -f deployments/hive-app/Dockerfile .
 
-      # main publishes `latest` only when an image input changed. If a push here fails,
-      # re-run the failed job: a later main push that changes no image input will not
-      # republish.
+      # main publishes `latest` only when an image input changed. If a main run with an
+      # image change fails (tests or push), `latest` stays behind until a later main push
+      # changes an image input: re-run the job once fixed, or push the fix with one.
       - name: Push the octopus-app image
         if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: nick-fields/retry@v4

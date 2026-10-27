@@ -9,7 +9,8 @@
 #                           grafana: data/grafana/ changed and nothing that is code
 #                           code: anything else
 #   images=true|false       something that goes into an app image changed
-#   changed_md=<paths>      space-separated changed Markdown files that still exist
+#   changed_md=<paths>      space-separated changed Markdown files that still exist;
+#                           every Markdown file if anything was deleted or moved
 # If the diff can't be worked out, it says code and images and lists every Markdown
 # file: the full run.
 set -uo pipefail
@@ -45,6 +46,12 @@ fi
 diff=(git -c core.quotePath=false diff --no-renames --name-only "$base" HEAD)
 changed=$("${diff[@]}") || full_run "git diff failed"
 changed_md=$("${diff[@]}" --diff-filter=d -- '*.md') || full_run "git diff failed"
+# A deleted (or moved) file can break a link in a Markdown file that did not change,
+# so then every Markdown file gets its links checked.
+deleted=$("${diff[@]}" --diff-filter=D) || full_run "git diff failed"
+if [ -n "$deleted" ]; then
+  changed_md=$(git ls-files '*.md') || full_run "git ls-files failed"
+fi
 
 lane=docs
 images=false

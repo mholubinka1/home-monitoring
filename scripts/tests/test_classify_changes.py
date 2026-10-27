@@ -225,16 +225,14 @@ def test_a_code_merge_on_main_runs_the_code_lane_with_images(repo: _Repo) -> Non
     assert result["images"] == "true"
 
 
-def test_changed_markdown_lists_only_the_markdown_files_that_still_exist(
+def test_changed_markdown_lists_only_the_markdown_files_the_branch_changed(
     repo: _Repo,
 ) -> None:
-    repo.write("docs/old.md")
+    repo.write("docs/untouched.md")
     repo.commit("add a doc")
     repo._git("update-ref", "refs/remotes/origin/main", "HEAD")
     repo.branch("feature")
     repo.change("README.md", ".agent-docs/specs/new.md", "docs/guide.txt")
-    (repo.root / "docs" / "old.md").unlink()
-    repo.commit("remove a doc")
 
     result = repo.classify("feature")
 
@@ -304,3 +302,18 @@ def test_the_full_run_fallback_checks_the_links_in_every_markdown_file(
     result = repo.classify("unrelated")
 
     assert sorted(result["changed_md"].split()) == ["README.md", "docs/new.md"]
+
+
+def test_deleting_a_file_checks_the_links_in_every_markdown_file(repo: _Repo) -> None:
+    # An unchanged README may still link to the file that went away.
+    repo.write("docs/old.md")
+    repo.commit("add a doc")
+    repo._git("update-ref", "refs/remotes/origin/main", "HEAD")
+    repo.branch("feature")
+    (repo.root / "docs" / "old.md").unlink()
+    repo.commit("remove a doc")
+
+    result = repo.classify("feature")
+
+    assert result["lane"] == "docs"
+    assert sorted(result["changed_md"].split()) == ["README.md"]

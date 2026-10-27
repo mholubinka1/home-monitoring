@@ -108,14 +108,15 @@ Wire the classifier into `checks` as job outputs:
 - Python checks run only for code.
 - The link check runs only on changed Markdown files.
 - `build` is skipped for docs-only changes.
-- `build` runs only the scripts tests for Grafana-only changes.
+- `build` runs only the tests with `grafana` in their name for Grafana-only changes.
 - `build` runs the full suite for code.
 
 ### Acceptance criteria
 
 - [ ] Given a docs-only push, then only the lints run, `build` is skipped, and the run is
       green.
-- [ ] Given a Grafana-only push, then `build` runs the scripts tests only.
+- [ ] Given a Grafana-only push, then `build` runs only the tests that read the
+      dashboards.
 - [ ] Given a code push, then every Python check and the full suite run.
 - [ ] Given no changed Markdown, then the link check is skipped. Otherwise it checks only
       the changed files.
