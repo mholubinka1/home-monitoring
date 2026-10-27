@@ -503,7 +503,7 @@ def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
         assert overrides[series]["displayName"].endswith("(estimated)"), series
 
 
-WHERE_THE_GAS_WENT = "Where the Gas Went (${gas_unit})"
+WHERE_THE_GAS_WENT = "Where the Gas Went (${gas_unit}, estimated)"
 KWH_SLICES = (
     "baseload_kwh",
     "heating_kwh",
@@ -616,7 +616,9 @@ def test_the_shades_say_excess_or_avoidable_and_possible_or_clear() -> None:
         assert overrides[kwh]["displayName"] == overrides[gbp]["displayName"], kwh
 
 
-EFFICIENCY = "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling)"
+EFFICIENCY = (
+    "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling, estimated)"
+)
 
 
 def test_the_efficiency_trend_divides_gas_above_baseload_by_degree_days() -> None:

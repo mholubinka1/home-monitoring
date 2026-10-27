@@ -638,11 +638,11 @@ SELECT COALESCE((
 
 **Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). With the usable-model test made to match no model (`m.usable = 2`), queries A and B return no rows and the summary variable returns `no usable model yet`. The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.
 
-### Where the Gas Went (kWh or pounds) (stacked bars)
+### Where the Gas Went (kWh or pounds, estimated) (stacked bars)
 
 Each day's gas as stacked bars that add up to the day's gas, from `heating_day_verdict` for the latest usable model, in kWh or pounds (the **Daily gas unit** variable; A is the kWh query and B the pounds one, only one returns rows). The seven slices are **baseload**, **heating used**, **normal variation**, and the gas beyond the normal variation: **excess** on a day that needed heating (`needed = 1`) and **avoidable** on a day that did not, each in a lighter shade for **possible** (1 to 2 normal variations over) and a darker one for **clear** (more than 2). Only the part beyond the normal variation is counted, so the excess and avoidable totals are a floor (the others are exact). In pounds each slice is priced at the day's unit rate (the lookup is copied from the daily gas panel's query B, and a test pins the two together) and a standing charge slice is added, so a bar is the day's cost. The legend is a table on the right with the **sum** of each series over the dashboard time range.
 
-A day that used less gas than the model expected has a negative normal variation in the table. A stacked bar cannot show that and still equal the day's gas, so the shortfall comes off the expected slices (decided with the user): heating used is the expected heating less the shortfall, down to zero, and if the day used less than the baseload, the baseload slice shrinks too. Normal variation is shown only when positive. Away days (`away = 1`) and days without a complete gas figure (no verdict row) are gaps. The panel is labelled estimated because the verdicts are coarse (the model's R-squared is about 0.7).
+A day that used less gas than the model expected has a negative normal variation in the table. A stacked bar cannot show that and still equal the day's gas, so the shortfall comes off the expected slices (decided with the user): heating used is the expected heating less the shortfall, down to zero, and if the day used less than the baseload, the baseload slice shrinks too. Normal variation is shown only when positive. Away days (`away = 1`) and days without a complete gas figure (no verdict row) are gaps. The panel title says estimated because the verdicts are coarse (the model's R-squared is about 0.7).
 
 Query A, kWh:
 
@@ -706,7 +706,7 @@ ORDER BY time;
 
 **Checked read-only against the Pi on 27 October 2026.** The kWh slices add up to `daily_consumption_summary.total_kwh` on all 660 judged days (largest difference 0.000000), and the pounds slices plus the standing charge add up to the daily gas panel's unit cost plus standing charge on all 107 priced days (largest difference 0.000). Examples (kWh): 14 October (not needed): baseload 8.24, normal variation 3.52, avoidable (possible) 1.69, which is 13.45; 21 October (used less than expected): baseload 3.61 and nothing else, because the day used 3.61 kWh against a baseload of 8.23. With the usable-model test made to match no model (`m.usable = 2`) both queries return no rows.
 
-### Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling) (time series)
+### Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling, estimated) (time series)
 
 A line of how much gas the house uses above its baseload for each degree of cold: for each day, over that day and the six before it, the sum of (the day's gas minus its moving baseload) divided by the sum of degree-days, where a day's degree-days are the degrees its effective temperature is below the latest usable model's threshold. Lower means less heating gas for the same cold. It never says why it moved. Away days are left out of both sums, and a day with no verdict row (no complete gas figure) simply is not in the window.
 

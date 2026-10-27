@@ -2533,7 +2533,7 @@
           }
         }
       ],
-      "title": "Where the Gas Went (${gas_unit})",
+      "title": "Where the Gas Went (${gas_unit}, estimated)",
       "type": "timeseries"
     },
     {
@@ -2668,7 +2668,7 @@
           }
         }
       ],
-      "title": "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling)",
+      "title": "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling, estimated)",
       "type": "timeseries",
       "timeFrom": "400d",
       "hideTimeOverride": true
