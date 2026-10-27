@@ -832,7 +832,7 @@ SELECT COALESCE((
 
 Monthly bars of the estimated gas a thermostat 1 C lower would have saved, in kWh or pounds (the **Daily gas unit** variable, decided with the user; A is the kWh query and B the pounds one, only one returns rows). A month's saving is the latest usable model's **slope** (kWh per degree of cold) times the number of days that month judged `needed` (away days excluded); only days the model has judged count, so the current month is partial. A month with judged days but none needed shows 0 in both units. In pounds each needed day is priced at that day's unit rate (the rate lookup is copied from the daily gas panel's query B and a test pins the two together); the standing charge does not change with the setpoint, so it is not included. As elsewhere, pounds exist only from 1 July 2026, when the Pi's gas rates start.
 
-The line is the average thermostat target (right axis, degrees) over the readings at or above the `${comfort_target}` box, that is when the heating was set to comfort. It does not depend on the model's judgement of the day: a warm day with a comfort target (a boost) counts. A comfort target that is not a number gives no line. The thermostat record starts on 3 October 2026, so earlier months have no line. The reading-to-month join runs over the whole `heating_status` table each refresh, which is fine at this size (about 12,000 rows) and worth a time-range limit if the table grows to millions.
+The line is the average thermostat target (right axis, degrees) over the readings at or above the `${comfort_target}` box, that is when the heating was set to comfort. It does not depend on the model's judgement of the day: a warm day with a comfort target (a boost) counts. A comfort target that is not a number gives no line. The thermostat record starts on 3 October 2026, so earlier months have no line. The readings are read from one month before the panel's range starts (`$__timeFrom() - INTERVAL 1 MONTH`), so the oldest month's average is complete and the scan stays bounded as the table grows.
 
 It is an estimate from the model, not a promise, and says so in its title and description.
 
@@ -861,7 +861,8 @@ targets AS (
     CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,
     ROUND(AVG(h.target_temp), 2) AS avg_target_c
   FROM heating_status h
-  WHERE h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
+  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH
+    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
   GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)
 )
 SELECT time, saving_kwh, avg_target_c
@@ -914,7 +915,8 @@ targets AS (
     CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,
     ROUND(AVG(h.target_temp), 2) AS avg_target_c
   FROM heating_status h
-  WHERE h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
+  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH
+    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
   GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)
 )
 SELECT time, saving_gbp, avg_target_c

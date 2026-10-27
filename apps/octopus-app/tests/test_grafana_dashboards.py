@@ -780,6 +780,7 @@ def test_the_average_target_line_uses_only_comfort_target_readings() -> None:
         assert f"h.target_temp >= {guard}" in sql, ref
         assert "AS avg_target_c" in sql, ref
         assert "FROM heating_status h" in sql, ref
+        assert "h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH" in sql, ref
     # The window is the panel's own range (400 days) so the title counts what is drawn.
     summary = next(
         v
