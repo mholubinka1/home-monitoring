@@ -697,6 +697,7 @@ def test_the_switch_and_the_title_summary_are_dashboard_variables() -> None:
     # The title counts the same weeks the panel plots: one rule, two copies.
     for week in ("w", "l"):
         assert f"{week}.status {WEEK_STATUSES_THE_SWITCH_LIFTS}" in summary["query"]
+        assert f"{week}.efficiency IS NOT NULL" in summary["query"]
     assert "w.status = 'shown'" in summary["query"]
     assert "l.status = 'shown'" in summary["query"]
     assert switch["type"] == "custom"
