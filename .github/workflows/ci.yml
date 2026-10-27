@@ -1,9 +1,14 @@
-name: Docker Build/Publish Image - ARM64
+name: CI
 
+# Push only, never pull_request: see ADR-0012 (the self-hosted runner must never run a
+# fork's code). Required checks match a PR by its head SHA, so a push satisfies them.
 on:
   push:
     branches:
       - '**'
+
+permissions:
+  contents: read
 
 # main runs are never cancelled (they publish the `latest` image) and are keyed on the
 # SHA so a newer pending main run cannot replace an older pending one.
@@ -11,9 +16,158 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+defaults:
+  run:
+    shell: bash
+
+# Both jobs run on the single self-hosted runner, one after the other: the quick checks
+# first, so a lint failure stops the run before the much longer test suite starts.
 jobs:
-  ARM64_App_Image_Build_and_Push:
-    runs-on: [ARM64]
+  checks:
+    name: Checks
+    runs-on: [self-hosted, linux, ARM64]
+    steps:
+      - name: Fail fast if the runner disk is nearly full
+        shell: bash
+        env:
+          MIN_FREE_GB: 5
+        run: |
+          free_kb=$(df --output=avail -k / | tail -n 1 | tr -d ' ')
+          if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
+            echo "::error::Runner disk is nearly full: $((free_kb / 1024 / 1024)) GB free on / (need at least ${MIN_FREE_GB} GB)."
+            df -h /
+            docker system df || true
+            echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
+            echo "  unused docker volumes: docker volume ls -f dangling=true"
+            echo "  docker build cache:    docker builder du"
+            exit 1
+          fi
+          echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.13'
+          # Pin the uv binary (not just the action) so `uv audit` — which uv still
+          # marks experimental — runs the same version CI-side as the pinned
+          # uv-audit pre-commit hook (astral-sh/uv-pre-commit 0.11.33).
+          version: '0.11.33'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+
+      - name: Install markdownlint-cli and markdown-link-check
+        run: npm install -g markdownlint-cli markdown-link-check
+
+      - name: Verify uv.lock is consistent with pyproject.toml
+        run: uv lock --check
+
+      - name: Install project dependencies
+        # --all-packages: this is a uv workspace (apps/octopus-app, apps/hive-app,
+        # libs/common) whose root has no [project.dependencies] of its own. A plain
+        # `uv sync` only installs the root project's (empty) closure, leaving every
+        # workspace member's own runtime deps (pydantic, sqlalchemy, pyhive-integration,
+        # ...) uninstalled -- which breaks mypy (can't resolve imports) and pytest
+        # (can't import the apps under test) further down this file.
+        run: uv sync --locked --all-packages
+
+      - name: Validate pyproject.toml
+        run: >-
+          uv run --with 'validate-pyproject[all]' validate-pyproject
+          pyproject.toml
+          apps/octopus-app/pyproject.toml
+          apps/hive-app/pyproject.toml
+          libs/common/pyproject.toml
+
+      - name: Audit dependencies for known vulnerabilities
+        run: uv audit
+
+      - name: Type check with mypy
+        run: uv run mypy apps/octopus-app/octopus_app apps/hive-app/hive_app libs/common/common
+
+      - name: Check import ordering with isort
+        run: uv run isort --check-only --profile black apps/ libs/
+
+      - name: Check code formatting with black
+        run: uv run black --check apps/ libs/
+
+      - name: Check linting with ruff
+        run: uv run ruff check --no-fix apps/ libs/
+
+      - name: Check linting with pylint
+        run: uv run pylint apps libs
+
+      - name: Check YAML style with yamllint
+        run: uv run --with yamllint yamllint .
+
+      - name: Lint GitHub Actions workflows with actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - name: Lint shell scripts with shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 -r uv run --with shellcheck-py shellcheck
+
+      - name: Check spelling with codespell
+        run: uv run --with codespell codespell --skip=uv.lock
+
+      - name: Check markdown style
+        run: markdownlint '**/*.md' --ignore node_modules
+
+      - name: Check markdown links
+        # markdown-link-check only retries HTTP 429, and its `timeout` is per request, so a
+        # dropped or refused connection (reported as "Status: 0") is never retried. Retry
+        # the whole check instead; a link that is genuinely dead fails every attempt and
+        # still fails the build.
+        run: |
+          for attempt in 1 2 3; do
+            if find . -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" \
+              -print0 | xargs -0 -r markdown-link-check --config .markdown-link-check.json; then
+              exit 0
+            fi
+            echo "::warning::Markdown link check failed (attempt ${attempt} of 3)"
+            if [ "$attempt" -lt 3 ]; then
+              sleep 15
+            fi
+          done
+          echo "::error::Markdown link check failed on all 3 attempts; a link is persistently dead."
+          exit 1
+
+      - name: Security analysis with bandit
+        # Scoped to non-test application code only, same as always: bandit's own
+        # assert-used/hardcoded-password checks are expected noise in test code
+        # (mirrors .pre-commit-config.yaml's bandit hook, which has
+        # `exclude: (^|/)tests/`). There's no [tool.bandit] table in pyproject.toml
+        # to carry that exclusion, and this is a raw `uv run bandit` invocation (not
+        # going through pre-commit here), so it's expressed as bandit's own --exclude
+        # flag instead, naming all three packages' test dirs explicitly.
+        run: >-
+          uv run --with 'bandit[toml]' bandit -r -c pyproject.toml apps libs
+          --exclude apps/octopus-app/tests,apps/hive-app/tests,libs/common/tests
+
+      # gitleaks-action downloads to a fixed /tmp/gitleaks.tmp and unpacks to
+      # /tmp/gitleaks-<version>/; on the persistent self-hosted runner a leftover
+      # from an interrupted run makes every later run fail with
+      # "Destination file path /tmp/gitleaks.tmp already exists". Clear both first.
+      - name: Clear stale gitleaks download cache
+        run: rm -rf /tmp/gitleaks.tmp /tmp/gitleaks-*
+
+      - name: Scan for secrets with gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Tests and images
+    needs: checks
+    runs-on: [self-hosted, linux, ARM64]
     permissions:
       contents: write
     env:
@@ -76,6 +230,10 @@ jobs:
       - name: Run tests
         if: success()
         shell: bash
+        env:
+          # Python 3.12+'s sys.monitoring tracer: far cheaper than the default on
+          # CPU-bound tests (test_heating_job.py: 107 s -> 83 s locally).
+          COVERAGE_CORE: sysmon
         run: |
           BASELINE=$(cat .github/coverage-baseline.txt)
           # No explicit --cov=<path>: bare --cov reads [tool.coverage.run]'s source

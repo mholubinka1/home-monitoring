@@ -17,13 +17,7 @@ from pathlib import Path
 
 import yaml
 
-ACTION = (
-    Path(__file__).resolve().parents[2]
-    / ".github"
-    / "actions"
-    / "code-quality-checks"
-    / "action.yml"
-)
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
 # Fails the first $FAKE_FAILURES calls, then succeeds. Counts every call.
 FAKE_LINK_CHECK = """#!/bin/sh
@@ -40,7 +34,9 @@ exit 0
 
 
 def _step_script() -> str:
-    steps = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"]
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["checks"][
+        "steps"
+    ]
     (step,) = [s for s in steps if s.get("name") == "Check markdown links"]
     return str(step["run"])
 

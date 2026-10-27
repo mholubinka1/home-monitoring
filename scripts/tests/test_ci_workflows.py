@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
-WORKFLOW_FILES = ["ci-arm64.yml", "ci-checks.yml"]
+WORKFLOW_FILES = ["ci.yml"]
 
 
 def _workflow(name: str) -> dict[str, Any]:
@@ -48,8 +48,8 @@ def test_superseded_branch_runs_are_cancelled_but_main_runs_never_are(
 
 
 SELF_HOSTED_JOBS = [
-    ("ci-arm64.yml", "ARM64_App_Image_Build_and_Push"),
-    ("ci-checks.yml", "checks"),
+    ("ci.yml", "checks"),
+    ("ci.yml", "build"),
 ]
 
 
@@ -158,7 +158,7 @@ def test_the_disk_guard_still_explains_itself_when_docker_is_down(
 
 
 def _baseline_script() -> str:
-    steps = _steps("ci-arm64.yml", "ARM64_App_Image_Build_and_Push")
+    steps = _steps("ci.yml", "build")
     (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
     assert step["if"] == "success() && github.event_name == 'push'"
     return str(step["run"])
@@ -333,7 +333,7 @@ def test_an_unreadable_baseline_file_is_a_warning_not_a_failure(tmp_path: Path) 
 
 
 def test_the_baseline_step_is_also_marked_continue_on_error_as_a_backstop() -> None:
-    steps = _steps("ci-arm64.yml", "ARM64_App_Image_Build_and_Push")
+    steps = _steps("ci.yml", "build")
     (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
 
     assert step.get("continue-on-error") is True, (
@@ -382,7 +382,7 @@ def test_coverage_that_has_not_risen_makes_no_commit(tmp_path: Path) -> None:
 
 
 SWEEP_ACTION = "./.github/actions/remove-leaked-test-containers"
-BUILD_FILE, BUILD_JOB = "ci-arm64.yml", "ARM64_App_Image_Build_and_Push"
+BUILD_FILE, BUILD_JOB = "ci.yml", "build"
 
 
 def _index_of(steps: list[dict[str, Any]], name: str) -> int:
@@ -437,22 +437,33 @@ def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
     ), "the final sweep must be bounded by timeout-minutes so a hung docker cannot hold the runner"
 
 
-def test_the_checks_workflow_needs_no_sweep_because_it_never_runs_pytest() -> None:
-    # Only ci-arm64.yml runs pytest, so only it can leak MariaDB test containers. If
-    # ci-checks.yml (or the shared quality action it uses) ever runs pytest, it needs the
-    # same sweep. This only inspects the `run:` scripts of that job and of the one local
-    # composite action it uses; a new third-party action that runs pytest internally
-    # would not be caught.
-    quality_action = WORKFLOWS_DIR.parent / "actions" / "code-quality-checks"
-    action_steps = yaml.safe_load(
-        (quality_action / "action.yml").read_text(encoding="utf-8")
-    )["runs"]["steps"]
+def test_the_checks_job_needs_no_sweep_because_it_never_runs_pytest() -> None:
+    # Only the build job runs pytest, so only it can leak MariaDB test containers. If
+    # the checks job ever runs pytest, it needs the same sweep. This only inspects the
+    # job's `run:` scripts; a third-party action that runs pytest internally would not
+    # be caught.
     commands = [
-        str(step["run"])
-        for step in _steps("ci-checks.yml", "checks") + action_steps
-        if "run" in step
+        str(step["run"]) for step in _steps("ci.yml", "checks") if "run" in step
     ]
 
     assert not any(
         "pytest" in command for command in commands
-    ), "ci-checks now runs pytest: add the leaked-container sweep to its job as well"
+    ), "the checks job now runs pytest: add the leaked-container sweep to it as well"
+
+
+def test_the_tests_and_images_wait_for_the_checks_to_pass() -> None:
+    # A lint failure must stop the run before the much longer test suite takes the
+    # single runner.
+    build = _workflow("ci.yml")["jobs"]["build"]
+
+    assert build.get("needs") == "checks"
+
+
+def test_the_tests_run_under_the_cheap_coverage_tracer() -> None:
+    steps = _steps(BUILD_FILE, BUILD_JOB)
+    run_tests = steps[_index_of(steps, "Run tests")]
+
+    assert run_tests.get("env", {}).get("COVERAGE_CORE") == "sysmon", (
+        "without sys.monitoring, coverage makes the CPU-bound tests several times slower "
+        "on the runner"
+    )
