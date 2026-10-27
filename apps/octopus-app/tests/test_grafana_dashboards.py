@@ -799,6 +799,8 @@ def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> No
     assert panel["timeFrom"] == "400d"
     assert overrides["saving_kwh"]["unit"] == "kwatth"
     assert overrides["saving_gbp"]["unit"] == "currencyGBP"
+    assert overrides["saving_gbp"]["decimals"] == 2  # pence, not "£2.9"
+    assert overrides["avg_target_c"]["displayName"] == "average comfort target"
     assert overrides["avg_target_c"]["unit"] == "celsius"
     assert overrides["avg_target_c"]["custom.axisPlacement"] == "right"
     assert overrides["avg_target_c"]["custom.drawStyle"] == "line"

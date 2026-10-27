@@ -2932,6 +2932,10 @@
               {
                 "id": "displayName",
                 "value": "saving from 1 C lower (estimated)"
+              },
+              {
+                "id": "decimals",
+                "value": 2
               }
             ]
           },
@@ -2978,7 +2982,7 @@
               },
               {
                 "id": "displayName",
-                "value": "average target on heating days"
+                "value": "average comfort target"
               }
             ]
           }
