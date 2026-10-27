@@ -2541,7 +2541,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "How much gas the house uses above its baseload for each degree of cold: over a rolling 7 days, the sum of (gas minus the day's moving baseload) divided by the sum of degree-days (degrees below the model's threshold, on the effective temperature). Lower means less heating gas for the same cold, so a fall after a change is a good sign, but the line never says why it moved. A gap means the window had fewer than 5 complete gas days, or less than 1.5 degree-days a day on average (too mild to measure: dividing by almost nothing makes any wobble look huge). Away days are left out. The panel shows the last 400 days whatever the dashboard range: a trend needs more than two weeks, and mild spells (like most of October) leave gaps. Estimated, like the model it uses.",
+      "description": "How much gas the house uses above its baseload for each degree of cold: over a rolling 7 days, the sum of (gas minus the day's moving baseload) divided by the sum of degree-days (degrees below the model's threshold, on the effective temperature). Lower means less heating gas for the same cold, so a fall after a change is a good sign, but the line never says why it moved. A gap means the window had fewer than 5 complete gas days, or less than 1.5 degree-days a day on average (too mild to measure: dividing by almost nothing makes any wobble look huge). Away days are left out. The panel shows the last 400 days whatever the dashboard range: a trend needs more than two weeks, and mild spells (like most of October) leave gaps. Always in kWh, whatever the Daily gas unit switch says. Estimated, like the model it uses.",
       "fieldConfig": {
         "defaults": {
           "color": {
