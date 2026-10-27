@@ -517,7 +517,10 @@ def test_refresh_skips_a_dual_register_only_product_without_crashing(
 def test_a_failing_agreement_s_rate_fetch_is_skipped_without_blocking_others(
     mariadb_client: MariaDBClient,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The failing fetch is retried with backoff; keep the real delay out of the test.
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
     responses.add(
         responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
     )
@@ -551,7 +554,10 @@ def test_a_failing_agreement_s_rate_fetch_is_skipped_without_blocking_others(
 def test_a_failing_comparison_product_s_rate_fetch_is_skipped_without_blocking_others(
     mariadb_client: MariaDBClient,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The failing fetch is retried with backoff; keep the real delay out of the test.
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
     responses.add(
         responses.GET,
         PRODUCTS_ENDPOINT,

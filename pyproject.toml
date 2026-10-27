@@ -55,6 +55,9 @@ testpaths = ["apps/octopus-app/tests", "apps/hive-app/tests", "libs/common/tests
 # treats each of their modules as rootless and assigns it a unique name
 # derived from its full file path instead.
 addopts = ["--import-mode=importlib"]
+markers = [
+    "full_fit_grid: run the heating model fit on its full search grid (test_heating_job.py)",
+]
 
 [tool.isort]
 # Since each app became a real installable uv workspace package (#530/#531),

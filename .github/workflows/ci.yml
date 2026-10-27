@@ -1,0 +1,381 @@
+name: CI
+
+# Push only, never pull_request: see ADR-0012 (the self-hosted runner must never run a
+# fork's code). Required checks match a PR by its head SHA, so a push satisfies them.
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+# main runs are never cancelled (they publish the `latest` image) and are keyed on the
+# SHA so a newer pending main run cannot replace an older pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    shell: bash
+
+# Both jobs run on the single self-hosted runner, one after the other: the quick checks
+# first, so a lint failure stops the run before the much longer test suite starts.
+jobs:
+  checks:
+    name: Checks
+    runs-on: [self-hosted, linux, ARM64]
+    # What kind of change this push is decides how much of CI it needs: see
+    # .github/scripts/classify-changes.sh. Anything it can't judge runs everything.
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+      images: ${{ steps.classify.outputs.images }}
+    steps:
+      - name: Fail fast if the runner disk is nearly full
+        env:
+          MIN_FREE_GB: 5
+        run: |
+          free_kb=$(df --output=avail -k / | tail -n 1 | tr -d ' ')
+          if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
+            echo "::error::Runner disk is nearly full: $((free_kb / 1024 / 1024)) GB free on / (need at least ${MIN_FREE_GB} GB)."
+            df -h /
+            docker system df || true
+            echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
+            echo "  unused docker volumes: docker volume ls -f dangling=true"
+            echo "  docker build cache:    docker builder du"
+            exit 1
+          fi
+          echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify the change
+        id: classify
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/classify-changes.sh
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.13'
+          # Pin the uv binary (not just the action) so `uv audit` — which uv still
+          # marks experimental — runs the same version CI-side as the pinned
+          # uv-audit pre-commit hook (astral-sh/uv-pre-commit 0.11.33).
+          version: '0.11.33'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+
+      - name: Install markdownlint-cli and markdown-link-check
+        run: npm install -g markdownlint-cli markdown-link-check
+
+      - name: Verify uv.lock is consistent with pyproject.toml
+        if: steps.classify.outputs.lane == 'code'
+        run: uv lock --check
+
+      - name: Install project dependencies
+        if: steps.classify.outputs.lane == 'code'
+        # --all-packages: this is a uv workspace (apps/octopus-app, apps/hive-app,
+        # libs/common) whose root has no [project.dependencies] of its own. A plain
+        # `uv sync` only installs the root project's (empty) closure, leaving every
+        # workspace member's own runtime deps (pydantic, sqlalchemy, pyhive-integration,
+        # ...) uninstalled -- which breaks mypy (can't resolve imports) and pytest
+        # (can't import the apps under test) further down this file.
+        run: uv sync --locked --all-packages
+
+      - name: Validate pyproject.toml
+        if: steps.classify.outputs.lane == 'code'
+        run: >-
+          uv run --with 'validate-pyproject[all]' validate-pyproject
+          pyproject.toml
+          apps/octopus-app/pyproject.toml
+          apps/hive-app/pyproject.toml
+          libs/common/pyproject.toml
+
+      - name: Audit dependencies for known vulnerabilities
+        if: steps.classify.outputs.lane == 'code'
+        run: uv audit
+
+      - name: Type check with mypy
+        if: steps.classify.outputs.lane == 'code'
+        run: uv run mypy apps/octopus-app/octopus_app apps/hive-app/hive_app libs/common/common
+
+      - name: Check import ordering with isort
+        if: steps.classify.outputs.lane == 'code'
+        run: uv run isort --check-only --profile black apps/ libs/
+
+      - name: Check code formatting with black
+        if: steps.classify.outputs.lane == 'code'
+        run: uv run black --check apps/ libs/
+
+      - name: Check linting with ruff
+        if: steps.classify.outputs.lane == 'code'
+        run: uv run ruff check --no-fix apps/ libs/
+
+      - name: Check linting with pylint
+        if: steps.classify.outputs.lane == 'code'
+        run: uv run pylint apps libs
+
+      - name: Check YAML style with yamllint
+        run: uv run --no-project --with yamllint yamllint .
+
+      - name: Lint GitHub Actions workflows with actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - name: Lint shell scripts with shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 -r uv run --no-project --with shellcheck-py shellcheck
+
+      - name: Check spelling with codespell
+        run: uv run --no-project --with codespell codespell --skip=uv.lock
+
+      - name: Check markdown style
+        run: markdownlint '**/*.md' --ignore node_modules
+
+      - name: Check markdown links
+        # Only the Markdown files this change touched: checking every link on every
+        # push cost over a minute. A link that dies on its own is caught when its file
+        # is next edited.
+        if: steps.classify.outputs.changed_md != ''
+        env:
+          CHANGED_MD: ${{ steps.classify.outputs.changed_md }}
+        # markdown-link-check only retries HTTP 429, and its `timeout` is per request, so a
+        # dropped or refused connection (reported as "Status: 0") is never retried. Retry
+        # the whole check instead; a link that is genuinely dead fails every attempt and
+        # still fails the build.
+        run: |
+          read -ra files <<<"$CHANGED_MD"
+          for attempt in 1 2 3; do
+            if markdown-link-check --config .markdown-link-check.json "${files[@]}"; then
+              exit 0
+            fi
+            echo "::warning::Markdown link check failed (attempt ${attempt} of 3)"
+            if [ "$attempt" -lt 3 ]; then
+              sleep 15
+            fi
+          done
+          echo "::error::Markdown link check failed on all 3 attempts; a link is persistently dead."
+          exit 1
+
+      - name: Security analysis with bandit
+        if: steps.classify.outputs.lane == 'code'
+        # Scoped to non-test application code only, same as always: bandit's own
+        # assert-used/hardcoded-password checks are expected noise in test code
+        # (mirrors .pre-commit-config.yaml's bandit hook, which has
+        # `exclude: (^|/)tests/`). There's no [tool.bandit] table in pyproject.toml
+        # to carry that exclusion, and this is a raw `uv run bandit` invocation (not
+        # going through pre-commit here), so it's expressed as bandit's own --exclude
+        # flag instead, naming all three packages' test dirs explicitly.
+        run: >-
+          uv run --with 'bandit[toml]' bandit -r -c pyproject.toml apps libs
+          --exclude apps/octopus-app/tests,apps/hive-app/tests,libs/common/tests
+
+      # gitleaks-action downloads to a fixed /tmp/gitleaks.tmp and unpacks to
+      # /tmp/gitleaks-<version>/; on the persistent self-hosted runner a leftover
+      # from an interrupted run makes every later run fail with
+      # "Destination file path /tmp/gitleaks.tmp already exists". Clear both first.
+      - name: Clear stale gitleaks download cache
+        run: rm -rf /tmp/gitleaks.tmp /tmp/gitleaks-*
+
+      - name: Scan for secrets with gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Tests and images
+    needs: checks
+    # Skipped for docs-only changes; a skipped job still satisfies a required check.
+    if: needs.checks.outputs.lane != 'docs'
+    runs-on: [self-hosted, linux, ARM64]
+    permissions:
+      contents: write
+    env:
+      DOCKER_REGISTRY: docker.io
+      DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/octopus-app
+      HIVE_APP_DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/hive-app
+    steps:
+      - name: Fail fast if the runner disk is nearly full
+        env:
+          MIN_FREE_GB: 5
+        run: |
+          free_kb=$(df --output=avail -k / | tail -n 1 | tr -d ' ')
+          if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
+            echo "::error::Runner disk is nearly full: $((free_kb / 1024 / 1024)) GB free on / (need at least ${MIN_FREE_GB} GB)."
+            df -h /
+            docker system df || true
+            echo "Usual culprits (this step deletes nothing; clean up by hand on the runner):"
+            echo "  unused docker volumes: docker volume ls -f dangling=true"
+            echo "  docker build cache:    docker builder du"
+            echo "  leaked MariaDB test containers (a cancelled run's, each holds a volume):"
+            echo "    docker ps -a --format '{{.Names}}' | grep -E '^(common-schema-test|rename-script-test)-'"
+            exit 1
+          fi
+          echo "Runner disk OK: $((free_kb / 1024 / 1024)) GB free on /."
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Backstop for a previous run that was killed too hard to clean up after itself.
+      # After Checkout because a local action only exists once the repo is checked out.
+      # Runs once the disk guard and Checkout have succeeded (no `if:`, so the implicit
+      # success()); the final sweep below is the one that also runs on failure or cancel.
+      # So this is a backstop only while the disk is not already full: if leaked volumes
+      # fill it, the guard above fails first and the leak has to be cleaned by hand (the
+      # guard's hint says how). continue-on-error and timeout-minutes: housekeeping must
+      # never fail a build or hold the single runner if docker hangs. Both sweeps assume
+      # one job at a time (every ARM64-labelled job here is served by the same single
+      # runner) and nobody running the MariaDB tests by hand on this host: a live test
+      # container would be removed too.
+      - name: Remove test containers left by an earlier run
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: ./.github/actions/remove-leaked-test-containers
+
+      - name: Install uv
+        if: success()
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        if: success()
+        # --all-packages: workspace root has no [project.dependencies] of its own,
+        # so a plain `uv sync` wouldn't install apps/octopus-app's, apps/hive-app's,
+        # or libs/common's own runtime deps -- pytest needs all three importable to
+        # run the combined test suite.
+        run: uv sync --locked --all-packages
+
+      - name: Run the dashboard tests
+        if: success() && needs.checks.outputs.lane == 'grafana'
+        # A Grafana-only change: only the tests that read data/grafana/, picked by name
+        # since they live in more than one package.
+        run: uv run pytest -k grafana
+
+      - name: Run tests
+        if: success() && needs.checks.outputs.lane == 'code'
+        env:
+          # Python 3.12+'s sys.monitoring tracer: far cheaper than the default on
+          # CPU-bound tests (test_heating_job.py: 107 s -> 83 s locally).
+          COVERAGE_CORE: sysmon
+        run: |
+          BASELINE=$(cat .github/coverage-baseline.txt)
+          # No explicit --cov=<path>: bare --cov reads [tool.coverage.run]'s source
+          # list from pyproject.toml, which already names all three packages
+          # (apps/octopus-app/octopus_app, apps/hive-app/hive_app,
+          # libs/common/common) -- verified locally, this produces the same
+          # combined coverage report as enumerating three --cov= flags would.
+          uv run pytest --cov --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under="$BASELINE"
+
+      - name: Raise coverage baseline
+        if: success() && github.event_name == 'push' && needs.checks.outputs.lane == 'code'
+        # Raising the baseline is a nicety, never a gate: nothing here may fail a build
+        # whose tests passed. Every command on the raise path is guarded below (the
+        # runner's bash is fail-fast), and continue-on-error is the backstop for anything
+        # those guards miss.
+        continue-on-error: true
+        run: |
+          skip() {
+            echo "::warning::$1; the next run will try again."
+            exit 0
+          }
+          BASELINE=$(cat .github/coverage-baseline.txt) || skip "Could not read the coverage baseline"
+          ACTUAL=$(uv run python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))") \
+            || skip "Could not read the measured coverage"
+          if [ "$ACTUAL" -le "$BASELINE" ]; then
+            echo "Coverage unchanged at ${ACTUAL}%, baseline stays at ${BASELINE}%."
+            exit 0
+          fi
+          # A moved branch or a rejected push must never fail a build whose tests passed
+          # (raising the baseline is a nicety, not a gate). If the branch moved while the
+          # job ran, the coverage measured here belongs to an older commit, so skip the
+          # raise; the next run will raise it.
+          if ! git fetch origin "$GITHUB_REF_NAME" \
+            || [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then
+            echo "Branch moved (or could not be checked) since this run's commit; skipping the baseline raise, the next run will raise it."
+            exit 0
+          fi
+          echo "$ACTUAL" > .github/coverage-baseline.txt || skip "Could not write the coverage baseline"
+          git config user.name "github-actions[bot]" || skip "Could not configure git"
+          git config user.email "github-actions[bot]@users.noreply.github.com" || skip "Could not configure git"
+          git add .github/coverage-baseline.txt || skip "Could not stage the coverage baseline"
+          git commit -m "Raise coverage baseline to ${ACTUAL}% [skip ci]" || skip "Could not commit the coverage baseline raise"
+          if ! git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"; then
+            echo "::warning::Could not push the coverage baseline raise to ${GITHUB_REF_NAME}; the next run will raise it."
+          fi
+
+      # Branches build the images to prove the Dockerfiles still work, but only main
+      # publishes: nothing deploys a branch image. Under a fixed local tag, so each
+      # build replaces the last instead of piling up on the runner.
+      - name: Build the images without pushing
+        if: success() && needs.checks.outputs.images == 'true' && github.ref != 'refs/heads/main'
+        run: |
+          docker buildx build --tag octopus-app:ci -f deployments/octopus-app/Dockerfile .
+          docker buildx build --tag hive-app:ci -f deployments/hive-app/Dockerfile .
+
+      # main publishes `latest` only when an image input changed. If a main run with an
+      # image change fails (tests or push), `latest` stays behind until a later main push
+      # changes an image input: re-run the job once fixed, or push the fix with one.
+      - name: Push the octopus-app image
+        if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: nick-fields/retry@v4
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TAG: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE }}:latest
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 15
+          timeout_minutes: 5
+          shell: bash
+          command: |
+            set -euo pipefail
+            trap 'docker logout "$DOCKER_REGISTRY" || true' EXIT
+            echo "$DOCKERHUB_TOKEN" | docker login "$DOCKER_REGISTRY" --username "$DOCKERHUB_USERNAME" --password-stdin
+            # Build from the local checkout rather than a remote git#{sha} context (the
+            # previous docker/build-push-action default) — the remote-fetch path was the
+            # confirmed root cause of a transient CI failure investigated in a sibling repo's
+            # CI hardening pass. Keep the build context (the trailing `.`) at the repo root
+            # so this Dockerfile's COPY paths can still reach apps/octopus-app/ and
+            # libs/common/; only the -f path changed for the #530 Dockerfile relocation.
+            docker buildx build --push --tag "$TAG" -f deployments/octopus-app/Dockerfile .
+
+      - name: Push the hive-app image
+        if: success() && needs.checks.outputs.images == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: nick-fields/retry@v4
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TAG: ${{ env.DOCKER_REGISTRY }}/${{ env.HIVE_APP_DOCKER_IMAGE }}:latest
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 15
+          timeout_minutes: 5
+          shell: bash
+          command: |
+            set -euo pipefail
+            trap 'docker logout "$DOCKER_REGISTRY" || true' EXIT
+            echo "$DOCKERHUB_TOKEN" | docker login "$DOCKER_REGISTRY" --username "$DOCKERHUB_USERNAME" --password-stdin
+            # Same local-checkout-context rationale as the app image build above
+            # (avoids the remote git#{sha} context that caused a transient CI
+            # failure in a sibling repo); build context stays the repo root for the
+            # same libs/common/-reachability reason. Only the -f path changed for
+            # the #530 Dockerfile relocation.
+            docker buildx build --push --tag "$TAG" -f deployments/hive-app/Dockerfile .
+
+      # A cancelled run is killed mid-pytest and its fixtures never clean up; always()
+      # still runs when the job is cancelled. continue-on-error: a missing action (the
+      # job failed before Checkout) or a daemon hiccup must never change the job result.
+      - name: Remove test containers this run may have left behind
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: ./.github/actions/remove-leaked-test-containers

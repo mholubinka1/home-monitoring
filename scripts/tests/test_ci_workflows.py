@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
-WORKFLOW_FILES = ["ci-arm64.yml", "ci-checks.yml"]
+WORKFLOW_FILES = ["ci.yml"]
 
 
 def _workflow(name: str) -> dict[str, Any]:
@@ -42,14 +42,14 @@ def test_superseded_branch_runs_are_cancelled_but_main_runs_never_are(
         f"main run replaces an older pending one and skips its image build: {group!r}"
     )
     assert "github.workflow" in group, (
-        "the group must include the workflow name, otherwise the two workflows on the "
-        f"same ref cancel each other: {group!r}"
+        "the group must include the workflow name, otherwise any other workflow on the "
+        f"same ref would cancel this one: {group!r}"
     )
 
 
 SELF_HOSTED_JOBS = [
-    ("ci-arm64.yml", "ARM64_App_Image_Build_and_Push"),
-    ("ci-checks.yml", "checks"),
+    ("ci.yml", "checks"),
+    ("ci.yml", "build"),
 ]
 
 
@@ -158,9 +158,12 @@ def test_the_disk_guard_still_explains_itself_when_docker_is_down(
 
 
 def _baseline_script() -> str:
-    steps = _steps("ci-arm64.yml", "ARM64_App_Image_Build_and_Push")
+    steps = _steps("ci.yml", "build")
     (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
-    assert step["if"] == "success() && github.event_name == 'push'"
+    assert (
+        step["if"]
+        == "success() && github.event_name == 'push' && needs.checks.outputs.lane == 'code'"
+    )
     return str(step["run"])
 
 
@@ -333,7 +336,7 @@ def test_an_unreadable_baseline_file_is_a_warning_not_a_failure(tmp_path: Path) 
 
 
 def test_the_baseline_step_is_also_marked_continue_on_error_as_a_backstop() -> None:
-    steps = _steps("ci-arm64.yml", "ARM64_App_Image_Build_and_Push")
+    steps = _steps("ci.yml", "build")
     (step,) = [s for s in steps if s.get("name") == "Raise coverage baseline"]
 
     assert step.get("continue-on-error") is True, (
@@ -382,7 +385,7 @@ def test_coverage_that_has_not_risen_makes_no_commit(tmp_path: Path) -> None:
 
 
 SWEEP_ACTION = "./.github/actions/remove-leaked-test-containers"
-BUILD_FILE, BUILD_JOB = "ci-arm64.yml", "ARM64_App_Image_Build_and_Push"
+BUILD_FILE, BUILD_JOB = "ci.yml", "build"
 
 
 def _index_of(steps: list[dict[str, Any]], name: str) -> int:
@@ -437,22 +440,202 @@ def test_the_build_job_sweeps_again_at_the_end_even_when_cancelled() -> None:
     ), "the final sweep must be bounded by timeout-minutes so a hung docker cannot hold the runner"
 
 
-def test_the_checks_workflow_needs_no_sweep_because_it_never_runs_pytest() -> None:
-    # Only ci-arm64.yml runs pytest, so only it can leak MariaDB test containers. If
-    # ci-checks.yml (or the shared quality action it uses) ever runs pytest, it needs the
-    # same sweep. This only inspects the `run:` scripts of that job and of the one local
-    # composite action it uses; a new third-party action that runs pytest internally
-    # would not be caught.
-    quality_action = WORKFLOWS_DIR.parent / "actions" / "code-quality-checks"
-    action_steps = yaml.safe_load(
-        (quality_action / "action.yml").read_text(encoding="utf-8")
-    )["runs"]["steps"]
+def test_the_checks_job_needs_no_sweep_because_it_never_runs_pytest() -> None:
+    # Only the build job runs pytest, so only it can leak MariaDB test containers. If
+    # the checks job ever runs pytest, it needs the same sweep. This only inspects the
+    # job's `run:` scripts; a third-party action that runs pytest internally would not
+    # be caught.
     commands = [
-        str(step["run"])
-        for step in _steps("ci-checks.yml", "checks") + action_steps
-        if "run" in step
+        str(step["run"]) for step in _steps("ci.yml", "checks") if "run" in step
     ]
 
     assert not any(
         "pytest" in command for command in commands
-    ), "ci-checks now runs pytest: add the leaked-container sweep to its job as well"
+    ), "the checks job now runs pytest: add the leaked-container sweep to it as well"
+
+
+def test_the_tests_and_images_wait_for_the_checks_to_pass() -> None:
+    # A lint failure must stop the run before the much longer test suite takes the
+    # single runner.
+    build = _workflow("ci.yml")["jobs"]["build"]
+
+    assert build.get("needs") == "checks"
+
+
+def test_the_tests_run_under_the_cheap_coverage_tracer() -> None:
+    steps = _steps(BUILD_FILE, BUILD_JOB)
+    run_tests = steps[_index_of(steps, "Run tests")]
+
+    assert run_tests.get("env", {}).get("COVERAGE_CORE") == "sysmon", (
+        "without sys.monitoring, coverage makes the CPU-bound tests several times slower "
+        "on the runner"
+    )
+
+
+# The lanes. The classifier (see test_classify_changes.py) says what kind of change a
+# push is; these pin which steps each kind runs.
+PYTHON_CHECKS = [
+    "Verify uv.lock is consistent with pyproject.toml",
+    "Install project dependencies",
+    "Validate pyproject.toml",
+    "Audit dependencies for known vulnerabilities",
+    "Type check with mypy",
+    "Check import ordering with isort",
+    "Check code formatting with black",
+    "Check linting with ruff",
+    "Check linting with pylint",
+    "Security analysis with bandit",
+]
+ALWAYS_CHECKS = [
+    "Check YAML style with yamllint",
+    "Lint GitHub Actions workflows with actionlint",
+    "Lint shell scripts with shellcheck",
+    "Check spelling with codespell",
+    "Check markdown style",
+    "Scan for secrets with gitleaks",
+]
+
+
+def _step(workflow_file: str, job: str, name: str) -> dict[str, Any]:
+    steps = _steps(workflow_file, job)
+    return steps[_index_of(steps, name)]
+
+
+def test_the_checks_job_classifies_the_change_right_after_checkout() -> None:
+    checks = _workflow("ci.yml")["jobs"]["checks"]
+    steps = checks["steps"]
+    classify = _index_of(steps, "Classify the change")
+
+    assert classify == _index_of(steps, "Checkout repository") + 1
+    assert steps[classify]["id"] == "classify"
+    assert ".github/scripts/classify-changes.sh" in steps[classify]["run"]
+    for output in ("lane", "images"):
+        assert (
+            checks["outputs"][output] == f"${{{{ steps.classify.outputs.{output} }}}}"
+        )
+
+
+@pytest.mark.parametrize("name", PYTHON_CHECKS)
+def test_the_python_checks_run_only_for_code(name: str) -> None:
+    assert (
+        _step("ci.yml", "checks", name).get("if")
+        == "steps.classify.outputs.lane == 'code'"
+    )
+
+
+@pytest.mark.parametrize("name", ALWAYS_CHECKS)
+def test_the_cheap_lints_run_for_every_change(name: str) -> None:
+    assert "if" not in _step("ci.yml", "checks", name)
+
+
+def test_the_link_check_runs_only_on_the_markdown_files_that_changed() -> None:
+    step = _step("ci.yml", "checks", "Check markdown links")
+
+    assert step.get("if") == "steps.classify.outputs.changed_md != ''"
+    assert step["env"]["CHANGED_MD"] == "${{ steps.classify.outputs.changed_md }}"
+    assert "find ." not in step["run"], "the link check must not walk every file"
+
+
+def test_docs_only_changes_skip_the_tests_and_images_job() -> None:
+    assert (
+        _workflow("ci.yml")["jobs"]["build"].get("if")
+        == "needs.checks.outputs.lane != 'docs'"
+    )
+
+
+def test_grafana_changes_run_only_the_dashboard_tests() -> None:
+    # Dashboard tests live in more than one package (scripts/tests and the octopus-app
+    # tests), so they are picked by name rather than by directory.
+    step = _step(BUILD_FILE, BUILD_JOB, "Run the dashboard tests")
+
+    assert step.get("if") == "success() && needs.checks.outputs.lane == 'grafana'"
+    assert step["run"] == "uv run pytest -k grafana"
+
+
+def test_every_test_that_reads_the_grafana_files_has_grafana_in_its_name() -> None:
+    # Otherwise a Grafana-only change would skip it.
+    tests_root = WORKFLOWS_DIR.parents[1]
+    grafana_dir = '/ "data" / "grafana"'
+    readers = [
+        path
+        for package in ("apps", "libs", "scripts")
+        for path in (tests_root / package).rglob("test_*.py")
+        if grafana_dir in path.read_text(encoding="utf-8")
+        and path != Path(__file__).resolve()
+    ]
+
+    assert readers, "expected at least one dashboard test"
+    for path in readers:
+        assert (
+            "grafana" in path.name
+        ), f"{path} reads the Grafana files but -k grafana misses it"
+
+
+def test_code_changes_run_the_full_test_suite() -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, "Run tests")
+
+    assert step.get("if") == "success() && needs.checks.outputs.lane == 'code'"
+
+
+ON_MAIN = "github.ref == 'refs/heads/main'"
+IMAGES_CHANGED = "needs.checks.outputs.images == 'true'"
+PUSH_STEPS = ["Push the octopus-app image", "Push the hive-app image"]
+
+
+def test_branches_build_both_images_without_logging_in_or_pushing() -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, "Build the images without pushing")
+
+    assert (
+        step.get("if")
+        == f"success() && {IMAGES_CHANGED} && github.ref != 'refs/heads/main'"
+    )
+    script = str(step["run"])
+    assert "deployments/octopus-app/Dockerfile" in script
+    assert "deployments/hive-app/Dockerfile" in script
+    assert "--push" not in script and "docker login" not in script
+
+
+@pytest.mark.parametrize("name", PUSH_STEPS)
+def test_only_main_pushes_the_latest_image_and_only_when_an_image_input_changed(
+    name: str,
+) -> None:
+    step = _step(BUILD_FILE, BUILD_JOB, name)
+
+    assert step.get("if") == (
+        f"success() && {IMAGES_CHANGED} && {ON_MAIN} && github.event_name == 'push'"
+    )
+    assert step["env"]["TAG"].endswith(
+        ":latest"
+    ), "branches no longer publish a dev tag"
+
+
+def test_no_other_step_touches_docker_hub() -> None:
+    steps = _steps(BUILD_FILE, BUILD_JOB)
+    pushing = [
+        step["name"]
+        for step in steps
+        if "docker login" in str(step.get("with", {}).get("command", ""))
+        or "docker login" in str(step.get("run", ""))
+    ]
+
+    assert sorted(pushing) == sorted(PUSH_STEPS)
+
+
+def test_dependabot_opens_routine_update_prs_weekly() -> None:
+    # Each update PR costs a full CI run on the single runner. Security updates are
+    # not tied to this schedule.
+    config = yaml.safe_load(
+        (WORKFLOWS_DIR.parent / "dependabot.yml").read_text(encoding="utf-8")
+    )
+    (uv,) = [u for u in config["updates"] if u["package-ecosystem"] == "uv"]
+
+    assert uv["schedule"]["interval"] == "weekly"
+    assert uv["groups"]["python-packages"]["patterns"] == ["*"]
+
+
+def test_the_classifier_sees_where_main_was_before_the_push() -> None:
+    # A push to main can carry several commits; judging only the last one could miss
+    # code or image changes in the earlier ones.
+    step = _step("ci.yml", "checks", "Classify the change")
+
+    assert step["env"]["PUSH_BEFORE"] == "${{ github.event.before }}"

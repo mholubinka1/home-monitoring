@@ -278,11 +278,9 @@ def test_the_sweep_matches_the_names_the_test_fixtures_really_generate() -> None
     # every other test here still passes -- so tie the sweep to the fixtures' source.
     pattern = _sweep_pattern()
     build_workflow = yaml.safe_load(
-        (ROOT / ".github" / "workflows" / "ci-arm64.yml").read_text(encoding="utf-8")
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     )
-    guard_script = build_workflow["jobs"]["ARM64_App_Image_Build_and_Push"]["steps"][0][
-        "run"
-    ]
+    guard_script = build_workflow["jobs"]["build"]["steps"][0]["run"]
     for conftest in FIXTURE_CONFTESTS:
         source = conftest.read_text(encoding="utf-8")
         match = re.search(
