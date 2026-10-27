@@ -17,7 +17,7 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 - `${timezone}`: hidden constant, default `Europe/London`. The zone that defines a local day for the daily panels (every `CONVERT_TZ` below); it must match the apps' `timezone` setting (see the README). Edit it in the `query` and `current` fields of the JSON, or a re-import puts the old zone back.
 
 - `${region}`: the GSP region code, `SELECT DISTINCT region FROM product_rate;`, for the gas rate lookups.
-- `${gas_unit}`: `kWh` or `pounds` (default `kWh`), the unit of the Daily Gas panel.
+- `${gas_unit}`: `kWh` or `pounds` (default `kWh`), the unit of the Daily Gas panel, Where the Gas Went and the monthly setpoint saving.
 - `${boiler_kw}`: text box, default `12`. The boiler's gas input at full output, in kW, for the estimated boost cost; 12 kW was measured on the 6 October 2026 test evening. `0` (or anything that is not a number) shows minutes only.
 - `${comfort_target}`: text box, default `15` (C). A target at or above it counts as a comfort target; below it is the frost setting.
 - `${comfort_margin}`: text box, default `1.0` (C). How far under its target the room must be for a minute to count.

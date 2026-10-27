@@ -3122,7 +3122,7 @@
           "text": "kWh",
           "value": "kWh"
         },
-        "description": "Whether the Daily Gas panel shows kWh or pounds (unit cost and standing charge).",
+        "description": "Whether the Daily Gas, Where the Gas Went and setpoint saving panels show kWh or pounds (in pounds: unit cost and, where it applies, standing charge).",
         "hide": 0,
         "includeAll": false,
         "label": "Daily gas unit",
