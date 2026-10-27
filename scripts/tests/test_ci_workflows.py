@@ -598,3 +598,15 @@ def test_no_other_step_touches_docker_hub() -> None:
     ]
 
     assert sorted(pushing) == sorted(PUSH_STEPS)
+
+
+def test_dependabot_opens_routine_update_prs_weekly() -> None:
+    # Each update PR costs a full CI run on the single runner. Security updates are
+    # not tied to this schedule.
+    config = yaml.safe_load(
+        (WORKFLOWS_DIR.parent / "dependabot.yml").read_text(encoding="utf-8")
+    )
+    (uv,) = [u for u in config["updates"] if u["package-ecosystem"] == "uv"]
+
+    assert uv["schedule"]["interval"] == "weekly"
+    assert uv["groups"]["python-packages"]["patterns"] == ["*"]
