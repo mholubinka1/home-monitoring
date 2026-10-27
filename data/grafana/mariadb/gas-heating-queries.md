@@ -640,7 +640,7 @@ SELECT COALESCE((
 
 ### Where the Gas Went (kWh or pounds) (stacked bars)
 
-Each day's gas as stacked bars that add up to the day's gas, from `heating_day_verdict` for the latest usable model, in kWh or pounds (the **Daily gas unit** variable; A is the kWh query and B the pounds one, only one returns rows). The seven slices are **baseload**, **heating used**, **normal variation**, and the gas beyond the normal variation: **excess** on a day that needed heating (`needed = 1`) and **avoidable** on a day that did not, each in a lighter shade for **possible** (1 to 2 normal variations over) and a darker one for **clear** (more than 2). Only the part beyond the normal variation is counted, so the totals are a floor. In pounds each slice is priced at the day's unit rate (the lookup is copied from the daily gas panel's query B, and a test pins the two together) and a standing charge slice is added, so a bar is the day's cost. The legend is a table on the right with the **sum** of each series over the dashboard time range.
+Each day's gas as stacked bars that add up to the day's gas, from `heating_day_verdict` for the latest usable model, in kWh or pounds (the **Daily gas unit** variable; A is the kWh query and B the pounds one, only one returns rows). The seven slices are **baseload**, **heating used**, **normal variation**, and the gas beyond the normal variation: **excess** on a day that needed heating (`needed = 1`) and **avoidable** on a day that did not, each in a lighter shade for **possible** (1 to 2 normal variations over) and a darker one for **clear** (more than 2). Only the part beyond the normal variation is counted, so the excess and avoidable totals are a floor (the others are exact). In pounds each slice is priced at the day's unit rate (the lookup is copied from the daily gas panel's query B, and a test pins the two together) and a standing charge slice is added, so a bar is the day's cost. The legend is a table on the right with the **sum** of each series over the dashboard time range.
 
 A day that used less gas than the model expected has a negative normal variation in the table. A stacked bar cannot show that and still equal the day's gas, so the shortfall comes off the expected slices (decided with the user): heating used is the expected heating less the shortfall, down to zero, and if the day used less than the baseload, the baseload slice shrinks too. Normal variation is shown only when positive. Away days (`away = 1`) and days without a complete gas figure (no verdict row) are gaps. The panel is labelled estimated because the verdicts are coarse (the model's R-squared is about 0.7).
 
@@ -714,7 +714,7 @@ A window is a gap when it has fewer than **5** judged days, or when its degree-d
 
 ```sql
 WITH model AS (
-  SELECT m.threshold
+  SELECT m.id, m.threshold
   FROM heating_model m
   WHERE m.usable = 1
   ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1
@@ -728,7 +728,7 @@ days AS (
   CROSS JOIN model
   WHERE v.away = 0
     AND v.effective_temp IS NOT NULL
-    AND v.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+    AND v.model_id = model.id
 )
 SELECT time, kwh_per_degree_day
 FROM (

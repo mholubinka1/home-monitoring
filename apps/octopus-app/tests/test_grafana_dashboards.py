@@ -627,7 +627,10 @@ def test_the_efficiency_trend_divides_gas_above_baseload_by_degree_days() -> Non
     assert "JOIN days w ON w.date BETWEEN d.date - INTERVAL 6 DAY AND d.date" in sql
     assert "SUM(w.above_baseload) / SUM(w.degree_days)" in sql
     assert "v.away = 0" in sql
-    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in sql
+    # One lookup of the model: its threshold and its verdicts cannot disagree.
+    assert "SELECT m.id, m.threshold" in sql
+    assert "v.model_id = model.id" in sql
+    assert sql.count("heating_model") == 1
     assert "ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1" in sql
 
 
