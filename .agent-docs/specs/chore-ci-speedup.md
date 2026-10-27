@@ -100,7 +100,7 @@ needs:
   - `images`: an image input changed. Image inputs are `deployments/**` except Markdown,
     `.dockerignore`, app and lib source outside tests, any `pyproject.toml` and `uv.lock`.
   - `changed_md`: the list of changed Markdown files, or every Markdown file when
-    anything was deleted or moved.
+    anything was deleted or moved, or the link-check config changed.
 
   If the diff can't be computed (no merge-base, no parent, git error), the classifier
   reports `code` and `images`, which is the full run. An empty diff is treated as docs.
