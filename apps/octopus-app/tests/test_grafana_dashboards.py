@@ -406,6 +406,10 @@ def test_the_model_chart_series_are_wired_to_the_query_columns() -> None:
     ]
     assert "AS gas_kwh" in dots and "AS effective_temp" in dots
     assert "AS fitted_kwh" in line and "AS effective_temp" in line
+    # Fields keep their raw names: the mapping must not depend on display names.
+    for override in panel["fieldConfig"]["overrides"]:
+        ids = [p["id"] for p in override["properties"]]
+        assert "displayName" not in ids, override["matcher"]["options"]
 
 
 def test_the_model_chart_reads_only_days_judged_by_the_latest_usable_model() -> None:

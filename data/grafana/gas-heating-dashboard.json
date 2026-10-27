@@ -1781,7 +1781,7 @@
                 "value": "celsius"
               },
               {
-                "id": "displayName",
+                "id": "custom.axisLabel",
                 "value": "effective temperature"
               }
             ]
@@ -1808,8 +1808,8 @@
                 }
               },
               {
-                "id": "displayName",
-                "value": "day"
+                "id": "custom.axisLabel",
+                "value": "gas per day"
               }
             ]
           },
@@ -1837,10 +1837,6 @@
                   "fixedColor": "blue",
                   "mode": "fixed"
                 }
-              },
-              {
-                "id": "displayName",
-                "value": "model"
               }
             ]
           }

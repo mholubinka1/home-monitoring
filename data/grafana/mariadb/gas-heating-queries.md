@@ -576,9 +576,11 @@ ORDER BY time;
 
 ### Heating Model: gas against effective temperature (XY chart)
 
+How to read it: the model behind the line, its estimated label and its limits are explained in [the heating model explainer](../../../docs/heating-model.md).
+
 Each dot is one day the model has judged (query A): the day's effective temperature across and its gas up, from `heating_day_verdict`, for the latest usable model and without away days (an away day says nothing about the house). The line (query B) is that model: flat at the baseload at and above the threshold, rising by the slope for every degree below it; three points are enough (the coldest and warmest day, and the kink at the threshold). The formula (baseload + slope x degrees below the threshold) is deliberately repeated here, not read from `heating_day_verdict.expected_gas`: the line must exist at every temperature, including ones no day had, and each day's own expected gas used its moving baseload. If the model job's formula ever changes, change query B with it. The panel title carries the numbers through the hidden `${model_summary}` variable (`estimated` or `confirmed` and when it was fitted first, then baseload, threshold, slope and R2, so that Grafana's cutting of a long title takes the least important end). The chart ignores the dashboard time range: it shows every judged day. The line uses the model's current baseload, while each day was judged against the moving baseload of its own day, so the dots sit around the line and not exactly on it.
 
-**Chart type.** The XY chart (a beta panel in Grafana 10.4) is used with a manual series mapping: query A as points, query B as a line, both on the effective-temperature axis. If a real-Grafana check shows it misbehaves, the fallback is the Trend panel (numeric x axis) with one query returning the dots and the line as columns of one table; that switch changes only this panel.
+**Chart type.** The XY chart (a beta panel in Grafana 10.4) is used with a manual series mapping: query A as points, query B as a line, both on the effective-temperature axis. The series names (`day`, `model`) come from the panel's series mapping and the fields keep their raw names, so the mapping cannot be broken by a display-name change. If a real-Grafana check shows it misbehaves, the fallback is the Trend panel (numeric x axis) with one query returning the dots and the line as columns of one table; that switch changes only this panel.
 
 ```sql
 SELECT

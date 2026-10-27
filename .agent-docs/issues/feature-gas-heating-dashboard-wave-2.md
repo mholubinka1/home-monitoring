@@ -8,7 +8,7 @@
 
 ### What to build
 
-Daily gas against effective temperature as points with the latest model's fitted line; the legend carries baseload, threshold, slope and the estimated/confirmed label, and the date the model was last fitted is shown. Verify Grafana's XY chart suits; if not, record the fallback.
+Daily gas against effective temperature as points with the latest model's fitted line; the panel title carries baseload, threshold, slope and the estimated/confirmed label (through a hidden summary variable), and the date the model was last fitted is shown there too. Verify Grafana's XY chart suits; if not, record the fallback.
 
 ### Acceptance criteria
 
