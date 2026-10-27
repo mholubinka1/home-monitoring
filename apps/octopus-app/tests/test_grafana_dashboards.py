@@ -805,3 +805,13 @@ def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> No
     assert overrides["avg_target_c"]["custom.axisPlacement"] == "right"
     assert overrides["avg_target_c"]["custom.drawStyle"] == "line"
     assert overrides["avg_target_c"]["custom.spanNulls"] is False
+
+
+def test_a_lone_point_on_a_line_still_shows_a_marker() -> None:
+    # A line series with one point and no markers draws nothing: a week between
+    # two gaps, or the only month with a target, would vanish.
+    for title in (YEAR_ON_YEAR, EFFICIENCY):
+        custom = _panel(title)["fieldConfig"]["defaults"]["custom"]
+        assert custom["showPoints"] == "auto", title
+    overrides = _panel_overrides(SETPOINT_SAVING)
+    assert overrides["avg_target_c"]["custom.showPoints"] == "always"

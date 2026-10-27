@@ -2580,7 +2580,7 @@
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2717,7 +2717,7 @@
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2983,6 +2983,10 @@
               {
                 "id": "displayName",
                 "value": "average comfort target"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
               }
             ]
           }
