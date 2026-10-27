@@ -790,6 +790,10 @@ def test_the_average_target_line_uses_only_comfort_target_readings() -> None:
         if v["name"] == "yoy_summary"
     )
     assert "UTC_TIMESTAMP() - INTERVAL 400 DAY" in summary["query"]
+    # When every week passes there are no reasons: a SUM of nothing is NULL and
+    # would blank the whole title, so each reason is a zero-safe COUNT.
+    assert summary["query"].count("COUNT(CASE WHEN f.reason = ") == 4
+    assert "SUM(f.reason" not in summary["query"]
 
 
 def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> None:

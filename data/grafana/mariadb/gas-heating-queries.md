@@ -758,7 +758,7 @@ Two lines, week by week: this year's heating efficiency (gas above the baseload 
 
 **Which weeks.** By default a week is plotted only when its stored status is `shown` in both years, that is at least 5 complete gas days, at least 1.5 degree-days a day and at least 0.5 kWh a day of heating gas (the rules and their evidence are in [the week rules note](../../../.agent-docs/research/year-on-year-week-rules.md)). The `${all_weeks}` switch (decided with the user) lifts the two measurability guards: with `yes` a week is plotted when its status is `shown`, `too mild` or `heating off` in both years and its efficiency can be computed (a week with no degree-days at all cannot). Weeks with fewer than 5 gas days stay out either way. A `too mild` or `heating off` week with no degree-days at all has no efficiency, so even with the switch on it is not plotted, and the title counts it under its own status (`too mild` or `heating off`). The weeks the switch brings back can look wild: the week of 8 June 2026 has 0.06 degree-days a day and works out to 65.8 kWh per degree-day.
 
-**Title.** The hidden `${yoy_summary}` variable fills the panel title, over the panel's own 400-day range: how many weeks are shown, how many are left out and why (too few days, too mild, heating off, or no week last year), and the baseload of each year (the average of the shown weeks' baseloads, last year first; a 5-day week counts the same as a 7-day one). The count uses the same timestamp comparison as the panel's 400-day range, so the title counts exactly the weeks the panel can draw. A reader sees what the guards removed. The panel is labelled estimated, says winter baseload is interpolated, and never claims why efficiency changed. A missing week breaks the line (a null is inserted after 10 days), and a week between two gaps is drawn as a lone marker (points show automatically) so it does not vanish.
+**Title.** The hidden `${yoy_summary}` variable fills the panel title, over the panel's own 400-day range: how many weeks are shown, how many are left out and why (too few days, too mild, heating off, or no week last year), and the baseload of each year (the average of the shown weeks' baseloads, last year first; a 5-day week counts the same as a 7-day one). The count uses the same timestamp comparison as the panel's 400-day range, so the title counts exactly the weeks the panel can draw. That holds while the dashboard range is relative (the panel's 400-day override then applies). Under an absolute dashboard range (a typed range or a drag-to-zoom) Grafana ignores the override and the lines follow the chosen range, but a variable cannot see a panel's override, so the title still counts the last 400 days. The counts are zero-safe (`COUNT(CASE ...)`): when every week passes there are no reasons, and a plain `SUM` of nothing would be NULL and blank the whole title. A reader sees what the guards removed. The panel is labelled estimated, says winter baseload is interpolated, and never claims why efficiency changed. A missing week breaks the line (a null is inserted after 10 days), and a week between two gaps is drawn as a lone marker (points show automatically) so it does not vanish.
 
 ```sql
 SELECT time, this_year_kwh_per_dd, last_year_kwh_per_dd
@@ -786,10 +786,10 @@ The `${yoy_summary}` variable query:
 SELECT COALESCE((
   SELECT CONCAT(
     SUM(f.ok), ' weeks shown, ', SUM(1 - f.ok), ' left out (',
-    SUM(f.reason = 'too few days'), ' too few days, ',
-    SUM(f.reason = 'too mild'), ' too mild, ',
-    SUM(f.reason = 'heating off'), ' heating off, ',
-    SUM(f.reason = 'no last year'), ' without a last-year week), baseload ',
+    COUNT(CASE WHEN f.reason = 'too few days' THEN 1 END), ' too few days, ',
+    COUNT(CASE WHEN f.reason = 'too mild' THEN 1 END), ' too mild, ',
+    COUNT(CASE WHEN f.reason = 'heating off' THEN 1 END), ' heating off, ',
+    COUNT(CASE WHEN f.reason = 'no last year' THEN 1 END), ' without a last-year week), baseload ',
     IFNULL(ROUND(AVG(IF(f.ok = 1, f.last_baseload, NULL)), 1), 'n/a'), ' to ',
     IFNULL(ROUND(AVG(IF(f.ok = 1, f.this_baseload, NULL)), 1), 'n/a'),
     ' kWh/day (average of the weeks shown, last year to this), winter baseload interpolated'
