@@ -710,7 +710,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, expected_kwh\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas, 3) AS expected_kwh\n  FROM heating_forecast_day f\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "rawSql": "SELECT time, expected_kwh\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas, 3) AS expected_kwh\n  FROM heating_forecast_day f\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "D",
           "sql": {
             "columns": [
@@ -739,7 +739,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, expected_unit_cost_gbp, expected_standing_charge_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas * pr.unit_rate / 100, 4) AS expected_unit_cost_gbp,\n    ROUND(pr.standing_charge / 100, 4) AS expected_standing_charge_gbp\n  FROM heating_forecast_day f\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "rawSql": "SELECT time, expected_unit_cost_gbp, expected_standing_charge_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas * pr.unit_rate / 100, 4) AS expected_unit_cost_gbp,\n    ROUND(pr.standing_charge / 100, 4) AS expected_standing_charge_gbp\n  FROM heating_forecast_day f\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "E",
           "sql": {
             "columns": [
@@ -1894,7 +1894,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  d.effective_temp AS effective_temp,\n  d.actual_gas AS gas_kwh\nFROM heating_day_verdict d\nWHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n  AND d.away = 0\n  AND d.effective_temp IS NOT NULL\nORDER BY d.effective_temp;",
+          "rawSql": "SELECT\n  d.effective_temp AS effective_temp,\n  d.actual_gas AS gas_kwh\nFROM heating_day_verdict d\nWHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n  AND d.away = 0\n  AND d.effective_temp IS NOT NULL\nORDER BY d.effective_temp;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1923,7 +1923,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  x AS effective_temp,\n  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh\nFROM (\n  SELECT\n    m.baseload,\n    m.slope,\n    m.threshold,\n    CASE pts.k\n      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)\n      WHEN 1 THEN m.threshold\n      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)\n    END AS x\n  FROM heating_model m\n  CROSS JOIN (\n    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi\n    FROM heating_day_verdict d\n    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n      AND d.away = 0\n  ) r\n  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts\n  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)\n) f\nORDER BY x;",
+          "rawSql": "SELECT\n  x AS effective_temp,\n  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh\nFROM (\n  SELECT\n    m.baseload,\n    m.slope,\n    m.threshold,\n    CASE pts.k\n      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)\n      WHEN 1 THEN m.threshold\n      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)\n    END AS x\n  FROM heating_model m\n  CROSS JOIN (\n    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi\n    FROM heating_day_verdict d\n    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n      AND d.away = 0\n  ) r\n  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts\n  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n) f\nORDER BY x;",
           "refId": "B",
           "sql": {
             "columns": [
@@ -2152,14 +2152,14 @@
           "type": "mysql",
           "uid": "${DS_MYSQL}"
         },
-        "definition": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
+        "definition": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
         "hide": 2,
         "includeAll": false,
         "label": "Heating model summary",
         "multi": false,
         "name": "model_summary",
         "options": [],
-        "query": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
+        "query": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,

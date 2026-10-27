@@ -369,9 +369,7 @@ def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
 
 
 MODEL_CHART_PREFIX = "Heating Model"
-LATEST_USABLE_MODEL = (
-    "SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1"
-)
+LATEST_USABLE_MODEL = "SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1"
 
 
 def _model_chart() -> dict:
@@ -436,7 +434,7 @@ def test_the_model_chart_title_carries_the_fit_and_its_label() -> None:
     assert variable["hide"] == 2
     query = variable["query"]
     assert "m.usable = 1" in query
-    assert "ORDER BY m.id DESC" in query
+    assert "ORDER BY m.fitted_at DESC, m.id DESC" in query
     for part in ("m.baseload", "m.threshold", "m.slope", "m.r_squared", "m.label"):
         assert part in query
     assert "m.fitted_at" in query

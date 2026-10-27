@@ -304,7 +304,7 @@ FROM (
     ROUND(f.expected_gas, 3) AS expected_kwh
   FROM heating_forecast_day f
   WHERE ${gas_unit:sqlstring} = 'kWh'
-    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)
+    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
     AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
 ) d
 WHERE $__timeFilter(time)
@@ -333,7 +333,7 @@ FROM (
       LIMIT 1
     )
   WHERE ${gas_unit:sqlstring} = 'pounds'
-    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)
+    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
     AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
 ) d
 WHERE $__timeFilter(time)
@@ -585,7 +585,7 @@ SELECT
   d.effective_temp AS effective_temp,
   d.actual_gas AS gas_kwh
 FROM heating_day_verdict d
-WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)
+WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
   AND d.away = 0
   AND d.effective_temp IS NOT NULL
 ORDER BY d.effective_temp;
@@ -609,11 +609,11 @@ FROM (
   CROSS JOIN (
     SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi
     FROM heating_day_verdict d
-    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)
+    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
       AND d.away = 0
   ) r
   CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts
-  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1)
+  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
 ) f
 ORDER BY x;
 ```
@@ -629,7 +629,7 @@ SELECT COALESCE((
   )
   FROM heating_model m
   WHERE m.usable = 1
-  ORDER BY m.id DESC
+  ORDER BY m.fitted_at DESC, m.id DESC
   LIMIT 1
 ), 'no usable model yet') AS model_summary;
 ```
