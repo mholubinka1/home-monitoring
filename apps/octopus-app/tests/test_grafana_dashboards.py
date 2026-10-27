@@ -394,6 +394,22 @@ def test_the_model_chart_is_an_xy_chart_of_gas_against_effective_temperature() -
     assert overrides["fitted_kwh"]["custom.show"] == "lines"
 
 
+def test_the_model_chart_series_are_wired_to_the_query_columns() -> None:
+    # The manual mapping names frames by position and fields by alias; a
+    # renamed alias or reordered query would leave the chart empty.
+    panel = _model_chart()
+    dots, line = (t["rawSql"] for t in panel["targets"][:2])
+    series = panel["options"]["series"]
+
+    assert panel["options"]["seriesMapping"] == "manual"
+    assert [(s["frame"], s["x"], s["y"]) for s in series] == [
+        (0, "effective_temp", "gas_kwh"),
+        (1, "effective_temp", "fitted_kwh"),
+    ]
+    assert "AS gas_kwh" in dots and "AS effective_temp" in dots
+    assert "AS fitted_kwh" in line and "AS effective_temp" in line
+
+
 def test_the_model_chart_reads_only_days_judged_by_the_latest_usable_model() -> None:
     dots, line = (t["rawSql"] for t in _model_chart()["targets"][:2])
 

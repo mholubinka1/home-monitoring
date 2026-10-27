@@ -340,7 +340,7 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 27 October 2026.** Query D returned 27 October to 2 November (8.231, 8.231, 12.734, 14.160, 14.235, 16.112, 18.063 kWh); query E returned the same days in pounds (27 October 0.7065 unit cost, 8.231 kWh at 8.58p, plus the 0.2924 standing charge). D returns nothing while the unit is pounds and E nothing while it is kWh.
+**Checked read-only against the Pi on 27 October 2026.** Query D returned 27 October to 2 November (8.231, 8.231, 12.734, 14.160, 14.235, 16.112, 18.063 kWh); query E returned the same days in pounds (27 October 0.7065 unit cost, 8.231 kWh at 8.58p, plus the 0.2924 standing charge). D returns nothing while the unit is pounds and E nothing while it is kWh. With the usable-model test made to match no model (`m.usable = 2`), D and E return no rows, so there are no expected bars.
 
 ### Boost Minutes and Estimated Extra Gas Cost (time series)
 
@@ -634,4 +634,4 @@ SELECT COALESCE((
 ), 'no usable model yet') AS model_summary;
 ```
 
-**Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.
+**Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). With the usable-model test made to match no model (`m.usable = 2`), queries A and B return no rows and the summary variable returns `no usable model yet`. The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.
