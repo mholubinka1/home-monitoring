@@ -12,10 +12,10 @@ Daily gas against effective temperature as points with the latest model's fitted
 
 ### Acceptance criteria
 
-- [ ] Points and the fitted line match the latest model row.
-- [ ] The legend shows baseload, threshold, slope and the label.
-- [ ] The date the model was last fitted is visible.
-- [ ] The chart type decision (or fallback) is documented.
+- [x] Points and the fitted line match the latest model row (checked on the Pi, 27 October 2026).
+- [ ] The panel title shows baseload, threshold, slope and the label (decided with the user: a hidden summary variable fills the title, not the legend; needs the real-Grafana look).
+- [x] The date the model was last fitted is visible (in the title, checked on the Pi).
+- [x] The chart type decision (or fallback) is documented (XY chart, Trend panel as the fallback).
 
 ---
 
@@ -107,6 +107,6 @@ The wave-1 daily gas panel gains lighter "expected gas" bars for today and the n
 
 ### Acceptance criteria
 
-- [ ] Expected bars match the forecast-day table.
-- [ ] They are visually distinct from actual gas and labelled expected.
-- [ ] Given no usable model, then no expected bars are shown.
+- [x] Expected bars match the forecast-day table (checked on the Pi, kWh and pounds).
+- [ ] They are visually distinct from actual gas and labelled expected (lighter fill and an 'expected' name; needs the real-Grafana look).
+- [x] Given no usable model, then no expected bars are shown (the queries only read the latest usable model's forecast rows).

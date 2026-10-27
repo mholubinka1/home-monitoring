@@ -40,7 +40,7 @@ def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
     types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
 
     assert types
-    assert types <= {"timeseries", "heatmap", "bargauge"}
+    assert types <= {"timeseries", "heatmap", "bargauge", "xychart"}
     assert [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))].count(
         "bargauge"
     ) == 1
@@ -366,3 +366,104 @@ def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
     steps = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
     assert [(s["color"], s["value"]) for s in steps] == [("green", None), ("red", 0)]
     assert panel["fieldConfig"]["defaults"]["unit"] == "percent"
+
+
+MODEL_CHART_PREFIX = "Heating Model"
+LATEST_USABLE_MODEL = (
+    "SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.id DESC LIMIT 1"
+)
+
+
+def _model_chart() -> dict:
+    return next(p for p in _gas_panels() if p["title"].startswith(MODEL_CHART_PREFIX))
+
+
+def test_the_model_chart_is_an_xy_chart_of_gas_against_effective_temperature() -> None:
+    panel = _model_chart()
+
+    assert panel["type"] == "xychart"
+    dots = panel["targets"][0]["rawSql"]
+    assert "AS effective_temp" in dots
+    assert "AS gas_kwh" in dots
+    assert "FROM heating_day_verdict" in dots
+    overrides = {
+        o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
+        for o in panel["fieldConfig"]["overrides"]
+    }
+    assert overrides["gas_kwh"]["custom.show"] == "points"
+    assert overrides["fitted_kwh"]["custom.show"] == "lines"
+
+
+def test_the_model_chart_reads_only_days_judged_by_the_latest_usable_model() -> None:
+    dots, line = (t["rawSql"] for t in _model_chart()["targets"][:2])
+
+    assert f"d.model_id = ({LATEST_USABLE_MODEL})" in dots
+    assert "d.away = 0" in dots  # an away day says nothing about the house
+    assert f"m.id = ({LATEST_USABLE_MODEL})" in line
+
+
+def test_the_fitted_line_is_baseload_plus_slope_below_the_threshold() -> None:
+    line = _model_chart()["targets"][1]["rawSql"]
+
+    assert "baseload + slope * GREATEST(0, threshold - x)" in line
+    assert "AS fitted_kwh" in line
+    assert line.count("UNION ALL") == 2  # the cold end, the kink, the warm end
+
+
+def test_the_model_chart_title_carries_the_fit_and_its_label() -> None:
+    dashboard = _load(GAS_HEATING_DASHBOARD)
+    variable = next(
+        v for v in dashboard["templating"]["list"] if v["name"] == "model_summary"
+    )
+
+    assert "${model_summary}" in _model_chart()["title"]
+    assert variable["hide"] == 2
+    query = variable["query"]
+    for part in ("m.baseload", "m.threshold", "m.slope", "m.r_squared", "m.label"):
+        assert part in query
+    assert "m.fitted_at" in query
+    assert "no usable model yet" in query
+
+
+def _expected_queries() -> dict[str, str]:
+    targets = _panel("Daily Gas and Outdoor Temperature (${gas_unit})")["targets"]
+    return {
+        t["refId"]: t["rawSql"]
+        for t in targets
+        if "heating_forecast_day" in t["rawSql"]
+    }
+
+
+def test_expected_gas_bars_come_from_the_forecast_days_of_the_latest_usable_model() -> (
+    None
+):
+    queries = _expected_queries()
+
+    assert len(queries) == 2  # kWh and pounds, like the actual bars
+    for sql in queries.values():
+        assert f"f.model_id = ({LATEST_USABLE_MODEL})" in sql
+        assert "f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP()" in sql  # no stale past days
+    kwh, pounds = sorted(queries.values(), key=lambda q: "unit_rate" in q)
+    assert "AS expected_kwh" in kwh
+    assert "${gas_unit:sqlstring} = 'kWh'" in kwh
+    assert "${gas_unit:sqlstring} = 'pounds'" in pounds
+    assert "f.expected_gas * pr.unit_rate / 100" in pounds
+    assert "AS expected_unit_cost_gbp" in pounds
+    assert "AS expected_standing_charge_gbp" in pounds
+
+
+def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
+    overrides = _panel_overrides("Daily Gas and Outdoor Temperature (${gas_unit})")
+
+    for series, actual in (
+        ("expected_kwh", "gas_kwh"),
+        ("expected_unit_cost_gbp", "unit_cost_gbp"),
+        ("expected_standing_charge_gbp", "standing_charge_gbp"),
+    ):
+        expected = overrides[series]
+        assert expected["custom.fillOpacity"] < 70, series
+        assert expected["displayName"].startswith("expected"), series
+        assert expected["unit"] == overrides[actual]["unit"], series
+        assert expected["color"] == overrides[actual]["color"], series
+    for series in ("expected_unit_cost_gbp", "expected_standing_charge_gbp"):
+        assert overrides[series]["custom.stacking"]["mode"] == "normal"
