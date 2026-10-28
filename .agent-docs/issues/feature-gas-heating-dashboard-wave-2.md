@@ -13,7 +13,7 @@ Daily gas against effective temperature as points with the latest model's fitted
 ### Acceptance criteria
 
 - [x] Points and the fitted line match the latest model row (checked on the Pi, 27 October 2026).
-- [ ] The panel title shows baseload, threshold, slope and the label (decided with the user: a hidden summary variable fills the title, not the legend; needs the real-Grafana look).
+- [x] The panel title shows baseload, threshold, slope and the label (decided with the user: a hidden summary variable fills the title, not the legend; checked in real Grafana on 28 October 2026).
 - [x] The date the model was last fitted is visible (in the title, checked on the Pi).
 - [x] The chart type decision (or fallback) is documented (XY chart, Trend panel as the fallback).
 
@@ -32,7 +32,7 @@ Stacked daily bars of five slices that sum to actual gas (baseload, expected hea
 ### Acceptance criteria
 
 - [x] For any day the stacked slices sum to the day's gas (checked on the Pi for all 660 judged days; a day below expectation shrinks the expected slices, decided with the user).
-- [ ] Legend totals match the verdict table for the selected range (the legend is Grafana's sum of the series, which equal the verdict slices; needs the real-Grafana look).
+- [x] Legend totals match the verdict table for the selected range (the legend is Grafana's sum of the series, which equal the verdict slices; checked in real Grafana on 28 October 2026).
 - [x] Given the pounds option, then totals equal the day's cost (checked on the Pi for all 107 priced days).
 - [x] Away and unsettled days are neutral gaps (away days are filtered out; unsettled days have no verdict row).
 - [x] A not-needed day shows avoidable only when clearly warm (avoidable is the beyond-normal gas of a day with `needed = 0`, which is a day at or above the threshold's upper end; 14 October shows 1.69 kWh).
@@ -70,7 +70,7 @@ Two lines, this year and last year (last year's weeks lined up 364 days earlier)
 ### Acceptance criteria
 
 - [x] Only weeks with status `shown` in both years are plotted; others are gaps (14 weeks on the Pi, the same values as the table).
-- [ ] The title shows the shown and left-out counts with reasons and the baseload for each year (the summary variable returns this text on the Pi; needs the real-Grafana look at the whole dashboard).
+- [x] The title shows the shown and left-out counts with reasons and the baseload for each year (the summary variable returns this text on the Pi; checked in real Grafana on 28 October 2026).
 - [x] Given the 'show every complete week' switch, then the guards are lifted and left-out weeks appear (27 weeks inside the panel's 400 days, 28 over all history, instead of 14; short weeks stay out, decided with the user).
 - [x] Last year's weeks come from the same definitions as this year's (common degree-day threshold, each week's own moving baseload): both years are rows of the same `heating_week` table computed by the model job.
 - [x] The query joins this year's week to the week 364 days earlier and contains no guard or baseload logic (it reads only the stored status and efficiency; a test pins this).
@@ -108,5 +108,5 @@ The wave-1 daily gas panel gains lighter "expected gas" bars for the 7 days the 
 ### Acceptance criteria
 
 - [x] Expected bars match the forecast-day table (checked on the Pi, kWh and pounds).
-- [ ] They are visually distinct from actual gas and labelled expected (lighter fill and an 'expected' name; needs the real-Grafana look).
+- [x] They are visually distinct from actual gas and labelled expected (lighter fill and an 'expected' name; checked in real Grafana on 28 October 2026).
 - [x] Given no usable model, then no expected bars are shown (the queries only read the latest usable model's forecast rows).
