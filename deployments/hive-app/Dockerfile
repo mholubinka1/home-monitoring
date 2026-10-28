@@ -31,8 +31,8 @@ RUN apk del .deps
 
 COPY apps/hive-app/hive_app ./apps/hive-app/hive_app
 
-# monitoring-common is editable-installed into the venv by uv sync above (a real workspace
-# dependency, resolved from its own pyproject.toml), so it's importable as a
+# monitoring-common is editable-installed into the venv by uv sync above (a real
+# workspace dependency, resolved from its own pyproject.toml), so it's importable as a
 # plain top-level `common` without any extra PYTHONPATH entry -- only
 # hive_app needs one, since --no-install-project skipped installing it.
 ENV PYTHONPATH=/app/apps/hive-app
