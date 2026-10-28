@@ -14,7 +14,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 # Installed as `monitoring-common` but imported as `common`: a bare `common` distribution
-# clashes with an unrelated PyPI package, which Dependabot tried to "update" it to.
+# clashes with an unrelated PyPI package, which made Dependabot try to update it and fail.
 # hatchling would otherwise look for a `monitoring_common` folder.
 [tool.hatch.build.targets.wheel]
 packages = ["common"]
