@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: chore/rename-common-library
 
 ## Rename the shared library's distribution to monitoring-common
@@ -16,17 +18,17 @@ entry and ADR-0020 are brought in line.
 
 ### Acceptance criteria
 
-- [ ] Given the rename, when `uv lock --check` and `uv sync --locked --all-packages` run,
+- [x] Given the rename, when `uv lock --check` and `uv sync --locked --all-packages` run,
       then both succeed.
-- [ ] Given the rename, when code runs `from common import local_day`, then it resolves to
+- [x] Given the rename, when code runs `from common import local_day`, then it resolves to
       `libs/common/common`, and the installed distribution is `monitoring-common` 0.1.0.
-- [ ] Given the regenerated `uv.lock`, then only the rename lines differ, with no version
+- [x] Given the regenerated `uv.lock`, then only the rename lines differ, with no version
       bumps.
-- [ ] Given each Dockerfile's dependency step run on just the files it copies, then the
+- [x] Given each Dockerfile's dependency step run on just the files it copies, then the
       library installs and `common` imports, for both apps.
-- [ ] Given the full test suite and every pre-commit hook, then they pass, and CI builds
+- [x] Given the full test suite and every pre-commit hook, then they pass, and CI builds
       both images.
-- [ ] Given the docs, then the glossary entry and ADR-0020 explain why the distribution is
+- [x] Given the docs, then the glossary entry and ADR-0020 explain why the distribution is
       `monitoring-common` but is imported as `common`.
 
 ---
