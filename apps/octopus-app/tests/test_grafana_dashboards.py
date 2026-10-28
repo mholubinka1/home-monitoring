@@ -647,3 +647,177 @@ def test_a_window_with_too_little_cold_or_too_few_days_is_a_gap() -> None:
     custom = _panel(EFFICIENCY)["fieldConfig"]["defaults"]["custom"]
     assert custom["spanNulls"] is False
     assert custom["insertNulls"] == 129600000
+
+
+YEAR_ON_YEAR = (
+    "Heating Efficiency, This Year and Last, Weather-Normalised (estimated): "
+    "${yoy_summary}"
+)
+WEEK_STATUSES_THE_SWITCH_LIFTS = "IN ('shown', 'too mild', 'heating off')"
+
+
+def test_year_on_year_joins_each_week_to_the_week_364_days_earlier() -> None:
+    panel = _panel(YEAR_ON_YEAR)
+    sql = _query(YEAR_ON_YEAR, "A")
+
+    assert panel["type"] == "timeseries"
+    assert "FROM heating_week w" in sql
+    assert (
+        "JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY" in sql
+    )
+    assert "AS this_year_kwh_per_dd" in sql
+    assert "AS last_year_kwh_per_dd" in sql
+    # The model job already did the guarding and the baseload: the query only
+    # reads the stored efficiency and status.
+    for logic in ("avg_baseload", "avg_degree_days", "HAVING", "GROUP BY"):
+        assert logic not in sql, logic
+
+
+def test_only_weeks_shown_in_both_years_are_plotted_unless_the_switch_lifts_the_guards() -> (
+    None
+):
+    sql = _query(YEAR_ON_YEAR, "A")
+
+    assert "${all_weeks:sqlstring} = 'yes'" in sql
+    assert "w.status = 'shown' AND l.status = 'shown'" in sql
+    for week in ("w", "l"):
+        assert f"{week}.status {WEEK_STATUSES_THE_SWITCH_LIFTS}" in sql
+        assert f"{week}.efficiency IS NOT NULL" in sql
+    # A week with fewer than 5 gas days stays out whatever the switch says.
+    assert "too few days" not in sql
+
+
+def test_the_switch_and_the_title_summary_are_dashboard_variables() -> None:
+    variables = {
+        v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
+    }
+    switch = variables["all_weeks"]
+    summary = variables["yoy_summary"]
+
+    # The title counts the same weeks the panel plots: one rule, two copies.
+    for week in ("w", "l"):
+        assert f"{week}.status {WEEK_STATUSES_THE_SWITCH_LIFTS}" in summary["query"]
+        assert f"{week}.efficiency IS NOT NULL" in summary["query"]
+    assert "w.status = 'shown'" in summary["query"]
+    assert "l.status = 'shown'" in summary["query"]
+    assert switch["type"] == "custom"
+    assert switch["current"]["value"] == "no"
+    assert switch["query"] == "no,yes"
+    assert summary["hide"] == 2
+    query = summary["query"]
+    for part in (
+        "weeks shown",
+        "left out",
+        "too few days",
+        "too mild",
+        "heating off",
+        "without a last-year week",
+        "WHEN p.last_status IS NULL THEN 'no last year'",
+        "baseload",
+        "${all_weeks:sqlstring}",
+        "interpolated",
+    ):
+        assert part in query, part
+
+
+def test_the_year_on_year_lines_are_labelled_estimated_and_gap_on_a_missing_week() -> (
+    None
+):
+    panel = _panel(YEAR_ON_YEAR)
+    overrides = _panel_overrides(YEAR_ON_YEAR)
+    custom = panel["fieldConfig"]["defaults"]["custom"]
+
+    assert "estimated" in panel["title"]
+    assert "interpolated" in panel["description"]
+    assert panel["timeFrom"] == "400d"
+    assert custom["spanNulls"] is False
+    assert 7 * 86400000 < custom["insertNulls"] < 14 * 86400000
+    assert overrides["this_year_kwh_per_dd"]["displayName"] == "this year"
+    assert overrides["last_year_kwh_per_dd"]["displayName"] == "last year"
+    assert (
+        overrides["this_year_kwh_per_dd"]["color"]
+        != overrides["last_year_kwh_per_dd"]["color"]
+    )
+    for series in overrides.values():
+        assert series["unit"].startswith("suffix: ")
+
+
+SETPOINT_SAVING = (
+    "Saving from a Thermostat 1 C Lower, by Month (${gas_unit}, estimated)"
+)
+
+
+def test_the_monthly_saving_is_the_slope_times_the_needed_days() -> None:
+    kwh = _query(SETPOINT_SAVING, "A")
+
+    assert "ROUND(model.slope * SUM(v.needed = 1), 1) AS saving_kwh" in kwh
+    assert "v.away = 0" in kwh
+    assert "v.model_id = model.id" in kwh
+    assert "ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1" in kwh
+    assert "${gas_unit:sqlstring} = 'kWh'" in kwh
+
+
+def test_the_pounds_saving_prices_each_needed_day_at_its_own_rate() -> None:
+    pounds = _query(SETPOINT_SAVING, "B")
+    actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
+
+    assert (
+        "ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp"
+    ) in pounds
+    # A month with judged days but none needed is a zero bar in both units.
+    assert "AND v.needed = 1" not in pounds
+    assert "${gas_unit:sqlstring} = 'pounds'" in pounds
+    assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "v.date")
+    # The standing charge does not change with the setpoint.
+    assert "standing_charge" not in pounds
+
+
+def test_the_average_target_line_uses_only_comfort_target_readings() -> None:
+    guard = (
+        "IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', "
+        "CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)"
+    )
+    for ref in ("A", "B"):
+        sql = _query(SETPOINT_SAVING, ref)
+        assert f"h.target_temp >= {guard}" in sql, ref
+        assert "AS avg_target_c" in sql, ref
+        assert "FROM heating_status h" in sql, ref
+        assert "h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH" in sql, ref
+    # The window is the panel's own range (400 days) so the title counts what is drawn.
+    summary = next(
+        v
+        for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
+        if v["name"] == "yoy_summary"
+    )
+    assert "UTC_TIMESTAMP() - INTERVAL 400 DAY" in summary["query"]
+    # When every week passes there are no reasons: a SUM of nothing is NULL and
+    # would blank the whole title, so each reason is a zero-safe COUNT.
+    assert summary["query"].count("COUNT(CASE WHEN f.reason = ") == 4
+    assert "SUM(f.reason" not in summary["query"]
+
+
+def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> None:
+    panel = _panel(SETPOINT_SAVING)
+    overrides = _panel_overrides(SETPOINT_SAVING)
+
+    assert "estimated" in panel["title"]
+    assert "estimate" in panel["description"].lower()
+    assert panel["timeFrom"] == "400d"
+    assert overrides["saving_kwh"]["unit"] == "kwatth"
+    assert overrides["saving_gbp"]["unit"] == "currencyGBP"
+    assert overrides["saving_gbp"]["decimals"] == 2  # pence, not "£2.9"
+    assert overrides["avg_target_c"]["displayName"] == "average comfort target"
+    assert overrides["avg_target_c"]["unit"] == "celsius"
+    assert overrides["avg_target_c"]["custom.axisPlacement"] == "right"
+    assert overrides["avg_target_c"]["custom.drawStyle"] == "line"
+    assert overrides["avg_target_c"]["custom.spanNulls"] is False
+
+
+def test_a_lone_point_on_a_line_still_shows_a_marker() -> None:
+    # A line series with one point and no markers draws nothing: a week between
+    # two gaps, or the only month with a target, would vanish.
+    for title in (YEAR_ON_YEAR, EFFICIENCY):
+        custom = _panel(title)["fieldConfig"]["defaults"]["custom"]
+        assert custom["showPoints"] == "auto", title
+    overrides = _panel_overrides(SETPOINT_SAVING)
+    assert overrides["avg_target_c"]["custom.showPoints"] == "always"

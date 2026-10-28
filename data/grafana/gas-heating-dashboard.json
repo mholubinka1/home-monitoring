@@ -2580,7 +2580,7 @@
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2672,6 +2672,410 @@
       "type": "timeseries",
       "timeFrom": "400d",
       "hideTimeOverride": true
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Heating efficiency, week by week, this year against the same week last year (last year's week lined up 364 days earlier): the gas above the baseload per degree-day of cold, from the model job's weekly table. Lower means less heating gas for the same cold. A week appears only when it passes the guards in both years: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas. The title says how many weeks are shown and how many were left out, and why, and the baseload of each year; the 'Year-on-year: show every complete week' switch at the top lifts the last two guards so you can see what they removed (those weeks can be near zero, negative, or very large, because they divide by almost no cold or almost no heating gas). Estimated, because it rests on the model: winter baseload is interpolated between the warm months either side of it, and the weekly evidence is weak on its own (see the week rules note). It never says why efficiency changed. The title always counts the last 400 days; if you pick an absolute time range (for example by dragging on a chart) the lines follow that range but the title does not.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 864000000,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "this_year_kwh_per_dd"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: kWh per degree-day"
+              },
+              {
+                "id": "displayName",
+                "value": "this year"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_year_kwh_per_dd"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: kWh per degree-day"
+              },
+              {
+                "id": "displayName",
+                "value": "last year"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 77
+      },
+      "hideTimeOverride": true,
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, this_year_kwh_per_dd, last_year_kwh_per_dd\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(w.efficiency, 3) AS this_year_kwh_per_dd,\n    ROUND(l.efficiency, 3) AS last_year_kwh_per_dd\n  FROM heating_week w\n  JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY\n  WHERE IF(\n    ${all_weeks:sqlstring} = 'yes',\n    w.status IN ('shown', 'too mild', 'heating off') AND w.efficiency IS NOT NULL\n      AND l.status IN ('shown', 'too mild', 'heating off') AND l.efficiency IS NOT NULL,\n    w.status = 'shown' AND l.status = 'shown'\n  )\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "timeFrom": "400d",
+      "title": "Heating Efficiency, This Year and Last, Weather-Normalised (estimated): ${yoy_summary}",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "An estimate of the gas a thermostat 1 C lower would have saved, month by month, in kWh or pounds (the Daily gas unit switch): the model's slope (kWh per degree of cold) times the number of days that month on which heating was needed. In pounds each needed day is priced at the unit rate of that day; the standing charge does not change with the setpoint. The line is your average target (right axis, degrees) over the thermostat readings at or above the comfort target (the 'comfort target' box at the top), that is the time the heating was set to comfort, whether or not the model judged the day to need it. It is an estimate from the model, not a promise: the real saving depends on the weather and how you live. A month counts only the days the model has judged, so the current month is partial. The thermostat record starts in October 2026, so earlier months have no target line.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "saving_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "displayName",
+                "value": "saving from 1 C lower (estimated)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "saving_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "displayName",
+                "value": "saving from 1 C lower (estimated)"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_target_c"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "custom.insertNulls",
+                "value": 3888000000
+              },
+              {
+                "id": "displayName",
+                "value": "average comfort target"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 86
+      },
+      "hideTimeOverride": true,
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH model AS (\n  SELECT m.id, m.slope\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1\n),\nsaved AS (\n  SELECT\n    CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE) AS month_start,\n    ROUND(model.slope * SUM(v.needed = 1), 1) AS saving_kwh\n  FROM heating_day_verdict v\n  CROSS JOIN model\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND v.away = 0\n    AND v.model_id = model.id\n  GROUP BY CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE)\n),\ntargets AS (\n  SELECT\n    CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,\n    ROUND(AVG(h.target_temp), 2) AS avg_target_c\n  FROM heating_status h\n  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH\n    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)\n  GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)\n)\nSELECT time, saving_kwh, avg_target_c\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(s.month_start AS DATETIME), '${timezone}', 'UTC') AS time,\n    s.saving_kwh,\n    t.avg_target_c\n  FROM saved s\n  LEFT JOIN targets t ON t.month_start = s.month_start\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH model AS (\n  SELECT m.id, m.slope\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1\n),\nsaved AS (\n  SELECT\n    CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE) AS month_start,\n    ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp\n  FROM heating_day_verdict v\n  JOIN model ON v.model_id = model.id\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND v.away = 0\n  GROUP BY CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE)\n),\ntargets AS (\n  SELECT\n    CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,\n    ROUND(AVG(h.target_temp), 2) AS avg_target_c\n  FROM heating_status h\n  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH\n    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)\n  GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)\n)\nSELECT time, saving_gbp, avg_target_c\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(s.month_start AS DATETIME), '${timezone}', 'UTC') AS time,\n    s.saving_gbp,\n    t.avg_target_c\n  FROM saved s\n  LEFT JOIN targets t ON t.month_start = s.month_start\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "timeFrom": "400d",
+      "title": "Saving from a Thermostat 1 C Lower, by Month (${gas_unit}, estimated)",
+      "type": "timeseries"
     }
   ],
   "refresh": "5m",
@@ -2726,7 +3130,7 @@
           "text": "kWh",
           "value": "kWh"
         },
-        "description": "Whether the Daily Gas panel shows kWh or pounds (unit cost and standing charge).",
+        "description": "Whether the Daily Gas, Where the Gas Went and setpoint saving panels show kWh or pounds (in pounds: unit cost and, where it applies, standing charge).",
         "hide": 0,
         "includeAll": false,
         "label": "Daily gas unit",
@@ -2886,6 +3290,55 @@
         "name": "model_summary",
         "options": [],
         "query": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "no",
+          "value": "no"
+        },
+        "description": "Whether the year-on-year panel plots only the weeks that pass the guards in both years, or every week with at least 5 complete gas days (mild and heating-off weeks included).",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Year-on-year: show every complete week",
+        "multi": false,
+        "name": "all_weeks",
+        "options": [
+          {
+            "selected": true,
+            "text": "no",
+            "value": "no"
+          },
+          {
+            "selected": false,
+            "text": "yes",
+            "value": "yes"
+          }
+        ],
+        "query": "no,yes",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT COALESCE((\n  SELECT CONCAT(\n    SUM(f.ok), ' weeks shown, ', SUM(1 - f.ok), ' left out (',\n    COUNT(CASE WHEN f.reason = 'too few days' THEN 1 END), ' too few days, ',\n    COUNT(CASE WHEN f.reason = 'too mild' THEN 1 END), ' too mild, ',\n    COUNT(CASE WHEN f.reason = 'heating off' THEN 1 END), ' heating off, ',\n    COUNT(CASE WHEN f.reason = 'no last year' THEN 1 END), ' without a last-year week), baseload ',\n    IFNULL(ROUND(AVG(IF(f.ok = 1, f.last_baseload, NULL)), 1), 'n/a'), ' to ',\n    IFNULL(ROUND(AVG(IF(f.ok = 1, f.this_baseload, NULL)), 1), 'n/a'),\n    ' kWh/day (average of the weeks shown, last year to this), winter baseload interpolated'\n  )\n  FROM (\n    SELECT\n      p.this_baseload,\n      p.last_baseload,\n      p.this_ok AND p.last_ok AS ok,\n      CASE\n        WHEN p.this_ok AND p.last_ok THEN NULL\n        WHEN NOT p.this_ok THEN p.this_status\n        WHEN p.last_status IS NULL THEN 'no last year'\n        ELSE p.last_status\n      END AS reason\n    FROM (\n      SELECT\n        w.status AS this_status,\n        l.status AS last_status,\n        w.avg_baseload AS this_baseload,\n        l.avg_baseload AS last_baseload,\n        IF(${all_weeks:sqlstring} = 'yes',\n           w.status IN ('shown', 'too mild', 'heating off') AND w.efficiency IS NOT NULL,\n           w.status = 'shown') AS this_ok,\n        IFNULL(IF(${all_weeks:sqlstring} = 'yes',\n           l.status IN ('shown', 'too mild', 'heating off') AND l.efficiency IS NOT NULL,\n           l.status = 'shown'), 0) AS last_ok\n      FROM heating_week w\n      LEFT JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY\n      WHERE CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') >= UTC_TIMESTAMP() - INTERVAL 400 DAY\n    ) p\n  ) f\n  HAVING COUNT(*) > 0\n), 'no weeks yet') AS yoy_summary;",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Year-on-year summary",
+        "multi": false,
+        "name": "yoy_summary",
+        "options": [],
+        "query": "SELECT COALESCE((\n  SELECT CONCAT(\n    SUM(f.ok), ' weeks shown, ', SUM(1 - f.ok), ' left out (',\n    COUNT(CASE WHEN f.reason = 'too few days' THEN 1 END), ' too few days, ',\n    COUNT(CASE WHEN f.reason = 'too mild' THEN 1 END), ' too mild, ',\n    COUNT(CASE WHEN f.reason = 'heating off' THEN 1 END), ' heating off, ',\n    COUNT(CASE WHEN f.reason = 'no last year' THEN 1 END), ' without a last-year week), baseload ',\n    IFNULL(ROUND(AVG(IF(f.ok = 1, f.last_baseload, NULL)), 1), 'n/a'), ' to ',\n    IFNULL(ROUND(AVG(IF(f.ok = 1, f.this_baseload, NULL)), 1), 'n/a'),\n    ' kWh/day (average of the weeks shown, last year to this), winter baseload interpolated'\n  )\n  FROM (\n    SELECT\n      p.this_baseload,\n      p.last_baseload,\n      p.this_ok AND p.last_ok AS ok,\n      CASE\n        WHEN p.this_ok AND p.last_ok THEN NULL\n        WHEN NOT p.this_ok THEN p.this_status\n        WHEN p.last_status IS NULL THEN 'no last year'\n        ELSE p.last_status\n      END AS reason\n    FROM (\n      SELECT\n        w.status AS this_status,\n        l.status AS last_status,\n        w.avg_baseload AS this_baseload,\n        l.avg_baseload AS last_baseload,\n        IF(${all_weeks:sqlstring} = 'yes',\n           w.status IN ('shown', 'too mild', 'heating off') AND w.efficiency IS NOT NULL,\n           w.status = 'shown') AS this_ok,\n        IFNULL(IF(${all_weeks:sqlstring} = 'yes',\n           l.status IN ('shown', 'too mild', 'heating off') AND l.efficiency IS NOT NULL,\n           l.status = 'shown'), 0) AS last_ok\n      FROM heating_week w\n      LEFT JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY\n      WHERE CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') >= UTC_TIMESTAMP() - INTERVAL 400 DAY\n    ) p\n  ) f\n  HAVING COUNT(*) > 0\n), 'no weeks yet') AS yoy_summary;",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,

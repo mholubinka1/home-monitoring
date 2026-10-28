@@ -17,11 +17,13 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 - `${timezone}`: hidden constant, default `Europe/London`. The zone that defines a local day for the daily panels (every `CONVERT_TZ` below); it must match the apps' `timezone` setting (see the README). Edit it in the `query` and `current` fields of the JSON, or a re-import puts the old zone back.
 
 - `${region}`: the GSP region code, `SELECT DISTINCT region FROM product_rate;`, for the gas rate lookups.
-- `${gas_unit}`: `kWh` or `pounds` (default `kWh`), the unit of the Daily Gas panel.
+- `${gas_unit}`: `kWh` or `pounds` (default `kWh`), the unit of the Daily Gas panel, Where the Gas Went and the monthly setpoint saving.
 - `${boiler_kw}`: text box, default `12`. The boiler's gas input at full output, in kW, for the estimated boost cost; 12 kW was measured on the 6 October 2026 test evening. `0` (or anything that is not a number) shows minutes only.
 - `${comfort_target}`: text box, default `15` (C). A target at or above it counts as a comfort target; below it is the frost setting.
 - `${comfort_margin}`: text box, default `1.0` (C). How far under its target the room must be for a minute to count.
 - `${gas_billing_period_start}`, `${gas_billing_period_end}`, `${gas_rates_estimated_note}`: hidden, from the latest gas `cost_forecast` row; used only in the predictor's title.
+- `${all_weeks}`: `no` or `yes` (default `no`), the year-on-year panel's "show every complete week" switch.
+- `${yoy_summary}`: hidden, one line for the year-on-year panel's title: how many weeks are shown and left out (and why), and the baseload of each year, or `no weeks yet`.
 - `${model_summary}`: hidden, one line describing the latest usable heating model (baseload, threshold, slope, R2, the date it was fitted in London time, and its label), or `no usable model yet`; used only in the model chart's title.
 
 ## Schema assumed
@@ -44,6 +46,9 @@ heating_model             (octopus) id, fitted_at, usable, threshold, upper_thre
                                     r_squared, baseload, label ('estimated' or 'confirmed'), ...
 heating_day_verdict       (octopus) date, model_id, effective_temp, actual_gas, expected_gas, baseload,
                                     needed, away, expected_heating, normal_variation, possible, clear
+heating_week              (octopus) week_start, model_id, complete_days, avg_gas, avg_degree_days,
+                                    avg_baseload, avg_heating_gas, efficiency, status
+                                    ('shown', 'too few days', 'too mild' or 'heating off')
 heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
 ```
 
@@ -746,3 +751,185 @@ ORDER BY time;
 ```
 
 **Checked read-only against the Pi on 27 October 2026.** 15 January 2026: 7 judged days, 257.629 kWh above baseload over 53.497 degree-days (threshold 13 C), which is 4.816, and the panel query returned the same 4.816. 10 March 2026 returned no row (no judged days in its window). Across the whole history 270 days have a value (from -0.416 to 7.003), and none falls in the last 14 days. With the usable-model test made to match no model, the query returns no rows.
+
+### Heating Efficiency, This Year and Last, Weather-Normalised (estimated) (time series)
+
+Two lines, week by week: this year's heating efficiency (gas above the baseload per degree-day of cold) and the same week last year, lined up 364 days earlier so Monday meets Monday. Lower means less heating gas for the same cold. Everything is read from the model job's `heating_week` table: the query joins this year's week to the week 364 days earlier and holds no guard or baseload logic, only the stored status. Each week's efficiency uses the common degree-day threshold and the week's own moving baseload, which the job computed (so last year's weeks are defined exactly as this year's).
+
+**Which weeks.** By default a week is plotted only when its stored status is `shown` in both years, that is at least 5 complete gas days, at least 1.5 degree-days a day and at least 0.5 kWh a day of heating gas (the rules and their evidence are in [the week rules note](../../../.agent-docs/research/year-on-year-week-rules.md)). The `${all_weeks}` switch (decided with the user) lifts the two measurability guards: with `yes` a week is plotted when its status is `shown`, `too mild` or `heating off` in both years and its efficiency can be computed (a week with no degree-days at all cannot). Weeks with fewer than 5 gas days stay out either way. A `too mild` or `heating off` week with no degree-days at all has no efficiency, so even with the switch on it is not plotted, and the title counts it under its own status (`too mild` or `heating off`). The weeks the switch brings back can look wild: the week of 8 June 2026 has 0.06 degree-days a day and works out to 65.8 kWh per degree-day.
+
+**Title.** The hidden `${yoy_summary}` variable fills the panel title, over the panel's own 400-day range: how many weeks are shown, how many are left out and why (too few days, too mild, heating off, or no week last year), and the baseload of each year (the average of the shown weeks' baseloads, last year first; a 5-day week counts the same as a 7-day one). The count uses the same timestamp comparison as the panel's 400-day range, so the title counts exactly the weeks the panel can draw. That holds while the dashboard range is relative (the panel's 400-day override then applies). Under an absolute dashboard range (a typed range or a drag-to-zoom) Grafana ignores the override and the lines follow the chosen range, but a variable cannot see a panel's override, so the title still counts the last 400 days. The counts are zero-safe (`COUNT(CASE ...)`): when every week passes there are no reasons, and a plain `SUM` of nothing would be NULL and blank the whole title. A reader sees what the guards removed. The panel is labelled estimated, says winter baseload is interpolated, and never claims why efficiency changed. A missing week breaks the line (a null is inserted after 10 days), and a week between two gaps is drawn as a lone marker (points show automatically) so it does not vanish.
+
+```sql
+SELECT time, this_year_kwh_per_dd, last_year_kwh_per_dd
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(w.efficiency, 3) AS this_year_kwh_per_dd,
+    ROUND(l.efficiency, 3) AS last_year_kwh_per_dd
+  FROM heating_week w
+  JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY
+  WHERE IF(
+    ${all_weeks:sqlstring} = 'yes',
+    w.status IN ('shown', 'too mild', 'heating off') AND w.efficiency IS NOT NULL
+      AND l.status IN ('shown', 'too mild', 'heating off') AND l.efficiency IS NOT NULL,
+    w.status = 'shown' AND l.status = 'shown'
+  )
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+The `${yoy_summary}` variable query:
+
+```sql
+SELECT COALESCE((
+  SELECT CONCAT(
+    SUM(f.ok), ' weeks shown, ', SUM(1 - f.ok), ' left out (',
+    COUNT(CASE WHEN f.reason = 'too few days' THEN 1 END), ' too few days, ',
+    COUNT(CASE WHEN f.reason = 'too mild' THEN 1 END), ' too mild, ',
+    COUNT(CASE WHEN f.reason = 'heating off' THEN 1 END), ' heating off, ',
+    COUNT(CASE WHEN f.reason = 'no last year' THEN 1 END), ' without a last-year week), baseload ',
+    IFNULL(ROUND(AVG(IF(f.ok = 1, f.last_baseload, NULL)), 1), 'n/a'), ' to ',
+    IFNULL(ROUND(AVG(IF(f.ok = 1, f.this_baseload, NULL)), 1), 'n/a'),
+    ' kWh/day (average of the weeks shown, last year to this), winter baseload interpolated'
+  )
+  FROM (
+    SELECT
+      p.this_baseload,
+      p.last_baseload,
+      p.this_ok AND p.last_ok AS ok,
+      CASE
+        WHEN p.this_ok AND p.last_ok THEN NULL
+        WHEN NOT p.this_ok THEN p.this_status
+        WHEN p.last_status IS NULL THEN 'no last year'
+        ELSE p.last_status
+      END AS reason
+    FROM (
+      SELECT
+        w.status AS this_status,
+        l.status AS last_status,
+        w.avg_baseload AS this_baseload,
+        l.avg_baseload AS last_baseload,
+        IF(${all_weeks:sqlstring} = 'yes',
+           w.status IN ('shown', 'too mild', 'heating off') AND w.efficiency IS NOT NULL,
+           w.status = 'shown') AS this_ok,
+        IFNULL(IF(${all_weeks:sqlstring} = 'yes',
+           l.status IN ('shown', 'too mild', 'heating off') AND l.efficiency IS NOT NULL,
+           l.status = 'shown'), 0) AS last_ok
+      FROM heating_week w
+      LEFT JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY
+      WHERE CONVERT_TZ(CAST(w.week_start AS DATETIME), '${timezone}', 'UTC') >= UTC_TIMESTAMP() - INTERVAL 400 DAY
+    ) p
+  ) f
+  HAVING COUNT(*) > 0
+), 'no weeks yet') AS yoy_summary;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** The default returned the 14 weeks that pass the guards in both years, from 17 November 2025 (3.735 this year, 3.071 last) to 16 March 2026 (2.089 and 1.939), the same values as the table. Its title text was `14 weeks shown, 40 left out (5 too few days, 33 too mild, 2 heating off, 0 without a last-year week), baseload 7.4 to 6.9 kWh/day (average of the weeks shown, last year to this), winter baseload interpolated`. With `${all_weeks}` set to `yes` the query returned 28 weeks over the whole history, 27 of them inside the panel's 400 days, and the title `27 weeks shown, 27 left out (7 too few days, 19 too mild, 0 heating off, 1 without a last-year week), baseload 6.9 to 7.0 kWh/day (average of the weeks shown, last year to this), ...`.
+
+### Saving from a Thermostat 1 C Lower, by Month (kWh or pounds, estimated) (time series)
+
+Monthly bars of the estimated gas a thermostat 1 C lower would have saved, in kWh or pounds (the **Daily gas unit** variable, decided with the user; A is the kWh query and B the pounds one, only one returns rows). A month's saving is the latest usable model's **slope** (kWh per degree of cold) times the number of days that month judged `needed` (away days excluded); only days the model has judged count, so the current month is partial. A month with judged days but none needed shows 0 in both units. In pounds each needed day is priced at that day's unit rate (the rate lookup is copied from the daily gas panel's query B and a test pins the two together); the standing charge does not change with the setpoint, so it is not included. As elsewhere, pounds exist only from 1 July 2026, when the Pi's gas rates start.
+
+The line (legend: average comfort target, with a marker on each month so a single month still shows) is the average thermostat target (right axis, degrees) over the readings at or above the `${comfort_target}` box, that is when the heating was set to comfort. It does not depend on the model's judgement of the day: a warm day with a comfort target (a boost) counts. A comfort target that is not a number gives no line. The thermostat record starts on 3 October 2026, so earlier months have no line. The readings are read from one month before the panel's range starts (`$__timeFrom() - INTERVAL 1 MONTH`), so the oldest month's average is complete and the scan stays bounded as the table grows.
+
+It is an estimate from the model, not a promise, and says so in its title and description.
+
+Query A, kWh:
+
+```sql
+WITH model AS (
+  SELECT m.id, m.slope
+  FROM heating_model m
+  WHERE m.usable = 1
+  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1
+),
+saved AS (
+  SELECT
+    CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE) AS month_start,
+    ROUND(model.slope * SUM(v.needed = 1), 1) AS saving_kwh
+  FROM heating_day_verdict v
+  CROSS JOIN model
+  WHERE ${gas_unit:sqlstring} = 'kWh'
+    AND v.away = 0
+    AND v.model_id = model.id
+  GROUP BY CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE)
+),
+targets AS (
+  SELECT
+    CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,
+    ROUND(AVG(h.target_temp), 2) AS avg_target_c
+  FROM heating_status h
+  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH
+    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
+  GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)
+)
+SELECT time, saving_kwh, avg_target_c
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(s.month_start AS DATETIME), '${timezone}', 'UTC') AS time,
+    s.saving_kwh,
+    t.avg_target_c
+  FROM saved s
+  LEFT JOIN targets t ON t.month_start = s.month_start
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+Query B, pounds:
+
+```sql
+WITH model AS (
+  SELECT m.id, m.slope
+  FROM heating_model m
+  WHERE m.usable = 1
+  ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1
+),
+saved AS (
+  SELECT
+    CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE) AS month_start,
+    ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp
+  FROM heating_day_verdict v
+  JOIN model ON v.model_id = model.id
+  JOIN agreement a
+    ON a.energy = 'G'
+   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from
+   AND CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+  JOIN product_rate pr
+    ON pr.id = (
+      SELECT pr2.id FROM product_rate pr2
+      WHERE pr2.product_code = a.product_code
+        AND pr2.region = ${region:sqlstring}
+        AND pr2.valid_from <= CONVERT_TZ(CAST(v.date AS DATETIME), '${timezone}', 'UTC')
+      ORDER BY pr2.valid_from DESC
+      LIMIT 1
+    )
+  WHERE ${gas_unit:sqlstring} = 'pounds'
+    AND v.away = 0
+  GROUP BY CAST(DATE_FORMAT(v.date, '%Y-%m-01') AS DATE)
+),
+targets AS (
+  SELECT
+    CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE) AS month_start,
+    ROUND(AVG(h.target_temp), 2) AS avg_target_c
+  FROM heating_status h
+  WHERE h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH
+    AND h.target_temp >= IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)
+  GROUP BY CAST(DATE_FORMAT(CONVERT_TZ(h.polled_at, 'UTC', '${timezone}'), '%Y-%m-01') AS DATE)
+)
+SELECT time, saving_gbp, avg_target_c
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(s.month_start AS DATETIME), '${timezone}', 'UTC') AS time,
+    s.saving_gbp,
+    t.avg_target_c
+  FROM saved s
+  LEFT JOIN targets t ON t.month_start = s.month_start
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** The slope was 3.753 kWh per degree: December 2025 and January 2026 each had 31 needed days, 3.753 x 31 = 116.3 kWh; February 2026 had 24 (90.1), March 14 (52.5), April 29 (108.8) and October 2026 so far 9 (33.8). In pounds October 2026 was 2.90 (33.8 kWh at about 8.58p), July to September 2026 were 0.00 (no needed days, the same as in kWh); earlier months have no price. The average comfort target for October 2026 was 18.69 C (readings on 4, 6 and 7 October, the test evenings). With the usable-model test made to match no model both queries return no rows.
