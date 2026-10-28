@@ -19,9 +19,10 @@ COPY pyproject.toml uv.lock ./
 COPY apps/octopus-app/pyproject.toml apps/octopus-app/pyproject.toml
 COPY apps/hive-app/pyproject.toml apps/hive-app/pyproject.toml
 COPY libs/common/pyproject.toml libs/common/pyproject.toml
-# common is an actual (non-skipped) dependency of octopus-app, so uv sync builds
-# and editable-installs it below -- its source must exist before that step, unlike
-# octopus-app's own source (skipped by --no-install-project, only needed at runtime).
+# monitoring-common (imported as `common`) is an actual (non-skipped) dependency of
+# octopus-app, so uv sync builds and editable-installs it below -- its source must exist
+# before that step, unlike octopus-app's own source (skipped by --no-install-project, only
+# needed at runtime).
 COPY libs/common/common ./libs/common/common
 
 RUN uv sync --frozen --no-dev --no-install-project --package octopus-app
@@ -30,8 +31,8 @@ RUN apk del .deps
 
 COPY apps/octopus-app/octopus_app ./apps/octopus-app/octopus_app
 
-# common is editable-installed into the venv by uv sync above (a real workspace
-# dependency, resolved from its own pyproject.toml), so it's importable as a
+# monitoring-common is editable-installed into the venv by uv sync above (a real
+# workspace dependency, resolved from its own pyproject.toml), so it's importable as a
 # plain top-level `common` without any extra PYTHONPATH entry -- only
 # octopus_app needs one, since --no-install-project skipped installing it.
 ENV PYTHONPATH=/app/apps/octopus-app

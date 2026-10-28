@@ -12,11 +12,11 @@ dependencies = [
     "pydantic>=2.13.4",
     "tzdata>=2026.3",
     "pyhive-integration>=1.0.9",
-    "common",
+    "monitoring-common",
 ]
 
 [tool.uv.sources]
-common = { workspace = true }
+monitoring-common = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
