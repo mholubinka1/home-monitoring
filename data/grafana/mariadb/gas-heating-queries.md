@@ -22,6 +22,7 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 - `${comfort_target}`: text box, default `15` (C). A target at or above it counts as a comfort target; below it is the frost setting.
 - `${comfort_margin}`: text box, default `1.0` (C). How far under its target the room must be for a minute to count.
 - `${gas_billing_period_start}`, `${gas_billing_period_end}`, `${gas_rates_estimated_note}`: hidden, from the latest gas `cost_forecast` row; used only in the predictor's title.
+- `${model_summary}`: hidden, one line describing the latest usable heating model (baseload, threshold, slope, R2, the date it was fitted in London time, and its label), or `no usable model yet`; used only in the model chart's title.
 
 ## Schema assumed
 
@@ -39,6 +40,11 @@ agreement                 (octopus) id, energy, product_code, tariff_code, valid
 product_rate              (octopus) id, product_code, region, valid_from, valid_to, unit_rate, standing_charge
 cost_forecast             (octopus) billing_period_start/end, actual_cost_to_date,
                                     projected_total_cost, computed_at, energy, rates_estimated, estimated_days
+heating_model             (octopus) id, fitted_at, usable, threshold, upper_threshold, slope, weight,
+                                    r_squared, baseload, label ('estimated' or 'confirmed'), ...
+heating_day_verdict       (octopus) date, model_id, effective_temp, actual_gas, expected_gas, baseload,
+                                    needed, away, expected_heating, normal_variation, possible, clear
+heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
 ```
 
 `heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation (ties on the same hour go to the newest row id), so a changed postcode never mixes two places.
@@ -163,7 +169,7 @@ AND (
 
 ### Daily Gas and Outdoor Temperature (time series)
 
-Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis. Only one of queries A and B returns rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
+Bars of daily gas, in kWh or pounds (the **Daily gas unit** variable, `kWh` or `pounds`), with the daily mean outdoor temperature as a line on the right axis. Only A and D (kWh) or B and E (pounds) return rows, whichever unit is selected (the text, unit and region variables enter the SQL as `${name:sqlstring}`, which quotes and escapes them). In pounds the bars stack: the unit cost (kWh x the unit rate) and the standing charge, each in pounds (rounded to 4 decimals in SQL; the panel shows two). A day with no complete gas figure has no bar in either unit, standing charge included. A day is priced at the rate in force at its London midnight; the cost forecast prices each reading at its own time's rate, so the two agree except on a day when the rate changes. The temperature lines show a missing day as a break (a null is inserted after 36 hours), not a line across it.
 
 Query A, kWh:
 
@@ -287,6 +293,54 @@ ORDER BY time;
 - **Clock-change days:** 30 March 2025 (46 half-hours, 9.15604 kWh, outdoor mean 11.7 C from 23 hourly readings) and 26 October 2025 (50 half-hours, 28.11891 kWh, outdoor mean 7.5 C from 25 hourly readings) both came back as complete days, stamped at their London midnights (30 March 2025 00:00 UTC, the day after at 30 March 23:00 UTC because BST has begun; 26 October 2025 at 25 October 23:00 UTC, the day after at 27 October 00:00 UTC). 29 March 2026 (46 half-hours) is also stored. The 25 October 2026 change has not happened yet.
 - **Pounds (B):** 14 October is unit cost 1.1548 (13.45352 kWh x 8.58396p) plus standing charge 0.2924, 1.4472 together; the same day rebuilt from the raw half-hour readings with the cost forecast's own formula (sum of kWh x unit rate, plus the standing charge) is 1.4473. Pounds only exist from 1 July 2026: the Pi holds gas rates from 30 June 2026 only, so earlier days have no rate and draw as gaps in the pounds view.
 - **Outdoor (C):** 3 October 15.7 C, 4 October 16.2 C, ... 15 October 17.2 C, and none for the current day (not complete yet).
+
+Queries D and E, the expected gas bars (lighter bars for today and the next days, from `heating_forecast_day`; D when the unit is kWh, E when it is pounds, like A and B). Only the forecast rows judged by the **latest usable** heating model are used (the cost forecast makes the same choice, so a refit that fails never leaves the bars on a stale model), and only from today's London date on, so a stalled model job cannot draw expected bars over days that have passed. With no usable model there are no expected bars. In pounds the expected kWh is priced with the rate and standing charge in force at the day's London midnight, the same lookup as query B, so a rate change inside the week is not foreseen, and a forecast day with no agreement or rate row has no pounds bar (a gap, not a zero). The bars are labelled `estimated` because the model is. The forecast outdoor temperature that used to sit beside them on this panel now lives on the temperatures panel. The bars stack the same way as the actual ones and are drawn with a lower fill opacity and an `expected` label.
+
+```sql
+SELECT time, expected_kwh
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(f.expected_gas, 3) AS expected_kwh
+  FROM heating_forecast_day f
+  WHERE ${gas_unit:sqlstring} = 'kWh'
+    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+```sql
+SELECT time, expected_unit_cost_gbp, expected_standing_charge_gbp
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(f.expected_gas * pr.unit_rate / 100, 4) AS expected_unit_cost_gbp,
+    ROUND(pr.standing_charge / 100, 4) AS expected_standing_charge_gbp
+  FROM heating_forecast_day f
+  JOIN agreement a
+    ON a.energy = 'G'
+   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from
+   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+  JOIN product_rate pr
+    ON pr.id = (
+      SELECT pr2.id FROM product_rate pr2
+      WHERE pr2.product_code = a.product_code
+        AND pr2.region = ${region:sqlstring}
+        AND pr2.valid_from <= CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC')
+      ORDER BY pr2.valid_from DESC
+      LIMIT 1
+    )
+  WHERE ${gas_unit:sqlstring} = 'pounds'
+    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** Query D returned 27 October to 2 November (8.231, 8.231, 12.734, 14.160, 14.235, 16.112, 18.063 kWh); query E returned the same days in pounds (27 October 0.7065 unit cost, 8.231 kWh at 8.58p, plus the 0.2924 standing charge). D returns nothing while the unit is pounds and E nothing while it is kWh. With the usable-model test made to match no model (`m.usable = 2`), D and E return no rows, so there are no expected bars.
 
 ### Boost Minutes and Estimated Extra Gas Cost (time series)
 
@@ -515,3 +569,71 @@ ORDER BY time;
 ```
 
 **Checked read-only against the Pi on 16 October 2026.** The morning peak shows at 07:00 to 08:00 on weekdays (about 1.0 to 2.0 kWh per half-hour) and 09:00 to 11:00 at weekends, with an evening bump from 17:00; the hours with no heating are near zero. The heatmap's daylight-saving check is deferred with the others: on the two clock-change days one London hour is missing (29 March 2027) or repeated (25 October 2026), which its "today plus hour" stamp does not handle specially.
+
+---
+
+## Row 3 — Heating model
+
+### Heating Model: gas against effective temperature (XY chart)
+
+How to read it: the model behind the line, its estimated label and its limits are explained in [the heating model explainer](../../../docs/heating-model.md).
+
+Each dot is one day the model has judged (query A): the day's effective temperature across and its gas up, from `heating_day_verdict`, for the latest usable model and without away days (an away day says nothing about the house). The line (query B) is that model: flat at the baseload at and above the threshold, rising by the slope for every degree below it; three points are enough (the coldest and warmest day, and the kink at the threshold). The formula (baseload + slope x degrees below the threshold) is deliberately repeated here, not read from `heating_day_verdict.expected_gas`: the line must exist at every temperature, including ones no day had, and each day's own expected gas used its moving baseload. If the model job's formula ever changes, change query B with it. The panel title carries the numbers through the hidden `${model_summary}` variable (`estimated` or `confirmed` and when it was fitted first, then baseload, threshold, slope and R2, so that Grafana's cutting of a long title takes the least important end). The chart ignores the dashboard time range: it shows every judged day. The line uses the model's current baseload, while each day was judged against the moving baseload of its own day, so the dots sit around the line and not exactly on it.
+
+**Chart type.** The XY chart (a beta panel in Grafana 10.4) is used with a manual series mapping: query A as points, query B as a line, both on the effective-temperature axis. The series names (`day`, `model`) come from the panel's series mapping and the fields keep their raw names, so the mapping cannot be broken by a display-name change. If a real-Grafana check shows it misbehaves, the fallback is the Trend panel (numeric x axis) with one query returning the dots and the line as columns of one table; that switch changes only this panel.
+
+```sql
+SELECT
+  d.effective_temp AS effective_temp,
+  d.actual_gas AS gas_kwh
+FROM heating_day_verdict d
+WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+  AND d.away = 0
+  AND d.effective_temp IS NOT NULL
+ORDER BY d.effective_temp;
+```
+
+```sql
+SELECT
+  x AS effective_temp,
+  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh
+FROM (
+  SELECT
+    m.baseload,
+    m.slope,
+    m.threshold,
+    CASE pts.k
+      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)
+      WHEN 1 THEN m.threshold
+      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)
+    END AS x
+  FROM heating_model m
+  CROSS JOIN (
+    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi
+    FROM heating_day_verdict d
+    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+      AND d.away = 0
+  ) r
+  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts
+  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)
+) f
+ORDER BY x;
+```
+
+The `${model_summary}` variable query:
+
+```sql
+SELECT COALESCE((
+  SELECT CONCAT(
+    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),
+    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),
+    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')
+  )
+  FROM heating_model m
+  WHERE m.usable = 1
+  ORDER BY m.fitted_at DESC, m.id DESC
+  LIMIT 1
+), 'no usable model yet') AS model_summary;
+```
+
+**Checked read-only against the Pi on 27 October 2026.** 685 dots from -1.3 to 29.1 C and 1.5 to 80.5 kWh. The line came back as three points: (-1.34 C, 62.04 kWh), (13 C, 8.23 kWh) and (29.1 C, 8.23 kWh), where 62.04 is 8.23 + 3.75 x (13 - (-1.34)). With the usable-model test made to match no model (`m.usable = 2`), queries A and B return no rows and the summary variable returns `no usable model yet`. The title text was `estimated, fitted 23 Oct 2026, baseload 8.2 kWh/day, threshold 13.0 C, slope 3.75 kWh per C, R2 0.68`.

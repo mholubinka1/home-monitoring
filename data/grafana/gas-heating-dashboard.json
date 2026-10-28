@@ -319,7 +319,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The line is the daily mean outdoor temperature for complete London days (right axis).",
+      "description": "Daily gas as bars, in kWh or pounds (the Daily gas unit switch at the top). Pounds are split into the unit cost (kWh x the unit rate) and the standing charge. Days without a complete gas figure are gaps, never zeros. The lighter bars are the heating model's estimated gas for today and the next days (none when there is no usable model); in pounds they use the unit rate and standing charge in force on the day, so a rate change inside the week is not foreseen. The line is the daily mean outdoor temperature for complete London days (right axis).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -495,6 +495,101 @@
                 "value": "outdoor mean"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expected_kwh"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "displayName",
+                "value": "expected gas (estimated)"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 30
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expected_unit_cost_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "expected unit cost (estimated)"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 30
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expected_standing_charge_gbp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "normal"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "expected standing charge"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 30
+              }
+            ]
           }
         ]
       },
@@ -588,6 +683,64 @@
           "rawQuery": true,
           "rawSql": "WITH wx AS (\n  SELECT observed_at, temp, shortwave_radiation, sunshine_duration\n  FROM (\n    SELECT\n      w.observed_at, w.temp, w.shortwave_radiation, w.sunshine_duration,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    AVG(temp) AS mean_temp,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp,\n    IF(COUNT(sunshine_duration) = COUNT(*), SUM(sunshine_duration) / 3600, NULL)\n      AS sunshine_hours,\n    IF(COUNT(shortwave_radiation) = COUNT(*), SUM(shortwave_radiation) / 1000, NULL)\n      AS radiation_kwh_m2\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT time, outdoor_mean\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(mean_temp, 1) AS outdoor_mean\n  FROM daily\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "C",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, expected_kwh\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas, 3) AS expected_kwh\n  FROM heating_forecast_day f\n  WHERE ${gas_unit:sqlstring} = 'kWh'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time, expected_unit_cost_gbp, expected_standing_charge_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(f.expected_gas * pr.unit_rate / 100, 4) AS expected_unit_cost_gbp,\n    ROUND(pr.standing_charge / 100, 4) AS expected_standing_charge_gbp\n  FROM heating_forecast_day f\n  JOIN agreement a\n    ON a.energy = 'G'\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n   AND CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n  JOIN product_rate pr\n    ON pr.id = (\n      SELECT pr2.id FROM product_rate pr2\n      WHERE pr2.product_code = a.product_code\n        AND pr2.region = ${region:sqlstring}\n        AND pr2.valid_from <= CONVERT_TZ(CAST(f.date AS DATETIME), '${timezone}', 'UTC')\n      ORDER BY pr2.valid_from DESC\n      LIMIT 1\n    )\n  WHERE ${gas_unit:sqlstring} = 'pounds'\n    AND f.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n    AND f.date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "refId": "E",
           "sql": {
             "columns": [
               {
@@ -1568,6 +1721,227 @@
       "title": "Gas Heatmap (Hour-by-Hour, Last 45 Days)",
       "type": "heatmap",
       "description": "Average gas per half-hour reading for each hour of the day, by weekday, London time, over the last 45 days (the raw retention window). Only complete gas days are included."
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Each dot is one day: its effective temperature (the day's mean blended with yesterday's, as the model uses it) across, its gas up. The line is the latest usable heating model: flat at the baseload above the threshold, rising by the slope for every degree below it. The title carries the model's numbers, when it was fitted and whether it is only 'estimated'. Away days are left out. The dots are every day the model has judged, whatever the dashboard time range. Dots far above the line are possible waste; far below, unusually little heating.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 50,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 2,
+            "pointShape": "circle",
+            "pointSize": {
+              "fixed": 6
+            },
+            "pointStrokeWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "show": "points"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "effective_temp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "effective temperature"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gas_kwh"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.show",
+                "value": "points"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "gas per day"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fitted_kwh"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "kwatth"
+              },
+              {
+                "id": "custom.show",
+                "value": "lines"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "id": 9,
+      "options": {
+        "dims": {
+          "frame": 0
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "series": [
+          {
+            "frame": 0,
+            "name": "day",
+            "x": "effective_temp",
+            "y": "gas_kwh"
+          },
+          {
+            "frame": 1,
+            "name": "model",
+            "x": "effective_temp",
+            "y": "fitted_kwh"
+          }
+        ],
+        "seriesMapping": "manual",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  d.effective_temp AS effective_temp,\n  d.actual_gas AS gas_kwh\nFROM heating_day_verdict d\nWHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n  AND d.away = 0\n  AND d.effective_temp IS NOT NULL\nORDER BY d.effective_temp;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  x AS effective_temp,\n  ROUND(baseload + slope * GREATEST(0, threshold - x), 2) AS fitted_kwh\nFROM (\n  SELECT\n    m.baseload,\n    m.slope,\n    m.threshold,\n    CASE pts.k\n      WHEN 0 THEN LEAST(COALESCE(r.lo, m.threshold), m.threshold)\n      WHEN 1 THEN m.threshold\n      ELSE GREATEST(COALESCE(r.hi, m.threshold), m.threshold)\n    END AS x\n  FROM heating_model m\n  CROSS JOIN (\n    SELECT MIN(d.effective_temp) AS lo, MAX(d.effective_temp) AS hi\n    FROM heating_day_verdict d\n    WHERE d.model_id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n      AND d.away = 0\n  ) r\n  CROSS JOIN (SELECT 0 AS k UNION ALL SELECT 1 UNION ALL SELECT 2) pts\n  WHERE m.id = (SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1)\n) f\nORDER BY x;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Heating Model: gas against effective temperature (${model_summary})",
+      "type": "xychart"
     }
   ],
   "refresh": "5m",
@@ -1762,6 +2136,26 @@
         "name": "gas_rates_estimated_note",
         "options": [],
         "query": "SELECT IF(rates_estimated, CONCAT(' ⚠ estimated rates: ', estimated_days), '') AS rates_estimated_note\nFROM cost_forecast WHERE energy = 'G' ORDER BY computed_at DESC LIMIT 1;",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "mysql",
+          "uid": "${DS_MYSQL}"
+        },
+        "definition": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Heating model summary",
+        "multi": false,
+        "name": "model_summary",
+        "options": [],
+        "query": "SELECT COALESCE((\n  SELECT CONCAT(\n    m.label, ', fitted ', DATE_FORMAT(CONVERT_TZ(m.fitted_at, 'UTC', '${timezone}'), '%e %b %Y'),\n    ', baseload ', ROUND(m.baseload, 1), ' kWh/day, threshold ', ROUND(m.threshold, 1),\n    ' C, slope ', ROUND(m.slope, 2), ' kWh per C, R2 ', IFNULL(ROUND(m.r_squared, 2), 'n/a')\n  )\n  FROM heating_model m\n  WHERE m.usable = 1\n  ORDER BY m.fitted_at DESC, m.id DESC\n  LIMIT 1\n), 'no usable model yet') AS model_summary;",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,

@@ -8,14 +8,14 @@
 
 ### What to build
 
-Daily gas against effective temperature as points with the latest model's fitted line; the legend carries baseload, threshold, slope and the estimated/confirmed label, and the date the model was last fitted is shown. Verify Grafana's XY chart suits; if not, record the fallback.
+Daily gas against effective temperature as points with the latest model's fitted line; the panel title carries baseload, threshold, slope and the estimated/confirmed label (through a hidden summary variable), and the date the model was last fitted is shown there too. Verify Grafana's XY chart suits; if not, record the fallback.
 
 ### Acceptance criteria
 
-- [ ] Points and the fitted line match the latest model row.
-- [ ] The legend shows baseload, threshold, slope and the label.
-- [ ] The date the model was last fitted is visible.
-- [ ] The chart type decision (or fallback) is documented.
+- [x] Points and the fitted line match the latest model row (checked on the Pi, 27 October 2026).
+- [ ] The panel title shows baseload, threshold, slope and the label (decided with the user: a hidden summary variable fills the title, not the legend; needs the real-Grafana look).
+- [x] The date the model was last fitted is visible (in the title, checked on the Pi).
+- [x] The chart type decision (or fallback) is documented (XY chart, Trend panel as the fallback).
 
 ---
 
@@ -103,10 +103,10 @@ Monthly bars of the estimated saving (pounds and kWh) from a thermostat 1 C lowe
 
 ### What to build
 
-The wave-1 daily gas panel gains lighter "expected gas" bars for today and the next 7 days from the forecast-day table.
+The wave-1 daily gas panel gains lighter "expected gas" bars for the 7 days the model job forecasts (today and the next 6) from the forecast-day table.
 
 ### Acceptance criteria
 
-- [ ] Expected bars match the forecast-day table.
-- [ ] They are visually distinct from actual gas and labelled expected.
-- [ ] Given no usable model, then no expected bars are shown.
+- [x] Expected bars match the forecast-day table (checked on the Pi, kWh and pounds).
+- [ ] They are visually distinct from actual gas and labelled expected (lighter fill and an 'expected' name; needs the real-Grafana look).
+- [x] Given no usable model, then no expected bars are shown (the queries only read the latest usable model's forecast rows).
