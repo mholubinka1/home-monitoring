@@ -19,7 +19,7 @@ COPY pyproject.toml uv.lock ./
 COPY apps/hive-app/pyproject.toml apps/hive-app/pyproject.toml
 COPY apps/octopus-app/pyproject.toml apps/octopus-app/pyproject.toml
 COPY libs/common/pyproject.toml libs/common/pyproject.toml
-# common is an actual (non-skipped) dependency of hive-app, so uv sync builds
+# monitoring-common (imported as `common`) is an actual (non-skipped) dependency of hive-app, so uv sync builds
 # and editable-installs it below -- its source must exist before that step, unlike
 # hive-app's own source (skipped by --no-install-project, only needed at runtime).
 COPY libs/common/common ./libs/common/common
@@ -30,7 +30,7 @@ RUN apk del .deps
 
 COPY apps/hive-app/hive_app ./apps/hive-app/hive_app
 
-# common is editable-installed into the venv by uv sync above (a real workspace
+# monitoring-common is editable-installed into the venv by uv sync above (a real workspace
 # dependency, resolved from its own pyproject.toml), so it's importable as a
 # plain top-level `common` without any extra PYTHONPATH entry -- only
 # hive_app needs one, since --no-install-project skipped installing it.

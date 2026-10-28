@@ -8,9 +8,9 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "common",
     "hive-app",
     "home-monitoring",
+    "monitoring-common",
     "octopus-app",
 ]
 
@@ -556,23 +556,6 @@ wheels = [
 ]
 
 [[package]]
-name = "common"
-version = "0.1.0"
-source = { editable = "libs/common" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "pymysql" },
-    { name = "sqlalchemy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pymysql", specifier = ">=1.1.2" },
-    { name = "sqlalchemy", specifier = ">=2.0.52" },
-]
-
-[[package]]
 name = "coverage"
 version = "7.16.1"
 source = { registry = "https://pypi.org/simple" }
@@ -863,7 +846,7 @@ name = "hive-app"
 version = "0.1.0"
 source = { editable = "apps/hive-app" }
 dependencies = [
-    { name = "common" },
+    { name = "monitoring-common" },
     { name = "pydantic" },
     { name = "pyhive-integration" },
     { name = "pymysql" },
@@ -876,7 +859,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "libs/common" },
+    { name = "monitoring-common", editable = "libs/common" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyhive-integration", specifier = ">=1.0.9" },
     { name = "pymysql", specifier = ">=1.1.2" },
@@ -1310,6 +1293,23 @@ wheels = [
 ]
 
 [[package]]
+name = "monitoring-common"
+version = "0.1.0"
+source = { editable = "libs/common" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "pymysql" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pymysql", specifier = ">=1.1.2" },
+    { name = "sqlalchemy", specifier = ">=2.0.52" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1507,8 +1507,8 @@ name = "octopus-app"
 version = "0.1.0"
 source = { editable = "apps/octopus-app" }
 dependencies = [
-    { name = "common" },
     { name = "cryptography" },
+    { name = "monitoring-common" },
     { name = "pydantic" },
     { name = "pymysql" },
     { name = "pyyaml" },
@@ -1520,8 +1520,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "libs/common" },
     { name = "cryptography", specifier = "==50.0.2" },
+    { name = "monitoring-common", editable = "libs/common" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pymysql", specifier = ">=1.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },

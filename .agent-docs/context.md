@@ -175,7 +175,7 @@ An independently deployable service, packaged under `apps/`, that polls one exte
 _Avoid_: app, service (ambiguous once more than one container exists)
 
 **`common`**:
-The shared library package (`libs/common/`) both `octopus-app` and `hive-app` depend on: logging setup, MariaDB engine/session plumbing, the Schema Sync mechanism, and the cross-app `job_run` and `account_postcode` tables. Not itself deployable — no Dockerfile, no entrypoint. Everything app-specific (domain models, retrieval/retry logic, config schema, CRUD beyond `job_run` and `account_postcode`) stays in that app rather than here. See [ADR-0020](adr/0020-shared-common-library.md).
+The shared library package (`libs/common/`) both `octopus-app` and `hive-app` depend on, imported as `common` but installed as the distribution `monitoring-common` (a bare `common` clashes with an unrelated PyPI package): logging setup, MariaDB engine/session plumbing, the Schema Sync mechanism, and the cross-app `job_run` and `account_postcode` tables. Not itself deployable — no Dockerfile, no entrypoint. Everything app-specific (domain models, retrieval/retry logic, config schema, CRUD beyond `job_run` and `account_postcode`) stays in that app rather than here. See [ADR-0020](adr/0020-shared-common-library.md).
 _Avoid_: utils, shared (ambiguous outside this glossary entry)
 
 **Combined Compose File**:

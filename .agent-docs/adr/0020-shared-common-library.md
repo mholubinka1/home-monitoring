@@ -1,5 +1,7 @@
 # Shared `common` library for cross-app infrastructure code
 
+> **Note**: the library's distribution name was later changed from `common` to `monitoring-common` (spec `chore-rename-common-library`): a bare `common` clashes with an unrelated PyPI package, which made Dependabot's update job fail. The import name and folder are unchanged, so everything below still holds.
+
 Once `hive-app` existed alongside `octopus-app`, most of `app/common/` and `app/data/mysql/` turned out to be genuinely app-specific (retry strategy, exceptions, config schema all diverge) except for two things: logging setup (identical structure, differs only by logger name) and MariaDB session/engine/schema-sync plumbing, which was hand-duplicated with an explicit "keep both in sync" comment. Rather than accept that duplication indefinitely or fully generalize every shared-looking module, only the genuinely generic pieces — logging config, MariaDB engine/session context managers, the additive-only Schema Sync mechanism (ADR-0005), and the tables shared by both apps (`job_run`, which both write to; since ADR-0028, also `account_postcode`, written by octopus-app and read by hive-app) — move into a new top-level `libs/common/` package that both apps depend on. Domain-specific models and CRUD (consumption, pricing, heating status, etc.) stay owned by their own app.
 
 `libs/common/` sits outside `apps/` because it has no entrypoint or container of its own — `apps/` is reserved for things that build a deployable image.
