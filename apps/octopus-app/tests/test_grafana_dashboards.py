@@ -8,6 +8,7 @@ GRAFANA_DIR = Path(__file__).resolve().parents[3] / "data" / "grafana"
 DASHBOARD_FILES = sorted(GRAFANA_DIR.glob("*.json"))
 GAS_HEATING_DASHBOARD = GRAFANA_DIR / "gas-heating-dashboard.json"
 TEMPERATURES = "Indoor, Target and Outdoor Temperature"
+BAND = "Daily Outdoor Temperature Band"
 
 
 def _load(path: Path) -> dict:
@@ -40,7 +41,7 @@ def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
     types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
 
     assert types
-    assert types <= {"timeseries", "heatmap", "bargauge", "xychart"}
+    assert types <= {"timeseries", "bargauge"}
     assert [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))].count(
         "bargauge"
     ) == 1
@@ -174,7 +175,7 @@ def test_daily_gas_panels_use_only_complete_gas_days() -> None:
         if "daily_consumption_summary" in t["rawSql"]
     ]
 
-    assert len(daily) == 4  # kWh, pounds, monthly, heatmap
+    assert len(daily) == 2  # kWh and pounds
     for sql in daily:
         assert "s.total_kwh > 0" in sql
         assert "s.half_hour_count = TIMESTAMPDIFF(" in sql
@@ -227,7 +228,7 @@ def test_a_missing_day_is_a_gap_on_the_daily_temperature_lines() -> None:
     assert overrides["outdoor_mean"]["custom.spanNulls"] is False
     assert overrides["outdoor_mean"]["custom.insertNulls"] == 129600000
 
-    band = _panel("Daily Outdoor Temperature Band with Sunshine")
+    band = _panel(BAND)
     custom = band["fieldConfig"]["defaults"]["custom"]
     assert custom["spanNulls"] is False
     assert custom["insertNulls"] == 129600000
@@ -242,7 +243,7 @@ def test_a_comfort_setting_that_is_not_a_number_shows_no_data_not_zero() -> None
 
 
 def test_the_band_shades_between_its_maximum_and_minimum_display_names() -> None:
-    overrides = _panel_overrides("Daily Outdoor Temperature Band with Sunshine")
+    overrides = _panel_overrides(BAND)
 
     assert (
         overrides["max_temp"]["custom.fillBelowTo"]
@@ -270,21 +271,9 @@ def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
         assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in sql
 
 
-def test_the_monthly_and_heatmap_panels_carry_their_own_time_ranges() -> None:
-    # Neither query uses the dashboard range: the monthly one needs 13+ months
-    # of history, the heatmap is "today" with its hours on the right day.
-    monthly = next(p for p in _gas_panels() if p["title"].startswith("Monthly Gas"))
-    heatmap = next(p for p in _gas_panels() if p["type"] == "heatmap")
-
-    assert monthly["timeFrom"] == "400d"
-    assert heatmap["timeFrom"] == "now/d"
-    assert heatmap["hideTimeOverride"] is True
-
-
 def test_minutes_and_days_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
     for title, series in (
         ("Boost Minutes and Estimated Extra Gas Cost", "boost_minutes"),
-        ("Daily Outdoor Temperature Band with Sunshine", "sunshine_hours"),
     ):
         assert _panel_overrides(title)[series]["unit"].startswith("suffix: ")
 
@@ -343,110 +332,7 @@ def test_the_daily_gas_panel_no_longer_carries_the_forecast() -> None:
     assert "forecast" not in panel["description"].lower()
 
 
-def test_monthly_gas_is_a_year_on_year_percentage_without_day_counts() -> None:
-    panel = next(p for p in _gas_panels() if p["title"].startswith("Monthly Gas"))
-    sql = panel["targets"][0]["rawSql"]
-    series = [o["matcher"]["options"] for o in panel["fieldConfig"]["overrides"]]
-
-    assert "AS yoy_pct_change" in sql
-    assert "DAY(LAST_DAY(" in sql  # still scaled to the month's full days
-    assert "days_counted" not in sql
-    assert "days_counted" not in json.dumps(panel["fieldConfig"])
-    assert series == ["yoy_pct_change"]
-    # Threshold colours only colour each bar by its own value in scheme mode.
-    custom = panel["fieldConfig"]["defaults"]["custom"]
-    assert custom["gradientMode"] == "scheme"
-    # A line, like the electricity year-on-year panel, not bars.
-    assert custom["drawStyle"] == "line"
-    # One quiet month a year ago must not flatten the other eleven.
-    defaults = panel["fieldConfig"]["defaults"]
-    assert (defaults["min"], defaults["max"]) == (-100, 100)
-    assert "t.month_start - INTERVAL 12 MONTH" in sql  # the same month a year ago
-    assert "HAVING COUNT(*) >= 10" in sql
-    steps = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
-    assert [(s["color"], s["value"]) for s in steps] == [("green", None), ("red", 0)]
-    assert panel["fieldConfig"]["defaults"]["unit"] == "percent"
-
-
-MODEL_CHART_PREFIX = "Heating Model"
 LATEST_USABLE_MODEL = "SELECT m.id FROM heating_model m WHERE m.usable = 1 ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1"
-
-
-def _model_chart() -> dict:
-    return next(p for p in _gas_panels() if p["title"].startswith(MODEL_CHART_PREFIX))
-
-
-def test_the_model_chart_is_an_xy_chart_of_gas_against_effective_temperature() -> None:
-    panel = _model_chart()
-
-    assert panel["type"] == "xychart"
-    dots = panel["targets"][0]["rawSql"]
-    assert "AS effective_temp" in dots
-    assert "AS gas_kwh" in dots
-    assert "FROM heating_day_verdict" in dots
-    overrides = {
-        o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
-        for o in panel["fieldConfig"]["overrides"]
-    }
-    assert overrides["gas_kwh"]["custom.show"] == "points"
-    assert overrides["fitted_kwh"]["custom.show"] == "lines"
-
-
-def test_the_model_chart_series_are_wired_to_the_query_columns() -> None:
-    # The manual mapping names frames by position and fields by alias; a
-    # renamed alias or reordered query would leave the chart empty.
-    panel = _model_chart()
-    dots, line = (t["rawSql"] for t in panel["targets"][:2])
-    series = panel["options"]["series"]
-
-    assert panel["options"]["seriesMapping"] == "manual"
-    assert [(s["frame"], s["x"], s["y"]) for s in series] == [
-        (0, "effective_temp", "gas_kwh"),
-        (1, "effective_temp", "fitted_kwh"),
-    ]
-    assert "AS gas_kwh" in dots and "AS effective_temp" in dots
-    assert "AS fitted_kwh" in line and "AS effective_temp" in line
-    # Fields keep their raw names: the mapping must not depend on display names.
-    for override in panel["fieldConfig"]["overrides"]:
-        ids = [p["id"] for p in override["properties"]]
-        assert "displayName" not in ids, override["matcher"]["options"]
-
-
-def test_the_model_chart_reads_only_days_judged_by_the_latest_usable_model() -> None:
-    dots, line = (t["rawSql"] for t in _model_chart()["targets"][:2])
-
-    assert f"d.model_id = ({LATEST_USABLE_MODEL})" in dots
-    assert "d.away = 0" in dots  # an away day says nothing about the house
-    assert f"m.id = ({LATEST_USABLE_MODEL})" in line
-
-
-def test_the_fitted_line_is_baseload_plus_slope_below_the_threshold() -> None:
-    line = _model_chart()["targets"][1]["rawSql"]
-
-    assert "baseload + slope * GREATEST(0, threshold - x)" in line
-    assert "AS fitted_kwh" in line
-    assert line.count("UNION ALL") == 2  # the cold end, the kink, the warm end
-
-
-def test_the_model_chart_title_carries_the_fit_and_its_label() -> None:
-    dashboard = _load(GAS_HEATING_DASHBOARD)
-    variable = next(
-        v for v in dashboard["templating"]["list"] if v["name"] == "model_summary"
-    )
-
-    assert "${model_summary}" in _model_chart()["title"]
-    assert variable["hide"] == 2
-    query = variable["query"]
-    assert "m.usable = 1" in query
-    assert "ORDER BY m.fitted_at DESC, m.id DESC" in query
-    for part in ("m.baseload", "m.threshold", "m.slope", "m.r_squared", "m.label"):
-        assert part in query
-    assert "m.fitted_at" in query
-    assert "no usable model yet" in query
-    # A long title is cut at the right, so the label and date come first.
-    assert (
-        query.index("m.label") < query.index("m.fitted_at") < query.index("m.baseload")
-    )
 
 
 def _rate_lookup(sql: str) -> str:
@@ -503,321 +389,61 @@ def test_expected_gas_bars_are_lighter_and_labelled_expected() -> None:
         assert overrides[series]["displayName"].endswith("(estimated)"), series
 
 
-WHERE_THE_GAS_WENT = "Where the Gas Went (${gas_unit}, estimated)"
-KWH_SLICES = (
-    "baseload_kwh",
-    "heating_kwh",
-    "normal_variation_kwh",
-    "excess_possible_kwh",
-    "excess_clear_kwh",
-    "avoidable_possible_kwh",
-    "avoidable_clear_kwh",
-)
-GBP_SLICES = tuple(name.replace("_kwh", "_gbp") for name in KWH_SLICES) + (
-    "standing_charge_gbp",
-)
+GRID_COLUMNS = 24
 
 
-def test_where_the_gas_went_is_a_stacked_bar_chart_with_range_totals_in_the_legend() -> (
-    None
-):
-    panel = _panel(WHERE_THE_GAS_WENT)
-    overrides = _panel_overrides(WHERE_THE_GAS_WENT)
+def test_the_reviewed_out_panels_are_gone() -> None:
+    titles = " ".join(p["title"] for p in _gas_panels())
 
-    assert panel["type"] == "timeseries"
-    assert panel["fieldConfig"]["defaults"]["custom"]["drawStyle"] == "bars"
-    assert panel["options"]["legend"]["calcs"] == ["sum"]
-    assert panel["options"]["legend"]["displayMode"] == "table"
-    for series in KWH_SLICES + GBP_SLICES:
-        assert overrides[series]["custom.stacking"]["mode"] == "normal", series
-    assert {overrides[s]["unit"] for s in KWH_SLICES} == {"kwatth"}
-    assert {overrides[s]["unit"] for s in GBP_SLICES} == {"currencyGBP"}
-
-
-def test_the_slices_of_a_day_come_from_the_latest_usable_models_verdicts() -> None:
-    kwh = _query(WHERE_THE_GAS_WENT, "A")
-
-    for series in KWH_SLICES:
-        assert f"AS {series}" in kwh, series
-    assert "FROM heating_day_verdict v" in kwh
-    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in kwh
-    assert "v.away = 0" in kwh  # an away day is a neutral gap
-    assert "${gas_unit:sqlstring} = 'kWh'" in kwh
-
-
-def test_a_day_below_the_models_expectation_shrinks_the_expected_slices() -> None:
-    # Heating gives way first, then baseload, so the bar is the day's real gas.
-    kwh = _query(WHERE_THE_GAS_WENT, "A")
-
-    assert (
-        "GREATEST(0, v.expected_heating + LEAST(v.normal_variation, 0)) AS heating_kwh"
-        in kwh
-    )
-    assert (
-        "v.baseload + LEAST(0, v.expected_heating + LEAST(v.normal_variation, 0)) "
-        "AS baseload_kwh"
-    ) in kwh
-    assert "GREATEST(v.normal_variation, 0) AS normal_variation_kwh" in kwh
-
-
-def test_possible_and_clear_gas_is_excess_when_needed_and_avoidable_otherwise() -> None:
-    kwh = _query(WHERE_THE_GAS_WENT, "A")
-
-    assert "IF(v.needed = 1, v.possible, 0) AS excess_possible_kwh" in kwh
-    assert "IF(v.needed = 1, v.clear, 0) AS excess_clear_kwh" in kwh
-    assert "IF(v.needed = 1, 0, v.possible) AS avoidable_possible_kwh" in kwh
-    assert "IF(v.needed = 1, 0, v.clear) AS avoidable_clear_kwh" in kwh
-
-
-def test_in_pounds_every_slice_is_priced_and_the_standing_charge_makes_the_cost() -> (
-    None
-):
-    pounds = _query(WHERE_THE_GAS_WENT, "B")
-    actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
-
-    for series in GBP_SLICES:
-        assert f"AS {series}" in pounds, series
-    assert "${gas_unit:sqlstring} = 'pounds'" in pounds
-    assert "v.away = 0" in pounds
-    assert f"v.model_id = ({LATEST_USABLE_MODEL})" in pounds
-    # Priced exactly as the daily gas panel's actual pounds are.
-    assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "v.date")
-    assert "/ 100, 4) AS baseload_gbp" in pounds
-
-
-def test_the_shades_say_excess_or_avoidable_and_possible_or_clear() -> None:
-    overrides = _panel_overrides(WHERE_THE_GAS_WENT)
-
-    for unit in ("kwh", "gbp"):
-        names = {
-            kind: overrides[f"{kind}_{unit}"]["displayName"]
-            for kind in (
-                "excess_possible",
-                "excess_clear",
-                "avoidable_possible",
-                "avoidable_clear",
-            )
-        }
-        assert len(set(names.values())) == 4
-        assert "excess" in names["excess_possible"]
-        assert "possible" in names["excess_possible"]
-        assert "excess" in names["excess_clear"]
-        assert "clear" in names["excess_clear"]
-        assert "avoidable" in names["avoidable_possible"]
-        assert "avoidable" in names["avoidable_clear"]
-        # Each pair is two shades of one hue.
-        assert (
-            overrides[f"excess_possible_{unit}"]["color"]
-            != overrides[f"excess_clear_{unit}"]["color"]
-        )
-    for kwh in KWH_SLICES:
-        gbp = kwh.replace("_kwh", "_gbp")
-        assert overrides[kwh]["color"] == overrides[gbp]["color"], kwh
-        assert overrides[kwh]["displayName"] == overrides[gbp]["displayName"], kwh
-
-
-EFFICIENCY = (
-    "Heating Efficiency: Gas Above Baseload per Degree-Day (7-Day Rolling, estimated)"
-)
-
-
-def test_the_efficiency_trend_divides_gas_above_baseload_by_degree_days() -> None:
-    sql = _query(EFFICIENCY, "A")
-
-    assert "v.actual_gas - v.baseload AS above_baseload" in sql
-    assert "GREATEST(0, model.threshold - v.effective_temp) AS degree_days" in sql
-    assert "JOIN days w ON w.date BETWEEN d.date - INTERVAL 6 DAY AND d.date" in sql
-    assert "SUM(w.above_baseload) / SUM(w.degree_days)" in sql
-    assert "v.away = 0" in sql
-    # One lookup of the model: its threshold and its verdicts cannot disagree.
-    assert "SELECT m.id, m.threshold" in sql
-    assert "v.model_id = model.id" in sql
-    assert sql.count("heating_model") == 1
-    assert "ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1" in sql
-
-
-def test_a_window_with_too_little_cold_or_too_few_days_is_a_gap() -> None:
-    sql = _query(EFFICIENCY, "A")
-
-    assert "HAVING COUNT(*) >= 5" in sql
-    assert "SUM(w.degree_days) >= 1.5 * COUNT(*)" in sql
-    # A trend needs more than the dashboard's two weeks; mild spells are gaps.
-    assert _panel(EFFICIENCY)["timeFrom"] == "400d"
-    assert _panel(EFFICIENCY)["hideTimeOverride"] is True
-    custom = _panel(EFFICIENCY)["fieldConfig"]["defaults"]["custom"]
-    assert custom["spanNulls"] is False
-    assert custom["insertNulls"] == 129600000
-
-
-YEAR_ON_YEAR = (
-    "Heating Efficiency, This Year and Last, Weather-Normalised (estimated): "
-    "${yoy_summary}"
-)
-WEEK_STATUSES_THE_SWITCH_LIFTS = "IN ('shown', 'too mild', 'heating off')"
-
-
-def test_year_on_year_joins_each_week_to_the_week_364_days_earlier() -> None:
-    panel = _panel(YEAR_ON_YEAR)
-    sql = _query(YEAR_ON_YEAR, "A")
-
-    assert panel["type"] == "timeseries"
-    assert "FROM heating_week w" in sql
-    assert (
-        "JOIN heating_week l ON l.week_start = w.week_start - INTERVAL 364 DAY" in sql
-    )
-    assert "AS this_year_kwh_per_dd" in sql
-    assert "AS last_year_kwh_per_dd" in sql
-    # The model job already did the guarding and the baseload: the query only
-    # reads the stored efficiency and status.
-    for logic in ("avg_baseload", "avg_degree_days", "HAVING", "GROUP BY"):
-        assert logic not in sql, logic
-
-
-def test_only_weeks_shown_in_both_years_are_plotted_unless_the_switch_lifts_the_guards() -> (
-    None
-):
-    sql = _query(YEAR_ON_YEAR, "A")
-
-    assert "${all_weeks:sqlstring} = 'yes'" in sql
-    assert "w.status = 'shown' AND l.status = 'shown'" in sql
-    for week in ("w", "l"):
-        assert f"{week}.status {WEEK_STATUSES_THE_SWITCH_LIFTS}" in sql
-        assert f"{week}.efficiency IS NOT NULL" in sql
-    # A week with fewer than 5 gas days stays out whatever the switch says.
-    assert "too few days" not in sql
-
-
-def test_the_switch_and_the_title_summary_are_dashboard_variables() -> None:
-    variables = {
-        v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
-    }
-    switch = variables["all_weeks"]
-    summary = variables["yoy_summary"]
-
-    # The title counts the same weeks the panel plots: one rule, two copies.
-    for week in ("w", "l"):
-        assert f"{week}.status {WEEK_STATUSES_THE_SWITCH_LIFTS}" in summary["query"]
-        assert f"{week}.efficiency IS NOT NULL" in summary["query"]
-    assert "w.status = 'shown'" in summary["query"]
-    assert "l.status = 'shown'" in summary["query"]
-    assert switch["type"] == "custom"
-    assert switch["current"]["value"] == "no"
-    assert switch["query"] == "no,yes"
-    assert summary["hide"] == 2
-    query = summary["query"]
-    for part in (
-        "weeks shown",
-        "left out",
-        "too few days",
-        "too mild",
-        "heating off",
-        "without a last-year week",
-        "WHEN p.last_status IS NULL THEN 'no last year'",
-        "baseload",
-        "${all_weeks:sqlstring}",
-        "interpolated",
+    for removed in (
+        "Monthly Gas Year-on-Year",
+        "Gas Heatmap",
+        "Heating Model",
+        "Where the Gas Went",
+        "Heating Efficiency",
+        "Saving from a Thermostat",
     ):
-        assert part in query, part
+        assert removed not in titles, removed
 
 
-def test_the_year_on_year_lines_are_labelled_estimated_and_gap_on_a_missing_week() -> (
-    None
-):
-    panel = _panel(YEAR_ON_YEAR)
-    overrides = _panel_overrides(YEAR_ON_YEAR)
-    custom = panel["fieldConfig"]["defaults"]["custom"]
+def test_the_variables_of_the_removed_panels_are_gone() -> None:
+    names = {v["name"] for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]}
 
-    assert "estimated" in panel["title"]
-    assert "interpolated" in panel["description"]
-    assert panel["timeFrom"] == "400d"
-    assert custom["spanNulls"] is False
-    assert 7 * 86400000 < custom["insertNulls"] < 14 * 86400000
-    assert overrides["this_year_kwh_per_dd"]["displayName"] == "this year"
-    assert overrides["last_year_kwh_per_dd"]["displayName"] == "last year"
-    assert (
-        overrides["this_year_kwh_per_dd"]["color"]
-        != overrides["last_year_kwh_per_dd"]["color"]
+    assert names.isdisjoint({"model_summary", "all_weeks", "yoy_summary"})
+
+
+def test_every_defined_variable_is_used() -> None:
+    dashboard = _load(GAS_HEATING_DASHBOARD)
+    text = json.dumps(dashboard["panels"]) + json.dumps(
+        [v.get("query") for v in dashboard["templating"]["list"]]
     )
-    for series in overrides.values():
-        assert series["unit"].startswith("suffix: ")
+
+    for variable in dashboard["templating"]["list"]:
+        assert re.search(rf"\$\{{?{variable['name']}\b", text), variable["name"]
 
 
-SETPOINT_SAVING = (
-    "Saving from a Thermostat 1 C Lower, by Month (${gas_unit}, estimated)"
-)
+def test_the_band_shows_temperatures_only() -> None:
+    # Sunshine and radiation are still recorded by hive-app, just not drawn.
+    band = _panel(BAND)
+    sql = band["targets"][0]["rawSql"]
+
+    assert set(_panel_overrides(BAND)) == {"min_temp", "mean_temp", "max_temp"}
+    for unused in ("sunshine", "radiation"):
+        assert unused not in sql, unused
+        assert unused not in band["description"].lower(), unused
 
 
-def test_the_monthly_saving_is_the_slope_times_the_needed_days() -> None:
-    kwh = _query(SETPOINT_SAVING, "A")
+def test_the_panels_tile_the_grid_without_gaps_or_overlaps() -> None:
+    cells: dict[tuple[int, int], str] = {}
+    for panel in _gas_panels():
+        grid = panel["gridPos"]
+        for row in range(grid["y"], grid["y"] + grid["h"]):
+            for column in range(grid["x"], grid["x"] + grid["w"]):
+                assert (row, column) not in cells, (
+                    panel["title"],
+                    cells.get((row, column)),
+                )
+                cells[(row, column)] = panel["title"]
 
-    assert "ROUND(model.slope * SUM(v.needed = 1), 1) AS saving_kwh" in kwh
-    assert "v.away = 0" in kwh
-    assert "v.model_id = model.id" in kwh
-    assert "ORDER BY m.fitted_at DESC, m.id DESC LIMIT 1" in kwh
-    assert "${gas_unit:sqlstring} = 'kWh'" in kwh
-
-
-def test_the_pounds_saving_prices_each_needed_day_at_its_own_rate() -> None:
-    pounds = _query(SETPOINT_SAVING, "B")
-    actual = _query("Daily Gas and Outdoor Temperature (${gas_unit})", "B")
-
-    assert (
-        "ROUND(SUM(IF(v.needed = 1, model.slope * pr.unit_rate / 100, 0)), 2) AS saving_gbp"
-    ) in pounds
-    # A month with judged days but none needed is a zero bar in both units.
-    assert "AND v.needed = 1" not in pounds
-    assert "${gas_unit:sqlstring} = 'pounds'" in pounds
-    assert _rate_lookup(pounds) == _rate_lookup(actual).replace("s.date", "v.date")
-    # The standing charge does not change with the setpoint.
-    assert "standing_charge" not in pounds
-
-
-def test_the_average_target_line_uses_only_comfort_target_readings() -> None:
-    guard = (
-        "IF(${comfort_target:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', "
-        "CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)"
-    )
-    for ref in ("A", "B"):
-        sql = _query(SETPOINT_SAVING, ref)
-        assert f"h.target_temp >= {guard}" in sql, ref
-        assert "AS avg_target_c" in sql, ref
-        assert "FROM heating_status h" in sql, ref
-        assert "h.polled_at >= $__timeFrom() - INTERVAL 1 MONTH" in sql, ref
-    # The window is the panel's own range (400 days) so the title counts what is drawn.
-    summary = next(
-        v
-        for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
-        if v["name"] == "yoy_summary"
-    )
-    assert "UTC_TIMESTAMP() - INTERVAL 400 DAY" in summary["query"]
-    # When every week passes there are no reasons: a SUM of nothing is NULL and
-    # would blank the whole title, so each reason is a zero-safe COUNT.
-    assert summary["query"].count("COUNT(CASE WHEN f.reason = ") == 4
-    assert "SUM(f.reason" not in summary["query"]
-
-
-def test_the_saving_panel_is_an_estimate_with_the_target_on_its_own_axis() -> None:
-    panel = _panel(SETPOINT_SAVING)
-    overrides = _panel_overrides(SETPOINT_SAVING)
-
-    assert "estimated" in panel["title"]
-    assert "estimate" in panel["description"].lower()
-    assert panel["timeFrom"] == "400d"
-    assert overrides["saving_kwh"]["unit"] == "kwatth"
-    assert overrides["saving_gbp"]["unit"] == "currencyGBP"
-    assert overrides["saving_gbp"]["decimals"] == 2  # pence, not "£2.9"
-    assert overrides["avg_target_c"]["displayName"] == "average comfort target"
-    assert overrides["avg_target_c"]["unit"] == "celsius"
-    assert overrides["avg_target_c"]["custom.axisPlacement"] == "right"
-    assert overrides["avg_target_c"]["custom.drawStyle"] == "line"
-    assert overrides["avg_target_c"]["custom.spanNulls"] is False
-
-
-def test_a_lone_point_on_a_line_still_shows_a_marker() -> None:
-    # A line series with one point and no markers draws nothing: a week between
-    # two gaps, or the only month with a target, would vanish.
-    for title in (YEAR_ON_YEAR, EFFICIENCY):
-        custom = _panel(title)["fieldConfig"]["defaults"]["custom"]
-        assert custom["showPoints"] == "auto", title
-    overrides = _panel_overrides(SETPOINT_SAVING)
-    assert overrides["avg_target_c"]["custom.showPoints"] == "always"
+    bottom = max(row for row, _ in cells) + 1
+    assert len(cells) == bottom * GRID_COLUMNS
