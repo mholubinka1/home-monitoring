@@ -21,12 +21,7 @@ from hive_app.data.auth import HiveAuthenticator
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.notify import (
-    NtfyDataNotifier,
-    NtfyReauthNotifier,
-    ReauthAlert,
-    ReauthNotifier,
-)
+from hive_app.data.notify import NtfyDataNotifier
 from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
@@ -146,6 +141,10 @@ def build_hive_watchdog_job(
 ) -> Job | None:
     """Registers the Hive data watchdog only when ntfy is configured."""
     if ntfy is None or not ntfy.topic_url:
+        logger.warning(
+            "ntfy is not configured; hive-app will not send a live alert if "
+            "Hive data stops arriving (see job_run for failures)."
+        )
         return None
     watchdog = HiveDataWatchdog(
         mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours
@@ -265,20 +264,6 @@ def run_weather_backfill_at_startup(
     )()
 
 
-def _build_reauth_notifier(topic_url: str | None) -> ReauthNotifier | None:
-    if not topic_url:
-        logger.warning(
-            "ntfy is not configured; hive-app will not send a live alert if "
-            "Hive re-authentication is required (see job_run for failures)."
-        )
-        return None
-    return NtfyReauthNotifier(topic_url)
-
-
-def _build_reauth_alert(topic_url: str | None) -> ReauthAlert:
-    return ReauthAlert(_build_reauth_notifier(topic_url))
-
-
 def _build_weather_retriever(
     location: LocationSettings | None,
     mariadb: MariaDBClient,
@@ -305,11 +290,8 @@ def main() -> None:
 
     mariadb = MariaDBClient(settings.mariadb)
     hive_source = HiveApiSource(settings.hive, mariadb)
-    reauth_alert = _build_reauth_alert(
-        settings.ntfy.topic_url if settings.ntfy else None
-    )
-    heating = HeatingRetriever(hive_source, reauth_alert)
-    authenticator = HiveAuthenticator(hive_source, reauth_alert)
+    heating = HeatingRetriever(hive_source)
+    authenticator = HiveAuthenticator(hive_source)
 
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)

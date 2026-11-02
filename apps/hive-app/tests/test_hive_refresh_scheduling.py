@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import Mock
 
 import pytest
@@ -83,6 +84,19 @@ def test_hive_watchdog_job_runs_every_60_seconds_only_when_ntfy_is_configured(
     assert job is not None
     assert job.interval == 60
     assert job.unit == "seconds"
+
+
+def test_without_ntfy_a_warning_is_logged_and_no_watchdog_job_is_registered(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    scheduler = Scheduler()
+
+    with caplog.at_level(logging.WARNING):
+        job = build_hive_watchdog_job(scheduler, mariadb_client, None)
+
+    assert job is None
+    assert scheduler.get_jobs() == []
+    assert "will not send a live alert if Hive data stops arriving" in caplog.text
 
 
 def test_the_watchdog_job_swallows_a_failing_check() -> None:

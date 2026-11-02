@@ -1,11 +1,9 @@
 import logging.config
 from logging import Logger, getLogger
 
-from hive_app.common.exceptions import HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.heating import HiveSource
 from hive_app.data.model import HiveAuthState
-from hive_app.data.notify import ReauthAlert
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -19,26 +17,19 @@ class HiveAuthenticator:
     folded into main()) so this branching logic stays unit-testable in
     isolation and main() stays thin wiring.
 
-    A HiveReauthRequired here (or from the poll) is only *alerted*, never
-    recovered from: completing a live re-login needs an interactive SMS 2FA
-    step this codebase cannot perform unattended; the alert only tells the
-    owner that someone must complete that step by hand."""
+    A HiveReauthRequired here propagates like any other error: completing a
+    live re-login needs an interactive SMS 2FA step this codebase cannot
+    perform unattended. Startup logs the failure and continues; the Hive data
+    watchdog (ADR-0031) is what tells the owner when data stops arriving."""
 
     _client: HiveSource
-    _alert: ReauthAlert
 
-    def __init__(self, client: HiveSource, alert: ReauthAlert | None = None) -> None:
+    def __init__(self, client: HiveSource) -> None:
         self._client = client
-        self._alert = alert if alert is not None else ReauthAlert(None)
 
     def authenticate(self) -> None:
-        try:
-            state = self._resume_or_login()
-        except HiveReauthRequired:
-            self._alert.notify_once()
-            raise
+        state = self._resume_or_login()
         self._client.persist_auth_state(state)
-        self._alert.clear()
 
     def _resume_or_login(self) -> HiveAuthState:
         state = self._client.read_auth_state()

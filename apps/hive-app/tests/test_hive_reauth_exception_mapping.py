@@ -15,7 +15,6 @@ from hive_app.data.hive_client import _LOGIN_REQUIRES_SMS_MESSAGE, HiveApiSource
 from hive_app.data.model import HiveAuthState
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert
 from hive_app.main import register_heating_refresh_job
 
 
@@ -120,11 +119,9 @@ def test_credential_errors_are_not_treated_as_needing_a_live_relogin(
 
 
 @responses.activate
-def test_unrecognised_device_during_a_poll_sends_one_reauth_alert(
+def test_unrecognised_device_during_a_poll_requires_reauth_and_posts_nothing(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
-    topic_url = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
-    responses.add(responses.POST, topic_url, status=200)
     settings = HiveSettings(
         username="user@example.com",
         password="hunter2",
@@ -135,13 +132,12 @@ def test_unrecognised_device_during_a_poll_sends_one_reauth_alert(
     _install_hive_raising(
         monkeypatch, hive_exceptions.HiveInvalidDeviceAuthentication()
     )
-    heating = HeatingRetriever(source, ReauthAlert(NtfyReauthNotifier(topic_url)))
+    heating = HeatingRetriever(source)
 
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
 
-    assert len(responses.calls) == 1
-    assert responses.calls[0].request.url == topic_url
+    assert len(responses.calls) == 0
 
 
 class _TimingOutApyHive:
@@ -178,23 +174,13 @@ def _polling_heating(mariadb_client: MariaDBClient, tmp_path: Path) -> HeatingRe
     )
     source = HiveApiSource(settings, mariadb_client)
     source.persist_auth_state(_persisted_state())
-    return HeatingRetriever(
-        source,
-        ReauthAlert(
-            NtfyReauthNotifier("https://ntfy.sh/home-monitoring-hive-auth-ntfy-test")
-        ),
-    )
+    return HeatingRetriever(source)
 
 
 @responses.activate
-def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_alert(
+def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_requirement(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
-    responses.add(
-        responses.POST,
-        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
-        status=200,
-    )
     monkeypatch.setattr("hive_app.data.hive_client.Hive", _TimingOutApyHive)
     heating = _polling_heating(mariadb_client, tmp_path)
 
@@ -205,32 +191,9 @@ def test_a_hive_api_timeout_during_a_poll_is_not_a_reauth_alert(
 
 
 @responses.activate
-def test_a_genuine_reauth_requirement_during_a_poll_still_sends_one_alert(
-    mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
-) -> None:
-    responses.add(
-        responses.POST,
-        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
-        status=200,
-    )
-    _install_hive_raising(monkeypatch, hive_exceptions.HiveReauthRequired())
-    heating = _polling_heating(mariadb_client, tmp_path)
-
-    with pytest.raises(HiveReauthRequired):
-        heating.refresh()
-
-    assert len(responses.calls) == 1
-
-
-@responses.activate
 def test_a_hive_api_timeout_does_not_taint_a_later_genuine_reauth_requirement(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
-    responses.add(
-        responses.POST,
-        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
-        status=200,
-    )
     hives: list[Any] = [
         _TimingOutApyHive(),
         _RaisingApyHive(hive_exceptions.HiveReauthRequired()),
@@ -243,7 +206,7 @@ def test_a_hive_api_timeout_does_not_taint_a_later_genuine_reauth_requirement(
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
 
-    assert len(responses.calls) == 1
+    assert len(responses.calls) == 0
 
 
 @responses.activate
@@ -252,17 +215,12 @@ def test_a_hive_api_timeout_does_not_taint_a_later_genuine_reauth_requirement(
     _NEEDS_LIVE_RELOGIN[1:],  # all but the bare HiveReauthRequired
     ids=_exception_id,
 )
-def test_an_auth_failure_other_than_an_empty_device_list_still_alerts_after_a_timeout(
+def test_an_auth_failure_other_than_an_empty_device_list_is_still_reauth_after_a_timeout(
     mariadb_client: MariaDBClient,
     monkeypatch: Any,
     tmp_path: Path,
     exception: Exception,
 ) -> None:
-    responses.add(
-        responses.POST,
-        "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test",
-        status=200,
-    )
     monkeypatch.setattr(
         "hive_app.data.hive_client.Hive",
         lambda **kwargs: _TimingOutApyHive(raises=exception),
@@ -272,7 +230,7 @@ def test_an_auth_failure_other_than_an_empty_device_list_still_alerts_after_a_ti
     with pytest.raises(HiveReauthRequired):
         heating.refresh()
 
-    assert len(responses.calls) == 1
+    assert len(responses.calls) == 0
 
 
 @responses.activate
@@ -293,7 +251,7 @@ def test_a_hive_api_timeout_during_startup_authentication_is_not_a_reauth(
 
 
 @responses.activate
-def test_a_scheduled_poll_hitting_a_hive_api_timeout_is_retried_without_alerting(
+def test_a_scheduled_poll_hitting_a_hive_api_timeout_is_retried_and_recorded(
     mariadb_client: MariaDBClient, monkeypatch: Any, tmp_path: Path
 ) -> None:
     sleep_delays: list[int] = []

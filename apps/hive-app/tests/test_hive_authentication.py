@@ -5,7 +5,6 @@ import pytest
 from hive_app.common.exceptions import HiveReauthRequired
 from hive_app.data.auth import HiveAuthenticator
 from hive_app.data.model import HeatingStatus, HiveAuthState
-from hive_app.data.notify import ReauthAlert
 
 
 class _FakeAuthHiveSource:
@@ -68,18 +67,9 @@ class _ReauthRequiredAuthHiveSource(_FakeAuthHiveSource):
         raise HiveReauthRequired("Hive's remembered device is no longer recognized.")
 
 
-class _SpyReauthNotifier:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def notify_reauth_required(self) -> None:
-        self.calls += 1
-
-    def notify_auth_recovered(self) -> None:
-        pass
-
-
-def test_startup_notifies_immediately_when_resuming_needs_a_live_relogin() -> None:
+def test_startup_propagates_hive_reauth_required_when_resuming_needs_a_live_relogin() -> (
+    None
+):
     existing_state = HiveAuthState(
         refresh_token="existing-refresh-token",
         device_group_key="existing-device-group-key",
@@ -88,13 +78,11 @@ def test_startup_notifies_immediately_when_resuming_needs_a_live_relogin() -> No
         updated_at=datetime(2026, 9, 17, 8, 0, tzinfo=UTC),
     )
     source = _ReauthRequiredAuthHiveSource(initial_state=existing_state)
-    notifier = _SpyReauthNotifier()
-    authenticator = HiveAuthenticator(source, ReauthAlert(notifier))
 
     with pytest.raises(HiveReauthRequired):
-        authenticator.authenticate()
+        HiveAuthenticator(source).authenticate()
 
-    assert notifier.calls == 1
+    assert source.read_auth_state() == existing_state
 
 
 class _LoginNeedsLiveSmsAuthHiveSource(_FakeAuthHiveSource):
@@ -102,49 +90,13 @@ class _LoginNeedsLiveSmsAuthHiveSource(_FakeAuthHiveSource):
         raise HiveReauthRequired("Hive login requires a live SMS 2FA code.")
 
 
-def test_startup_notifies_when_a_first_ever_login_needs_a_live_sms_code() -> None:
+def test_startup_propagates_hive_reauth_required_when_a_first_login_needs_sms() -> None:
     source = _LoginNeedsLiveSmsAuthHiveSource()
-    notifier = _SpyReauthNotifier()
-    authenticator = HiveAuthenticator(source, ReauthAlert(notifier))
 
     with pytest.raises(HiveReauthRequired):
-        authenticator.authenticate()
+        HiveAuthenticator(source).authenticate()
 
-    assert notifier.calls == 1
     assert source.read_auth_state() is None
-
-
-class _NotifierThatFailsOnce:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def notify_reauth_required(self) -> None:
-        self.calls += 1
-        if self.calls == 1:
-            raise ConnectionError("ntfy.sh unreachable")
-
-    def notify_auth_recovered(self) -> None:
-        pass
-
-
-def test_startup_retries_notifying_after_a_failed_delivery_attempt() -> None:
-    source = _ReauthRequiredAuthHiveSource(
-        initial_state=HiveAuthState(
-            refresh_token="existing-refresh-token",
-            device_group_key="existing-device-group-key",
-            device_key="existing-device-key",
-            device_password="existing-device-password",
-            updated_at=datetime(2026, 9, 17, 8, 0, tzinfo=UTC),
-        )
-    )
-    notifier = _NotifierThatFailsOnce()
-    authenticator = HiveAuthenticator(source, ReauthAlert(notifier))
-
-    for _ in range(3):
-        with pytest.raises(HiveReauthRequired):
-            authenticator.authenticate()
-
-    assert notifier.calls == 2
 
 
 def test_existing_auth_state_takes_only_the_resume_path() -> None:

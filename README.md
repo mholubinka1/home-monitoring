@@ -77,7 +77,8 @@ For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template
 the `hive` (account username and password) and `mariadb` sections are required for
 heating polling; `location` and `ntfy` are optional and each
 template section is commented with what uses it. Run the first Hive login, and any later
-re-authentication, with `python -m hive_app.login` as described in
+re-authentication (a Hive data-lost alert whose cause is a lost device), with
+`python -m hive_app.login` as described in
 [the re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md).
 
 ### Local-day timezone
@@ -132,26 +133,36 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 
 ### ntfy notifications (hive-app)
 
-hive-app sends exactly two ntfy.sh notifications, both about Hive authentication (see
+hive-app sends one kind of ntfy.sh alert: **Hive data lost**, when no new heating status
+has arrived for 30 minutes, whatever the cause (see
+[ADR-0031](.agent-docs/adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md), which
+replaced the re-authentication alerts of
 [ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
-stays on `job_run` and the dashboard.
+stays on `job_run` and the dashboard. A job checks the newest `heating_status` row every
+minute, so it works across restarts. It does not fire if the hive-app container itself is
+down.
 
 - **Topic:** `home-monitoring-hive-auth-ntfy-<guid-no-dashes>`. ntfy.sh topics are public,
   so the GUID is the only secret: set the full `ntfy.topic_url` only in the Pi's
   `config.yml`, never in the repo. Rotating it means editing that value and resubscribing
   in the ntfy app.
-- **Format:** the title is `<app>: <short event>` in lowercase; the body is one or two
-  plain sentences with no timestamp (ntfy adds one); priority is `high` when action is
-  needed and `default` for recovery; tags are a status emoji plus, optionally, one context tag; `Click` is set only
-  when a useful link exists.
+- **Quiet hours:** nothing is sent between `ntfy.quiet_hours.start` and
+  `ntfy.quiet_hours.end` (quoted `"HH:MM"` text, default `"22:00"` to `"08:00"`, read in the
+  configured `timezone`). What was due goes out when the window ends; an outage that starts
+  and heals inside it sends nothing.
+- **Format:** the title is `<app>: <short event>`; the body is one or two plain sentences
+  with no timestamp (ntfy adds one); priority is `high` when action is needed and `default`
+  for recovery; `Click` is set only when a useful link exists.
 
 | Notification | Title | Priority | Tags | Click |
 | --- | --- | --- | --- | --- |
-| Re-auth required | `hive-app: re-authentication required` | `high` | `warning,key` | the [re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md) on `main` |
-| Auth recovered | `hive-app: authentication recovered` | `default` | `white_check_mark` | none |
+| Data lost | `hive-app: Hive data lost` | `high` | `warning` | the [runbook](deployments/hive-app/REAUTH_RUNBOOK.md) on `main` |
+| Still lost (hourly) | `hive-app: Hive data still lost` | `high` | `warning` | the runbook |
+| Data restored | `hive-app: Hive data restored` | `default` | `white_check_mark` | none |
 
-"Recovered" is only sent after a "required" alert was actually delivered. Recovery needs
-a live SMS 2FA code; see the runbook.
+The body of a lost message gives how long data has been missing and the latest failed
+poll reason. "Restored" is only sent after a lost message was actually delivered, and gives
+the outage length.
 
 ## Running
 

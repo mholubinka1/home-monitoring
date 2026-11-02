@@ -2,10 +2,8 @@ import logging.config
 from logging import Logger, getLogger
 from typing import Protocol
 
-from hive_app.common.exceptions import HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import HeatingStatus, HiveAuthState
-from hive_app.data.notify import ReauthAlert
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -27,17 +25,10 @@ class HiveSource(Protocol):
 
 class HeatingRetriever:
     _client: HiveSource
-    _alert: ReauthAlert
 
-    def __init__(self, client: HiveSource, alert: ReauthAlert | None = None) -> None:
+    def __init__(self, client: HiveSource) -> None:
         self._client = client
-        self._alert = alert if alert is not None else ReauthAlert(None)
 
     def refresh(self) -> None:
-        try:
-            status = self._client.fetch_heating_status()
-        except HiveReauthRequired:
-            self._alert.notify_once()
-            raise
-        self._alert.clear()
+        status = self._client.fetch_heating_status()
         self._client.persist_heating_status(status)
