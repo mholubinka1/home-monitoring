@@ -271,11 +271,10 @@ def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
         assert "ORDER BY l.observed_at DESC, l.id DESC LIMIT 1" in sql
 
 
-def test_minutes_and_days_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
-    for title, series in (
-        ("Boost Minutes and Estimated Extra Gas Cost", "boost_minutes"),
-    ):
-        assert _panel_overrides(title)[series]["unit"].startswith("suffix: ")
+def test_minutes_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
+    overrides = _panel_overrides("Boost Minutes and Estimated Extra Gas Cost")
+
+    assert overrides["boost_minutes"]["unit"].startswith("suffix: ")
 
 
 def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:
@@ -414,11 +413,12 @@ def test_the_variables_of_the_removed_panels_are_gone() -> None:
 
 def test_every_defined_variable_is_used() -> None:
     dashboard = _load(GAS_HEATING_DASHBOARD)
-    text = json.dumps(dashboard["panels"]) + json.dumps(
-        [v.get("query") for v in dashboard["templating"]["list"]]
-    )
+    variables = dashboard["templating"]["list"]
 
-    for variable in dashboard["templating"]["list"]:
+    for variable in variables:
+        # A variable's own query does not count as a use of it.
+        others = [v.get("query") for v in variables if v is not variable]
+        text = json.dumps(dashboard["panels"]) + json.dumps(others)
         assert re.search(rf"\$\{{?{variable['name']}\b", text), variable["name"]
 
 
