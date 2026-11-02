@@ -440,3 +440,22 @@ def test_when_closing_an_unseen_outage_fails_the_next_check_retries_before_a_new
         "hive-app: Hive data restored",
         "hive-app: Hive data lost",
     ]
+
+
+@responses.activate
+def test_a_failure_text_that_starts_with_blank_lines_still_gives_its_first_real_line(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    _failed_poll(
+        mariadb_client,
+        NOW - timedelta(minutes=5),
+        "\n  \nHive login failed.\nTraceback (most recent call last):",
+    )
+
+    _watchdog(mariadb_client).check(NOW)
+
+    body = responses.calls[0].request.body
+    assert body is not None
+    assert body.decode("utf-8").endswith("Latest poll failure: Hive login failed.")

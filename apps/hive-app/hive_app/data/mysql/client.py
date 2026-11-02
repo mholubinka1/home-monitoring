@@ -86,7 +86,7 @@ class MariaDBClient(MariaDBClientBase):
             return first.replace(tzinfo=UTC) if first is not None else None
 
     def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
-        """The first line (at most 200 characters) of the error of the most
+        """The first non-blank line (at most 200 characters) of the error of the most
         recent failed run of the job after `since`, or None if there is none.
         One line only: a database error's later lines carry SQL and values."""
         with self.session_read_scope() as session:
@@ -101,9 +101,11 @@ class MariaDBClient(MariaDBClientBase):
                 .limit(1)
                 .scalar()
             )
-            if not error:
-                return None
-            return error.splitlines()[0][:200]
+            first_line = next(
+                (line.strip() for line in (error or "").splitlines() if line.strip()),
+                None,
+            )
+            return first_line[:200] if first_line else None
 
     def write_weather_observations(
         self, observations: list[WeatherObservation]

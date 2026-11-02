@@ -48,7 +48,7 @@ class NtfyDataNotifier:
     ) -> None:
         body = f"No Hive heating data for {describe_duration(age)}."
         if reason is not None:
-            body += f" Latest poll failure: {reason}."
+            body += f" Latest poll failure: {reason.rstrip('.')}."
         self._post(
             body,
             {

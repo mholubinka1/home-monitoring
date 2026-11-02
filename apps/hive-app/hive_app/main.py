@@ -153,7 +153,11 @@ def build_hive_watchdog_job(
 ) -> Job | None:
     """Registers the Hive data watchdog only when ntfy is configured."""
     watchdog = build_hive_watchdog(mariadb, ntfy)
-    return register_hive_watchdog_job(scheduler, watchdog) if watchdog else None
+    return (
+        register_hive_watchdog_job(scheduler, watchdog)
+        if watchdog is not None
+        else None
+    )
 
 
 def register_weather_observation_refresh_job(
