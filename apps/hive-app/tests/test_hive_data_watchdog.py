@@ -381,3 +381,37 @@ def test_a_failed_restored_notice_is_retried_on_the_next_check(
         "hive-app: Hive data restored",
         "hive-app: Hive data restored",
     ]
+
+
+@responses.activate
+def test_data_exactly_30_minutes_old_is_not_yet_lost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _poll_at(mariadb_client, NOW - timedelta(minutes=30))
+
+    _watchdog(mariadb_client).check(NOW)
+
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_data_that_returned_and_stopped_again_closes_the_old_outage_and_opens_a_new_one(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+    _poll_at(mariadb_client, NOW + timedelta(minutes=10))
+
+    # The next check only happens once data has been missing again for 40 minutes.
+    watchdog.check(NOW + timedelta(minutes=50))
+
+    assert _titles() == [
+        "hive-app: Hive data lost",
+        "hive-app: Hive data restored",
+        "hive-app: Hive data lost",
+    ]
+    body = responses.calls[1].request.body
+    assert body is not None
+    assert "after 41 minutes." in body.decode("utf-8")

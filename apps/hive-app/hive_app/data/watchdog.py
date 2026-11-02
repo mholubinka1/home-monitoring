@@ -53,6 +53,7 @@ class HiveDataWatchdog:
             return
         age = now - latest
         if age > LOST_AFTER:
+            self._close_an_outage_that_ended(latest)
             self._alert_lost(latest, age, now)
         else:
             self._announce_restored(latest)
@@ -71,6 +72,16 @@ class HiveDataWatchdog:
         if self._outage_began is None:
             self._outage_began = latest
         self._last_notified = now
+
+    def _close_an_outage_that_ended(self, latest: datetime) -> None:
+        """Data came back and then stopped again before a check saw it (for
+        example across quiet hours): announce the first outage's end so the
+        new gap is reported as a new outage, not a continuation."""
+        if (
+            self._outage_began is not None
+            and self._mariadb.first_heating_polled_after(self._outage_began) is not None
+        ):
+            self._announce_restored(latest)
 
     def _reason_after(self, latest: datetime) -> str | None:
         """The latest poll failure since the newest row, if it can be read: the

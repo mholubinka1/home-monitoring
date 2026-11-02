@@ -15,5 +15,5 @@ The 30 minutes comes from the data: since polling began on 2026-10-03, 15 of 18 
 ## Consequences
 
 - `ReauthAlert`, `NtfyReauthNotifier` and their wiring in the poll and startup auth are removed; `HiveReauthRequired` and `HiveApiUnavailable` stay as ordinary poll errors.
-- The alert cannot fire if the hive-app container itself is down; that needs an external heartbeat.
+- The alert cannot fire if the hive-app container itself is down (that needs an external heartbeat), nor on an empty `heating_status` table (a fresh install whose first login never worked): with no row there is no age to measure.
 - The in-memory "already alerted" marker resets on restart, so a restart mid-outage may send one extra alert.

@@ -160,8 +160,10 @@ down.
 | Still lost (hourly) | `hive-app: Hive data still lost` | `high` | `warning` | the runbook |
 | Data restored | `hive-app: Hive data restored` | `default` | `white_check_mark` | none |
 
-The body of a lost message gives how long data has been missing and the latest failed
-poll reason. "Restored" is only sent after a lost message was actually delivered, and gives
+The body of a lost message gives how long data has been missing and the first line of
+the latest failed poll reason (posted to the public topic as is, so errors must not carry
+secrets). A restart forgets what was already sent: you may get one repeat "lost" message,
+and no "restored" message if the data returns before it. "Restored" is only sent after a lost message was actually delivered, and gives
 the outage length.
 
 ## Running

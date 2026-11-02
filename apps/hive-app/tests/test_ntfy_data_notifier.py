@@ -4,7 +4,7 @@ import pytest
 import requests
 import responses
 
-from hive_app.data.notify import REAUTH_RUNBOOK_URL, NtfyDataNotifier, describe_duration
+from hive_app.data.notify import RUNBOOK_URL, NtfyDataNotifier, describe_duration
 
 TOPIC_URL = "https://ntfy.sh/home-monitoring-hive-data-ntfy-test"
 
@@ -22,7 +22,7 @@ def test_data_lost_is_a_high_priority_message_linking_to_the_runbook() -> None:
     assert request.headers["Title"] == "hive-app: Hive data lost"
     assert request.headers["Priority"] == "high"
     assert request.headers["Tags"] == "warning"
-    assert request.headers["Click"] == REAUTH_RUNBOOK_URL
+    assert request.headers["Click"] == RUNBOOK_URL
     assert request.body == (
         b"No Hive heating data for 31 minutes. Latest poll failure: ConnectionError."
     )
