@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 from schedule import Scheduler
 
+from hive_app.common.config import NtfySettings
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
@@ -76,7 +77,7 @@ def test_hive_watchdog_job_runs_every_60_seconds_only_when_ntfy_is_configured(
 
     assert build_hive_watchdog_job(scheduler, mariadb_client, None) is None
     job = build_hive_watchdog_job(
-        scheduler, mariadb_client, "https://ntfy.sh/some-topic"
+        scheduler, mariadb_client, NtfySettings(topic_url="https://ntfy.sh/some-topic")
     )
 
     assert job is not None

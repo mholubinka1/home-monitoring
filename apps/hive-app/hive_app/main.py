@@ -12,6 +12,7 @@ from schedule import Job, Scheduler, default_scheduler
 from common.local_day import set_local_timezone
 from hive_app.common.config import (
     LocationSettings,
+    NtfySettings,
     get_settings,
 )
 from hive_app.common.decorator import retry_with_exponential_backoff
@@ -141,12 +142,14 @@ def register_hive_watchdog_job(scheduler: Scheduler, watchdog: HiveDataWatchdog)
 
 
 def build_hive_watchdog_job(
-    scheduler: Scheduler, mariadb: MariaDBClient, topic_url: str | None
+    scheduler: Scheduler, mariadb: MariaDBClient, ntfy: NtfySettings | None
 ) -> Job | None:
     """Registers the Hive data watchdog only when ntfy is configured."""
-    if not topic_url:
+    if ntfy is None or not ntfy.topic_url:
         return None
-    watchdog = HiveDataWatchdog(mariadb, NtfyDataNotifier(topic_url))
+    watchdog = HiveDataWatchdog(
+        mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours
+    )
     return register_hive_watchdog_job(scheduler, watchdog)
 
 
@@ -310,9 +313,7 @@ def main() -> None:
 
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)
-    build_hive_watchdog_job(
-        default_scheduler, mariadb, settings.ntfy.topic_url if settings.ntfy else None
-    )
+    build_hive_watchdog_job(default_scheduler, mariadb, settings.ntfy)
 
     weather = _build_weather_retriever(settings.location, mariadb)
     register_weather_jobs(default_scheduler, weather, mariadb)

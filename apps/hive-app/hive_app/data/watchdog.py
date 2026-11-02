@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from logging import Logger, getLogger
 from typing import Protocol
 
+from common.local_day import get_local_timezone
+from hive_app.common.config import QuietHours
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.mysql.client import MariaDBClient
 
@@ -29,14 +31,22 @@ class HiveDataWatchdog:
     alerts straight away. Whether a lost alert was delivered is in memory.
     """
 
-    def __init__(self, mariadb: MariaDBClient, notifier: DataNotifier) -> None:
+    def __init__(
+        self,
+        mariadb: MariaDBClient,
+        notifier: DataNotifier,
+        quiet_hours: QuietHours | None = None,
+    ) -> None:
         self._mariadb = mariadb
         self._notifier = notifier
+        self._quiet_hours = quiet_hours
         # Newest data before the gap, set only once a lost alert was delivered.
         self._outage_began: datetime | None = None
         self._last_notified: datetime | None = None
 
     def check(self, now: datetime) -> None:
+        if self._is_quiet(now):
+            return
         latest = self._mariadb.latest_heating_polled_at()
         if latest is None:
             return
@@ -78,3 +88,14 @@ class HiveDataWatchdog:
             self._notifier.notify_data_restored(now - began)
         except Exception:
             logger.exception("Failed to send Hive data-restored notice; not retrying.")
+
+    def _is_quiet(self, now: datetime) -> bool:
+        """Nothing is sent in the quiet window; state is left as it was, so
+        what is due goes out on the first check after it ends."""
+        if self._quiet_hours is None:
+            return False
+        local = now.astimezone(get_local_timezone()).time()
+        start, end = self._quiet_hours.start, self._quiet_hours.end
+        if start <= end:
+            return start <= local < end
+        return local >= start or local < end

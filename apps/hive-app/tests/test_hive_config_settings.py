@@ -1,3 +1,4 @@
+from datetime import time
 from pathlib import Path
 from typing import Any
 
@@ -157,3 +158,41 @@ def test_an_unknown_timezone_fails_at_load_naming_the_timezone_field(
 
     assert exit_info.value.code == 1
     assert "invalid or missing field(s): timezone" in " ".join(logged_messages)
+
+
+def test_quiet_hours_default_to_10pm_until_8am() -> None:
+    settings = HiveApplicationSettings.model_validate(VALID_CONFIG)
+
+    assert settings.ntfy is not None
+    assert settings.ntfy.quiet_hours.start == time(22, 0)
+    assert settings.ntfy.quiet_hours.end == time(8, 0)
+
+
+def test_quiet_hours_can_be_set_in_the_ntfy_section() -> None:
+    settings = HiveApplicationSettings.model_validate(
+        {
+            **VALID_CONFIG,
+            "ntfy": {
+                "topic_url": "https://ntfy.sh/hive-app-reauth",
+                "quiet_hours": {"start": "23:30", "end": "07:15"},
+            },
+        }
+    )
+
+    assert settings.ntfy is not None
+    assert settings.ntfy.quiet_hours.start == time(23, 30)
+    assert settings.ntfy.quiet_hours.end == time(7, 15)
+
+
+@pytest.mark.parametrize("bad", ["25:00", "late", "22", 1320])
+def test_quiet_hours_that_are_not_hh_mm_text_are_rejected(bad: object) -> None:
+    with pytest.raises(ValidationError, match="HH:MM"):
+        HiveApplicationSettings.model_validate(
+            {
+                **VALID_CONFIG,
+                "ntfy": {
+                    "topic_url": "https://ntfy.sh/hive-app-reauth",
+                    "quiet_hours": {"start": bad, "end": "08:00"},
+                },
+            }
+        )

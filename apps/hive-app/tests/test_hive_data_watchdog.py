@@ -1,7 +1,9 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 import responses
 
+from common.local_day import set_local_timezone
+from hive_app.common.config import QuietHours
 from hive_app.data.model import HeatingStatus
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
@@ -30,8 +32,10 @@ def _poll_at(mariadb_client: MariaDBClient, polled_at: datetime) -> None:
     )
 
 
-def _watchdog(mariadb_client: MariaDBClient) -> HiveDataWatchdog:
-    return HiveDataWatchdog(mariadb_client, NtfyDataNotifier(TOPIC_URL))
+def _watchdog(
+    mariadb_client: MariaDBClient, quiet_hours: QuietHours | None = None
+) -> HiveDataWatchdog:
+    return HiveDataWatchdog(mariadb_client, NtfyDataNotifier(TOPIC_URL), quiet_hours)
 
 
 @responses.activate
@@ -186,3 +190,98 @@ def test_no_reminders_follow_once_the_data_has_returned(
     watchdog.check(NOW + timedelta(minutes=121))
 
     assert len(responses.calls) == 2
+
+
+# Local time equals UTC on these November dates (clocks went back on 25 Oct).
+NIGHT = QuietHours(start=time(22, 0), end=time(8, 0))
+
+
+def _at(day: int, hour: int, minute: int = 0) -> datetime:
+    return datetime(2026, 11, day, hour, minute, tzinfo=UTC)
+
+
+def _titles() -> list[str]:
+    return [call.request.headers["Title"] for call in responses.calls]
+
+
+@responses.activate
+def test_an_outage_that_crosses_30_minutes_overnight_is_reported_at_8am(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, _at(2, 22, 59))
+    watchdog = _watchdog(mariadb_client, NIGHT)
+
+    watchdog.check(_at(2, 23, 30))
+    watchdog.check(_at(3, 3, 0))
+    watchdog.check(_at(3, 7, 59))
+    assert len(responses.calls) == 0
+
+    watchdog.check(_at(3, 8, 0))
+    assert _titles() == ["hive-app: Hive data lost"]
+
+
+@responses.activate
+def test_an_outage_that_starts_and_heals_inside_quiet_hours_sends_nothing(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _poll_at(mariadb_client, _at(2, 22, 30))
+    watchdog = _watchdog(mariadb_client, NIGHT)
+    watchdog.check(_at(2, 23, 30))
+    _poll_at(mariadb_client, _at(3, 7, 50))
+
+    watchdog.check(_at(3, 8, 0))
+
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_a_recovery_overnight_is_reported_at_8am_after_an_evening_alert(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, _at(2, 20, 59))
+    watchdog = _watchdog(mariadb_client, NIGHT)
+    watchdog.check(_at(2, 21, 30))
+    _poll_at(mariadb_client, _at(3, 3, 0))
+
+    watchdog.check(_at(3, 3, 1))
+    assert _titles() == ["hive-app: Hive data lost"]
+
+    _poll_at(mariadb_client, _at(3, 7, 58))
+    watchdog.check(_at(3, 8, 0))
+    assert _titles() == ["hive-app: Hive data lost", "hive-app: Hive data restored"]
+
+
+@responses.activate
+def test_a_quiet_window_that_does_not_span_midnight_is_honoured(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, _at(2, 12, 0))
+    afternoon = QuietHours(start=time(13, 0), end=time(15, 0))
+    watchdog = _watchdog(mariadb_client, afternoon)
+
+    watchdog.check(_at(2, 14, 0))
+    assert len(responses.calls) == 0
+
+    watchdog.check(_at(2, 15, 0))
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_quiet_hours_are_read_in_the_configured_local_timezone(
+    mariadb_client: MariaDBClient,
+) -> None:
+    set_local_timezone("America/New_York")
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, _at(2, 12, 0))
+    watchdog = _watchdog(mariadb_client, NIGHT)
+
+    # 04:00 UTC is 23:00 the evening before in New York: inside the window.
+    watchdog.check(_at(3, 4, 0))
+    assert len(responses.calls) == 0
+
+    # 13:00 UTC is 08:00 in New York: the window has ended.
+    watchdog.check(_at(3, 13, 0))
+    assert len(responses.calls) == 1
