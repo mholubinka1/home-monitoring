@@ -1,5 +1,7 @@
 # Issues: chore-gas-dashboard-panel-cleanup
 
+> Work complete — PR ready to merge.
+
 ## Remove unused panels and the sunshine series (#712)
 
 **Blocked by**: None
@@ -12,8 +14,8 @@ In `data/grafana/gas-heating-dashboard.json` and `data/grafana/mariadb/gas-heati
 
 ### Acceptance criteria
 
-- [ ] The seven panels are gone from the JSON and the query reference
-- [ ] The outdoor band shows min, mean and max only (no sunshine or radiation)
-- [ ] `model_summary`, `all_weeks` and `yoy_summary` are removed; every remaining variable is used
-- [ ] Panels tile the 24-column grid with no gaps or overlaps
-- [ ] Dashboard tests updated and passing
+- [x] The seven panels are gone from the JSON and the query reference
+- [x] The outdoor band shows min, mean and max only (no sunshine or radiation)
+- [x] `model_summary`, `all_weeks` and `yoy_summary` are removed; every remaining variable is used
+- [x] Panels tile the 24-column grid with no gaps or overlaps
+- [x] Dashboard tests updated and passing
