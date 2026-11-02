@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built and tested. The daily job that runs it (the range around the threshold, the estimated/confirmed label, the seven-day projection and the weekly rows) is built, but it has not been deployed yet, and the dashboard panels that show it are still being built. So a few things below (the range around the threshold in section 4, which sections 7 and 8 use for borderline days, the label in section 10, the chart notes in 10b, the projection in section 11 and the panels in section 12) do not appear anywhere you can see yet. They are written as they will work.
+> **Status.** The maths described here is built, tested and runs daily. Since the dashboard review of 2 November 2026, only the seven-day projection is visible, as the expected-gas bars on the daily gas panel and in the cost forecast (section 12). The day verdicts, the label and the weekly comparison (sections 7 to 10b) are still computed but no panel shows them.
 
 ## 1. What this is for, and the picture
 
@@ -140,7 +140,7 @@ You will see days and weeks missing from some charts. That could look like remov
 - **They apply the same to every week and every year.** The week rules are: at least 5 complete gas days, at least 1.5 degree-days a day, and at least 0.5 kWh a day of heating gas above baseload (in both years, when two years are being compared).
 - **The same goes for single days.** A day with missing or partial gas, a day with a gap in its hourly weather, a day with too few thermostat readings, and an away day are left out because they cannot be measured or would distort the line, whichever way they would have pointed.
 - **The answer survives changing the rules.** When the year-on-year comparison was tried with seven different sets of rules, from none at all to the strictest, the direction of the result never changed.
-- **Nothing is hidden.** Left-out weeks show as gaps, and the chart says how many were shown and why the others were left out. A switch at the top of the dashboard lifts the two measurability guards (too mild, heating off) so you can see what they removed; weeks with fewer than 5 gas days always stay out.
+- **Nothing is hidden.** Every week is stored with its status, so a left-out week records why (too few days, too mild or heating off).
 
 There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after looking at one winter's data, and another winter, with the rules unchanged, is the fair test. And the evidence from the weekly comparison on its own is weak: the rules kept 14 of that winter's 28 weeks, and the honest summary of what they showed was "probably somewhat worse than last year, not proven". Guards stop noise being mistaken for a finding; they cannot make weak evidence strong. The full argument is in the [week rules note](../.agent-docs/research/year-on-year-week-rules.md).
 
@@ -150,19 +150,14 @@ There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after lookin
 - **Heating versus hot water.** It separates them statistically, using warm days to learn the hot-water level. It does not measure either one directly.
 - **Weather it does not see.** Wind, sunshine and rain affect a real house, and the model sees only temperature. Cloudy-and-still and sunny-and-gusty days with the same average look identical to it. This is part of the 31% R-squared leaves unexplained.
 - **Your house, exactly.** The temperatures are area-wide values for our location, not a thermometer on the wall.
-- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (four-fifths of the blend is today, which is nearly over, so only a fifth rides on the forecast), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
+- **The future with certainty.** It projects the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (four-fifths of the blend is today, which is nearly over, so only a fifth rides on the forecast), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
 - **That two years are alike.** Our last two years differ in baseload and in threshold. The model fits the latest 12 months, so it follows the house as it is now, but a sudden change takes weeks to show.
 
 ## 12. Reading the dashboard panels
 
-These are the panels the model will feed. They are still being built, so this section describes what to look for.
+The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, so sections 7 to 10b describe ideas the model still uses, not panels you can open.
 
-- **Gas against outdoor temperature, with the fitted bend.** Each dot is a day. The flat part on the right is the baseload; the climbing part on the left is the heating. The panel title gives the label (estimated or confirmed), when the model was fitted, the baseload, the threshold and the slope. Dots high above the line are the days to look at.
-- **Where the gas went.** A stacked bar for each day, in the slices from section 7: baseload, heating used, normal wobble, and the gas beyond the wobble, which is "excess" on a day that needed heating and "avoidable" on one that did not, each in a lighter shade for "possible" and a darker one for "clear". The bar is the real total, so it always adds up (in pounds it also carries the standing charge). A bar cannot go below zero, so on a day that used less than expected, the shortfall comes off the expected slices instead of showing as a negative wobble: the heating slice shrinks first, then the baseload. Look for tall "possible" and "clear" caps on warm days.
-- **Heating efficiency, 7-day rolling.** The gas above the baseload for every degree-day of cold over the last 7 days. Lower is better. It is left blank when the window is too mild to measure (under 1.5 degree-days a day on average) or has fewer than 5 judged days.
-- **Heating efficiency by week.** The gas the heating used (above baseload) for every degree-day of cold, this year against the same week last year. Lower is better. A week left out for the reasons in section 10b appears as a gap, and the panel title says how many weeks are shown and how many were left out and why. A switch at the top of the dashboard ("show every complete week") brings back the mild and heating-off weeks so you can see what the rules removed; weeks with fewer than 5 gas days stay out. It is estimated, and winter baseload is interpolated.
-- **Saving from a setpoint 1 °C lower.** Month by month, in kWh or pounds (the unit switch): the slope multiplied by the number of days heating was needed, with a line for your average target when the heating was set to comfort. With a slope of 3.8 kWh, and roughly 200 days a year that need heating (196 in the last 12 months), that is about **740 kWh** a year. It is an estimate from the model, not a promise.
-- **The next seven days.** Expected gas for each day from the forecast temperature, using the same line.
+- **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
 ## 13. Glossary and further reading
 
