@@ -392,17 +392,18 @@ GRID_COLUMNS = 24
 
 
 def test_the_reviewed_out_panels_are_gone() -> None:
-    titles = " ".join(p["title"] for p in _gas_panels())
+    titles = [p["title"] for p in _gas_panels()]
 
     for removed in (
-        "Monthly Gas Year-on-Year",
-        "Gas Heatmap",
-        "Heating Model",
-        "Where the Gas Went",
-        "Heating Efficiency",
-        "Saving from a Thermostat",
+        "Monthly Gas Year-on-Year Change",
+        "Gas Heatmap (Hour-by-Hour",
+        "Heating Model: gas against effective temperature",
+        "Where the Gas Went (",
+        "Heating Efficiency: Gas Above Baseload per Degree-Day",
+        "Heating Efficiency, This Year and Last",
+        "Saving from a Thermostat 1 C Lower",
     ):
-        assert removed not in titles, removed
+        assert not any(title.startswith(removed) for title in titles), removed
 
 
 def test_the_variables_of_the_removed_panels_are_gone() -> None:

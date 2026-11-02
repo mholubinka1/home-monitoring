@@ -4,7 +4,7 @@ This is a plain-language guide to the heating model: what it learns from our gas
 
 All the real numbers below come from this household's own data, up to 12 October 2026. They will drift as new data arrives.
 
-> **Status.** The maths described here is built, tested and runs daily. Since the dashboard review of 2 November 2026, only the seven-day projection (section 11) is visible, as the expected-gas bars on the daily gas panel and in the cost forecast (section 12). The day verdicts, the label and the weekly comparison (sections 7 to 10b) are still computed but no panel shows them.
+> **Status.** The maths described here is built, tested and runs daily. Since the dashboard review of 2 November 2026, only the seven-day projection is visible, as the expected-gas bars on the daily gas panel and in the cost forecast (section 12). The day verdicts, the label and the weekly comparison (sections 7 to 10b) are still computed but no panel shows them.
 
 ## 1. What this is for, and the picture
 
