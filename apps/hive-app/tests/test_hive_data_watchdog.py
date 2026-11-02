@@ -459,3 +459,22 @@ def test_a_failure_text_that_starts_with_blank_lines_still_gives_its_first_real_
     body = responses.calls[0].request.body
     assert body is not None
     assert body.decode("utf-8").endswith("Latest poll failure: Hive login failed.")
+
+
+@responses.activate
+def test_a_row_committed_after_the_watchdog_read_the_newest_time_is_not_acted_on_stale(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    stale = NOW - timedelta(minutes=31)
+    _poll_at(mariadb_client, stale)
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+
+    # The poll thread commits a recovery row just after the next check has read
+    # the newest time: the watchdog saw `stale`, the database already has more.
+    _poll_at(mariadb_client, NOW + timedelta(minutes=5))
+    monkeypatch.setattr(mariadb_client, "latest_heating_polled_at", lambda: stale)
+    watchdog.check(NOW + timedelta(minutes=45))
+
+    assert _titles() == ["hive-app: Hive data lost"]

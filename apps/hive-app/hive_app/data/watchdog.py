@@ -79,10 +79,9 @@ class HiveDataWatchdog:
         example across quiet hours): announce the first outage's end so the
         new gap is reported as a new outage, not a continuation. False if that
         notice failed, so the next check retries it before anything else."""
-        if (
-            self._outage_began is None
-            or self._mariadb.first_heating_polled_after(self._outage_began) is None
-        ):
+        # Judged from the newest time this check already read, not a second
+        # query: a row the poll commits in between must not be acted on stale.
+        if self._outage_began is None or latest <= self._outage_began:
             return True
         return self._announce_restored(latest)
 

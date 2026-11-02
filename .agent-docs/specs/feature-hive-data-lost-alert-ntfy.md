@@ -36,7 +36,7 @@ The owner gets one ntfy notification, the **Hive Data Lost Notification**, when 
 - Config: `ntfy.quiet_hours.start` and `ntfy.quiet_hours.end` as `HH:MM` strings, optional, default 22:00 and 08:00; validated at load; `timezone` reused.
 - Removed: `ReauthAlert`, `NtfyReauthNotifier`, `ReauthNotifier` and their construction and injection into `HeatingRetriever` and `HiveAuthenticator`. `HiveReauthRequired` and `HiveApiUnavailable` stay.
 - No ntfy configured: the watchdog is not registered and a warning is logged at startup, as today.
-- No schema changes. `deployments/hive-app/config.yml.template`, `REAUTH_RUNBOOK.md` and the README ntfy text are updated to match.
+- One schema change: an index on `heating_status.polled_at` (Schema Sync adds it to the existing table), so the minute-by-minute newest-row lookup does not scan the growing history. `deployments/hive-app/config.yml.template`, `REAUTH_RUNBOOK.md` and the README ntfy text are updated to match.
 
 ## Testing Decisions
 
