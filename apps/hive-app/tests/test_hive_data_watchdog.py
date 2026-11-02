@@ -415,3 +415,28 @@ def test_data_that_returned_and_stopped_again_closes_the_old_outage_and_opens_a_
     body = responses.calls[1].request.body
     assert body is not None
     assert "after 41 minutes." in body.decode("utf-8")
+
+
+@responses.activate
+def test_when_closing_an_unseen_outage_fails_the_next_check_retries_before_a_new_alert(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    responses.add(responses.POST, TOPIC_URL, status=500)
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+    _poll_at(mariadb_client, NOW + timedelta(minutes=10))
+
+    watchdog.check(NOW + timedelta(minutes=50))
+    assert _titles() == ["hive-app: Hive data lost", "hive-app: Hive data restored"]
+
+    watchdog.check(NOW + timedelta(minutes=51))
+    assert _titles() == [
+        "hive-app: Hive data lost",
+        "hive-app: Hive data restored",
+        "hive-app: Hive data restored",
+        "hive-app: Hive data lost",
+    ]

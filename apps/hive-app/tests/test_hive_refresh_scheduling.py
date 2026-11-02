@@ -1,20 +1,40 @@
 import logging
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import Mock
 
 import pytest
+import responses
 from schedule import Scheduler
 
-from hive_app.common.config import NtfySettings
+from hive_app.common.config import NtfySettings, QuietHours
 from hive_app.data.heating import HeatingRetriever
+from hive_app.data.model import HeatingStatus
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.main import (
+    build_hive_watchdog,
     build_hive_watchdog_job,
     register_heating_refresh_job,
     register_hive_watchdog_job,
     run_pending_safely,
 )
+
+TOPIC_URL = "https://ntfy.sh/home-monitoring-hive-auth-ntfy-test"
+NOW = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+
+
+def _status_at(polled_at: datetime) -> HeatingStatus:
+    return HeatingStatus(
+        polled_at=polled_at,
+        current_temp=19.5,
+        target_temp=21.0,
+        mode="SCHEDULE",
+        state="ON",
+        boost_active=False,
+        boost_ends_at=None,
+        schedule={},
+    )
 
 
 def test_heating_refresh_job_runs_on_a_120_second_interval(
@@ -115,3 +135,27 @@ def test_run_pending_safely_does_not_propagate_a_scheduled_job_failure() -> None
     scheduler.run_pending.side_effect = RuntimeError("boom")
 
     run_pending_safely(scheduler)
+
+
+@responses.activate
+def test_the_configured_quiet_hours_reach_the_watchdog(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    mariadb_client.write_heating_status(_status_at(NOW - timedelta(hours=3)))
+    ntfy = NtfySettings(
+        topic_url=TOPIC_URL,
+        quiet_hours=QuietHours(start=time(11, 0), end=time(13, 0)),
+    )
+
+    watchdog = build_hive_watchdog(mariadb_client, ntfy)
+
+    assert watchdog is not None
+    watchdog.check(NOW)
+    assert len(responses.calls) == 0
+    watchdog.check(NOW + timedelta(hours=1))
+    assert len(responses.calls) == 1
+
+
+def test_without_ntfy_there_is_no_watchdog(mariadb_client: MariaDBClient) -> None:
+    assert build_hive_watchdog(mariadb_client, None) is None

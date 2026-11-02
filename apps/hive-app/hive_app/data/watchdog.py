@@ -53,7 +53,8 @@ class HiveDataWatchdog:
             return
         age = now - latest
         if age > LOST_AFTER:
-            self._close_an_outage_that_ended(latest)
+            if not self._close_an_outage_that_ended(latest):
+                return
             self._alert_lost(latest, age, now)
         else:
             self._announce_restored(latest)
@@ -73,15 +74,17 @@ class HiveDataWatchdog:
             self._outage_began = latest
         self._last_notified = now
 
-    def _close_an_outage_that_ended(self, latest: datetime) -> None:
+    def _close_an_outage_that_ended(self, latest: datetime) -> bool:
         """Data came back and then stopped again before a check saw it (for
         example across quiet hours): announce the first outage's end so the
-        new gap is reported as a new outage, not a continuation."""
+        new gap is reported as a new outage, not a continuation. False if that
+        notice failed, so the next check retries it before anything else."""
         if (
-            self._outage_began is not None
-            and self._mariadb.first_heating_polled_after(self._outage_began) is not None
+            self._outage_began is None
+            or self._mariadb.first_heating_polled_after(self._outage_began) is None
         ):
-            self._announce_restored(latest)
+            return True
+        return self._announce_restored(latest)
 
     def _reason_after(self, latest: datetime) -> str | None:
         """The latest poll failure since the newest row, if it can be read: the
@@ -92,10 +95,12 @@ class HiveDataWatchdog:
             logger.exception("Could not read the latest poll failure for the alert.")
             return None
 
-    def _announce_restored(self, latest: datetime) -> None:
+    def _announce_restored(self, latest: datetime) -> bool:
+        """Sends the restored notice if an outage is open; False only if the
+        send failed."""
         began = self._outage_began
         if began is None:
-            return
+            return True
         # Measured to the first row after the gap, not to this check, which
         # may be hours later if the data came back in quiet hours.
         returned = self._mariadb.first_heating_polled_after(began) or latest
@@ -105,9 +110,10 @@ class HiveDataWatchdog:
             logger.exception(
                 "Failed to send Hive data-restored notice; will retry on the next check."
             )
-            return
+            return False
         self._outage_began = None
         self._last_notified = None
+        return True
 
     def _is_quiet(self, now: datetime) -> bool:
         """Nothing is sent in the quiet window; state is left as it was, so

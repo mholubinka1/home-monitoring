@@ -135,20 +135,25 @@ def register_hive_watchdog_job(scheduler: Scheduler, watchdog: HiveDataWatchdog)
     return scheduler.every(HIVE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
 
 
-def build_hive_watchdog_job(
-    scheduler: Scheduler, mariadb: MariaDBClient, ntfy: NtfySettings | None
-) -> Job | None:
-    """Registers the Hive data watchdog only when ntfy is configured."""
+def build_hive_watchdog(
+    mariadb: MariaDBClient, ntfy: NtfySettings | None
+) -> HiveDataWatchdog | None:
+    """The Hive data watchdog, or None when ntfy is not configured."""
     if ntfy is None or not ntfy.topic_url:
         logger.warning(
             "ntfy is not configured; hive-app will not send a live alert if "
             "Hive data stops arriving (see job_run for failures)."
         )
         return None
-    watchdog = HiveDataWatchdog(
-        mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours
-    )
-    return register_hive_watchdog_job(scheduler, watchdog)
+    return HiveDataWatchdog(mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours)
+
+
+def build_hive_watchdog_job(
+    scheduler: Scheduler, mariadb: MariaDBClient, ntfy: NtfySettings | None
+) -> Job | None:
+    """Registers the Hive data watchdog only when ntfy is configured."""
+    watchdog = build_hive_watchdog(mariadb, ntfy)
+    return register_hive_watchdog_job(scheduler, watchdog) if watchdog else None
 
 
 def register_weather_observation_refresh_job(
