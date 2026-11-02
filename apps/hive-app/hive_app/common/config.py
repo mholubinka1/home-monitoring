@@ -22,7 +22,7 @@ class HiveSettings(BaseModel):
 
 class QuietHours(BaseModel):
     """The local-time window in which no ntfy message is sent (ADR-0031). It
-    may span midnight. Written as quoted "HH:MM" text: YAML reads an unquoted
+    may span midnight; equal start and end means there are no quiet hours. Written as quoted "HH:MM" text: YAML reads an unquoted
     22:00 as the number 1320, which must not be mistaken for a time."""
 
     start: time = time(22, 0)
@@ -58,7 +58,7 @@ class HiveApplicationSettings(BaseModel):
     # Optional: the weather jobs always register. Without `location`, the
     # Weather Location is derived from the Octopus Account Postcode, then IP
     # geolocation (ADR-0028); observations and forecasts both come from
-    # Open-Meteo. ntfy is consumed by #509's re-auth alerting. Both stay
+    # Open-Meteo. ntfy is consumed by the Hive data-lost watchdog (ADR-0031). Both stay
     # optional so a deployment doesn't need to populate config for
     # capabilities it doesn't use. Unknown keys (e.g. a section left over
     # from a removed provider) are ignored, not rejected.

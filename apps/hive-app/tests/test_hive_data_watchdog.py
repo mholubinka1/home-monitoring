@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, time, timedelta
 
+import pytest
 import responses
 
 from common.local_day import set_local_timezone
+from common.mariadb.model import job_run
 from hive_app.common.config import QuietHours
 from hive_app.data.model import HeatingStatus
 from hive_app.data.mysql.client import MariaDBClient
@@ -32,6 +34,18 @@ def _poll_at(mariadb_client: MariaDBClient, polled_at: datetime) -> None:
     )
 
 
+def _failed_poll(mariadb_client: MariaDBClient, ran_at: datetime, error: str) -> None:
+    with mariadb_client.session_write_scope() as session:
+        session.add(
+            job_run(
+                job_name="heating_refresh",
+                status="failure",
+                ran_at=ran_at.replace(tzinfo=None),
+                error_message=error,
+            )
+        )
+
+
 def _watchdog(
     mariadb_client: MariaDBClient, quiet_hours: QuietHours | None = None
 ) -> HiveDataWatchdog:
@@ -44,8 +58,10 @@ def test_data_missing_for_31_minutes_sends_a_high_priority_lost_alert_with_the_c
 ) -> None:
     responses.add(responses.POST, TOPIC_URL, status=200)
     _poll_at(mariadb_client, NOW - timedelta(minutes=31))
-    mariadb_client.record_job_run(
-        "heating_refresh", "failure", error="'NoneType' object has no attribute 'get'"
+    _failed_poll(
+        mariadb_client,
+        NOW - timedelta(minutes=10),
+        "'NoneType' object has no attribute 'get'",
     )
 
     _watchdog(mariadb_client).check(NOW)
@@ -137,7 +153,7 @@ def test_restored_notice_gives_the_outage_length_after_a_delivered_lost_alert(
     assert request.headers["Tags"] == "white_check_mark"
     assert "Click" not in request.headers
     assert request.body is not None
-    assert "after 2 hours 2 minutes." in request.body.decode("utf-8")
+    assert "after 2 hours 1 minute." in request.body.decode("utf-8")
 
 
 @responses.activate
@@ -251,6 +267,10 @@ def test_a_recovery_overnight_is_reported_at_8am_after_an_evening_alert(
     _poll_at(mariadb_client, _at(3, 7, 58))
     watchdog.check(_at(3, 8, 0))
     assert _titles() == ["hive-app: Hive data lost", "hive-app: Hive data restored"]
+    # Measured to when data returned (03:00), not to the 08:00 check.
+    body = responses.calls[1].request.body
+    assert body is not None
+    assert "after 6 hours 1 minute." in body.decode("utf-8")
 
 
 @responses.activate
@@ -285,3 +305,79 @@ def test_quiet_hours_are_read_in_the_configured_local_timezone(
     # 13:00 UTC is 08:00 in New York: the window has ended.
     watchdog.check(_at(3, 13, 0))
     assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_poll_failure_older_than_the_last_good_row_is_not_given_as_the_cause(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    _failed_poll(mariadb_client, NOW - timedelta(hours=2), "an old, healed failure")
+
+    _watchdog(mariadb_client).check(NOW)
+
+    body = responses.calls[0].request.body
+    assert body is not None
+    assert "Latest poll failure" not in body.decode("utf-8")
+
+
+@responses.activate
+def test_only_the_first_line_of_the_poll_failure_reaches_the_topic(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    _failed_poll(
+        mariadb_client,
+        NOW - timedelta(minutes=5),
+        "(builtins.TypeError) not JSON serializable\n[SQL: INSERT INTO t VALUES (1)]",
+    )
+
+    _watchdog(mariadb_client).check(NOW)
+
+    body = responses.calls[0].request.body
+    assert body is not None
+    text = body.decode("utf-8")
+    assert "(builtins.TypeError) not JSON serializable" in text
+    assert "SQL" not in text
+
+
+@responses.activate
+def test_an_unreadable_failure_reason_does_not_suppress_the_alert(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+
+    def _unreadable(*_: object) -> str:
+        raise RuntimeError("job_run unavailable")
+
+    monkeypatch.setattr(mariadb_client, "latest_failed_job_error", _unreadable)
+
+    _watchdog(mariadb_client).check(NOW)
+
+    assert _titles() == ["hive-app: Hive data lost"]
+
+
+@responses.activate
+def test_a_failed_restored_notice_is_retried_on_the_next_check(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    responses.add(responses.POST, TOPIC_URL, status=500)
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+    _poll_at(mariadb_client, NOW + timedelta(minutes=5))
+
+    watchdog.check(NOW + timedelta(minutes=6))
+    watchdog.check(NOW + timedelta(minutes=7))
+    watchdog.check(NOW + timedelta(minutes=8))
+
+    assert _titles() == [
+        "hive-app: Hive data lost",
+        "hive-app: Hive data restored",
+        "hive-app: Hive data restored",
+    ]

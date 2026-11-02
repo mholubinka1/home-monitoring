@@ -22,7 +22,7 @@ from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
-from hive_app.data.watchdog import HiveDataWatchdog
+from hive_app.data.watchdog import HEATING_REFRESH_JOB, HiveDataWatchdog
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
 from hive_app.data.weather_location import WeatherLocationResolver
@@ -37,7 +37,6 @@ from hive_app.weather_backfill import (
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-HEATING_REFRESH_JOB = "heating_refresh"
 HEATING_REFRESH_INTERVAL_SECONDS = 120
 HIVE_WATCHDOG_INTERVAL_SECONDS = 60
 WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"

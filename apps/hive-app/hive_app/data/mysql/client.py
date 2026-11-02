@@ -73,18 +73,37 @@ class MariaDBClient(MariaDBClientBase):
             # The database stores naive UTC; stamp it back as UTC.
             return latest.replace(tzinfo=UTC) if latest is not None else None
 
-    def latest_failed_job_error(self, job_name: str) -> str | None:
-        """The error of the most recent failed run of the job, cut to 200
-        characters, or None if there is none."""
+    def first_heating_polled_after(self, moment: datetime) -> datetime | None:
+        """When the first heating_status row after `moment` was polled (UTC)."""
+        with self.session_read_scope() as session:
+            first = (
+                session.query(func.min(sql_model.heating_status.polled_at))
+                .filter(
+                    sql_model.heating_status.polled_at > moment.replace(tzinfo=None)
+                )
+                .scalar()
+            )
+            return first.replace(tzinfo=UTC) if first is not None else None
+
+    def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
+        """The first line (at most 200 characters) of the error of the most
+        recent failed run of the job after `since`, or None if there is none.
+        One line only: a database error's later lines carry SQL and values."""
         with self.session_read_scope() as session:
             error = (
                 session.query(job_run.error_message)
-                .filter(job_run.job_name == job_name, job_run.status == "failure")
+                .filter(
+                    job_run.job_name == job_name,
+                    job_run.status == "failure",
+                    job_run.ran_at > since.replace(tzinfo=None),
+                )
                 .order_by(job_run.ran_at.desc(), job_run.id.desc())
                 .limit(1)
                 .scalar()
             )
-            return error[:200] if error is not None else None
+            if not error:
+                return None
+            return error.splitlines()[0][:200]
 
     def write_weather_observations(
         self, observations: list[WeatherObservation]
