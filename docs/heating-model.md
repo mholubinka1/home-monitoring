@@ -150,7 +150,7 @@ There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after lookin
 - **Heating versus hot water.** It separates them statistically, using warm days to learn the hot-water level. It does not measure either one directly.
 - **Weather it does not see.** Wind, sunshine and rain affect a real house, and the model sees only temperature. Cloudy-and-still and sunny-and-gusty days with the same average look identical to it. This is part of the 31% R-squared leaves unexplained.
 - **Your house, exactly.** The temperatures are area-wide values for our location, not a thermometer on the wall.
-- **The future with certainty.** It will project the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (four-fifths of the blend is today, which is nearly over, so only a fifth rides on the forecast), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
+- **The future with certainty.** It projects the next seven days from the weather forecast. A forecast that is two degrees out moves tomorrow's projection by only about 1.5 kWh (four-fifths of the blend is today, which is nearly over, so only a fifth rides on the forecast), but a day later in the week by about 7 to 8 kWh, because then both days in the blend are forecasts.
 - **That two years are alike.** Our last two years differ in baseload and in threshold. The model fits the latest 12 months, so it follows the house as it is now, but a sudden change takes weeks to show.
 
 ## 12. Reading the dashboard panels
