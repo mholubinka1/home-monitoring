@@ -1,5 +1,7 @@
 # Issues: feature-hive-data-lost-alert-ntfy
 
+> Work complete — PR ready to merge.
+
 ## Alert when Hive data stops arriving, and say when it returns
 
 **Blocked by**: None
@@ -12,13 +14,13 @@ A watchdog job, registered on the scheduler every 60 seconds whenever ntfy is co
 
 ### Acceptance criteria
 
-- [ ] Given the newest row is 31 minutes old, when the watchdog checks, then one high-priority lost message is posted with the data age, the latest failed-poll reason and the runbook link
-- [ ] Given a 19-minute gap, when the watchdog checks, then nothing is posted
-- [ ] Given a lost message was delivered and a new row then arrives, when the watchdog checks, then one restored message with the outage length is posted, and none if no lost message was delivered
-- [ ] Given a lost message is already out, when the watchdog checks again with data still missing inside the hour, then nothing more is posted
-- [ ] Given a failed delivery, when the watchdog next checks, then it tries again
-- [ ] Given a restart mid-outage, when a new watchdog checks, then it alerts from the database age without waiting another 30 minutes
-- [ ] The job is registered on a 60-second interval only when ntfy is configured
+- [x] Given the newest row is 31 minutes old, when the watchdog checks, then one high-priority lost message is posted with the data age, the latest failed-poll reason and the runbook link
+- [x] Given a 19-minute gap, when the watchdog checks, then nothing is posted
+- [x] Given a lost message was delivered and a new row then arrives, when the watchdog checks, then one restored message with the outage length is posted, and none if no lost message was delivered
+- [x] Given a lost message is already out, when the watchdog checks again with data still missing inside the hour, then nothing more is posted
+- [x] Given a failed delivery, when the watchdog next checks, then it tries again
+- [x] Given a restart mid-outage, when a new watchdog checks, then it alerts from the database age without waiting another 30 minutes
+- [x] The job is registered on a 60-second interval only when ntfy is configured
 
 ---
 
@@ -34,9 +36,9 @@ While data is still missing after a lost message, the watchdog sends a reminder 
 
 ### Acceptance criteria
 
-- [ ] Given a lost message was sent, when 60 minutes pass with data still missing, then one reminder is posted with the updated data age
-- [ ] Given 59 minutes have passed, then no reminder is posted
-- [ ] Given data returns, then no further reminders are posted
+- [x] Given a lost message was sent, when 60 minutes pass with data still missing, then one reminder is posted with the updated data age
+- [x] Given 59 minutes have passed, then no reminder is posted
+- [x] Given data returns, then no further reminders are posted
 
 ---
 
@@ -52,12 +54,12 @@ While data is still missing after a lost message, the watchdog sends a reminder 
 
 ### Acceptance criteria
 
-- [ ] Given the quiet-hours settings are omitted, then they default to 22:00 and 08:00
-- [ ] Given invalid times, then config loading fails with a clear error
-- [ ] Given an outage crosses the 30-minute mark at 23:30, then nothing is sent until 08:00, when the lost message is posted if data is still missing
-- [ ] Given an outage that starts and heals inside the window, then nothing is ever sent
-- [ ] Given a lost message was delivered at 21:30 and data returns at 03:00, then the restored notice is posted at 08:00
-- [ ] Given a window that spans midnight and one that does not, then both are honoured
+- [x] Given the quiet-hours settings are omitted, then they default to 22:00 and 08:00
+- [x] Given invalid times, then config loading fails with a clear error
+- [x] Given an outage crosses the 30-minute mark at 23:30, then nothing is sent until 08:00, when the lost message is posted if data is still missing
+- [x] Given an outage that starts and heals inside the window, then nothing is ever sent
+- [x] Given a lost message was delivered at 21:30 and data returns at 03:00, then the restored notice is posted at 08:00
+- [x] Given a window that spans midnight and one that does not, then both are honoured
 
 ---
 
@@ -73,7 +75,7 @@ Remove `ReauthAlert`, `NtfyReauthNotifier` and their wiring in the heating poll,
 
 ### Acceptance criteria
 
-- [ ] A re-authentication failure no longer posts any ntfy message by itself
-- [ ] No reference to the removed classes remains in code, tests or docs
-- [ ] The config template, runbook and README describe the data-lost alert and `ntfy.quiet_hours`
-- [ ] The existing poll, retry and startup-auth behaviour is otherwise unchanged and its tests pass
+- [x] A re-authentication failure no longer posts any ntfy message by itself
+- [x] No reference to the removed classes remains in code, tests or docs
+- [x] The config template, runbook and README describe the data-lost alert and `ntfy.quiet_hours`
+- [x] The existing poll, retry and startup-auth behaviour is otherwise unchanged and its tests pass
