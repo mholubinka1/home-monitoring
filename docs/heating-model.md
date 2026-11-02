@@ -155,7 +155,7 @@ There are honest caveats. The exact numbers 1.5 and 0.5 were chosen after lookin
 
 ## 12. Reading the dashboard panels
 
-The model feeds one panel. The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, so sections 7 to 10 describe ideas the model still uses, not panels you can open.
+The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, so sections 7 to 10b describe ideas the model still uses, not panels you can open.
 
 - **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
