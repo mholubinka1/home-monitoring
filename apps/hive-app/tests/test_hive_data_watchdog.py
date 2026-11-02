@@ -145,3 +145,44 @@ def test_no_restored_notice_when_no_lost_alert_was_delivered(
     _watchdog(mariadb_client).check(NOW)
 
     assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_a_reminder_with_the_current_data_age_follows_an_hour_after_the_lost_alert(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+
+    watchdog.check(NOW + timedelta(minutes=59))
+    assert len(responses.calls) == 1
+
+    watchdog.check(NOW + timedelta(minutes=60))
+    assert len(responses.calls) == 2
+    request = responses.calls[1].request
+    assert request.headers["Title"] == "hive-app: Hive data still lost"
+    assert request.headers["Priority"] == "high"
+    assert request.body is not None
+    assert "91 minutes" in request.body.decode("utf-8")
+
+
+@responses.activate
+def test_no_reminders_follow_once_the_data_has_returned(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    _poll_at(mariadb_client, NOW - timedelta(minutes=31))
+    watchdog = _watchdog(mariadb_client)
+    watchdog.check(NOW)
+    _poll_at(mariadb_client, NOW + timedelta(minutes=30))
+    watchdog.check(NOW + timedelta(minutes=31))
+    assert len(responses.calls) == 2
+
+    _poll_at(mariadb_client, NOW + timedelta(minutes=60))
+    watchdog.check(NOW + timedelta(minutes=61))
+    _poll_at(mariadb_client, NOW + timedelta(minutes=120))
+    watchdog.check(NOW + timedelta(minutes=121))
+
+    assert len(responses.calls) == 2

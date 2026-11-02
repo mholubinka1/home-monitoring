@@ -10,11 +10,14 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 LOST_AFTER = timedelta(minutes=30)
+REMIND_EVERY = timedelta(minutes=60)
 HEATING_REFRESH_JOB = "heating_refresh"
 
 
 class DataNotifier(Protocol):
-    def notify_data_lost(self, age: timedelta, reason: str | None) -> None: ...
+    def notify_data_lost(
+        self, age: timedelta, reason: str | None, reminder: bool = False
+    ) -> None: ...
 
     def notify_data_restored(self, outage: timedelta) -> None: ...
 
@@ -31,6 +34,7 @@ class HiveDataWatchdog:
         self._notifier = notifier
         # Newest data before the gap, set only once a lost alert was delivered.
         self._outage_began: datetime | None = None
+        self._last_notified: datetime | None = None
 
     def check(self, now: datetime) -> None:
         latest = self._mariadb.latest_heating_polled_at()
@@ -38,26 +42,36 @@ class HiveDataWatchdog:
             return
         age = now - latest
         if age > LOST_AFTER:
-            self._alert_lost(latest, age)
+            self._alert_lost(latest, age, now)
         else:
             self._announce_restored(now)
 
-    def _alert_lost(self, latest: datetime, age: timedelta) -> None:
-        if self._outage_began is not None:
+    def _alert_lost(self, latest: datetime, age: timedelta, now: datetime) -> None:
+        reminder = self._outage_began is not None
+        if (
+            reminder
+            and self._last_notified is not None
+            and now - self._last_notified < REMIND_EVERY
+        ):
             return
         try:
             self._notifier.notify_data_lost(
-                age, self._mariadb.latest_failed_job_error(HEATING_REFRESH_JOB)
+                age,
+                self._mariadb.latest_failed_job_error(HEATING_REFRESH_JOB),
+                reminder,
             )
         except Exception:
             logger.exception(
                 "Failed to send Hive data-lost alert; will retry on the next check."
             )
             return
-        self._outage_began = latest
+        if self._outage_began is None:
+            self._outage_began = latest
+        self._last_notified = now
 
     def _announce_restored(self, now: datetime) -> None:
         began, self._outage_began = self._outage_began, None
+        self._last_notified = None
         if began is None:
             return
         try:

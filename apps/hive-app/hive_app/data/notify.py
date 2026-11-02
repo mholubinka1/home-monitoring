@@ -92,14 +92,20 @@ class NtfyDataNotifier(_NtfyPoster):
     """Posts the "Hive data lost" and "Hive data restored" notifications
     (see ADR-0031), in the same ntfy.sh style as NtfyReauthNotifier."""
 
-    def notify_data_lost(self, age: timedelta, reason: str | None) -> None:
+    def notify_data_lost(
+        self, age: timedelta, reason: str | None, reminder: bool = False
+    ) -> None:
         body = f"No Hive heating data for {describe_duration(age)}."
         if reason is not None:
             body += f" Latest poll failure: {reason}."
         self._post(
             body,
             {
-                "Title": "hive-app: Hive data lost",
+                "Title": (
+                    "hive-app: Hive data still lost"
+                    if reminder
+                    else "hive-app: Hive data lost"
+                ),
                 "Priority": "high",
                 "Tags": "warning",
                 "Click": REAUTH_RUNBOOK_URL,
