@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
 from common.mariadb.client import MariaDBClientBase
+from common.mariadb.model import job_run
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import (
     HeatingStatus,
@@ -62,6 +63,28 @@ class MariaDBClient(MariaDBClientBase):
             working=status.working,
         )
         self._write_all([record], "Heating status data")
+
+    def latest_heating_polled_at(self) -> datetime | None:
+        """When the newest heating_status row was polled (UTC), or None."""
+        with self.session_read_scope() as session:
+            latest = session.query(
+                func.max(sql_model.heating_status.polled_at)
+            ).scalar()
+            # The database stores naive UTC; stamp it back as UTC.
+            return latest.replace(tzinfo=UTC) if latest is not None else None
+
+    def latest_failed_job_error(self, job_name: str) -> str | None:
+        """The error of the most recent failed run of the job, cut to 200
+        characters, or None if there is none."""
+        with self.session_read_scope() as session:
+            error = (
+                session.query(job_run.error_message)
+                .filter(job_run.job_name == job_name, job_run.status == "failure")
+                .order_by(job_run.ran_at.desc(), job_run.id.desc())
+                .limit(1)
+                .scalar()
+            )
+            return error[:200] if error is not None else None
 
     def write_weather_observations(
         self, observations: list[WeatherObservation]

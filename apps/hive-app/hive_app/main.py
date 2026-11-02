@@ -20,7 +20,13 @@ from hive_app.data.auth import HiveAuthenticator
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.notify import NtfyReauthNotifier, ReauthAlert, ReauthNotifier
+from hive_app.data.notify import (
+    NtfyDataNotifier,
+    NtfyReauthNotifier,
+    ReauthAlert,
+    ReauthNotifier,
+)
+from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
 from hive_app.data.weather_location import WeatherLocationResolver
@@ -37,6 +43,7 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 HEATING_REFRESH_JOB = "heating_refresh"
 HEATING_REFRESH_INTERVAL_SECONDS = 120
+HIVE_WATCHDOG_INTERVAL_SECONDS = 60
 WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"
 WEATHER_OBSERVATION_REFRESH_INTERVAL_MINUTES = 60
 WEATHER_FORECAST_REFRESH_JOB = "weather_forecast_refresh"
@@ -121,6 +128,26 @@ def register_heating_refresh_job(
         heating.refresh,
         mariadb,
     )
+
+
+def register_hive_watchdog_job(scheduler: Scheduler, watchdog: HiveDataWatchdog) -> Job:
+    def check_safely() -> None:
+        try:
+            watchdog.check(datetime.now(UTC))
+        except Exception:
+            logger.exception("Hive data watchdog check failed.")
+
+    return scheduler.every(HIVE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
+
+
+def build_hive_watchdog_job(
+    scheduler: Scheduler, mariadb: MariaDBClient, topic_url: str | None
+) -> Job | None:
+    """Registers the Hive data watchdog only when ntfy is configured."""
+    if not topic_url:
+        return None
+    watchdog = HiveDataWatchdog(mariadb, NtfyDataNotifier(topic_url))
+    return register_hive_watchdog_job(scheduler, watchdog)
 
 
 def register_weather_observation_refresh_job(
@@ -283,6 +310,9 @@ def main() -> None:
 
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)
+    build_hive_watchdog_job(
+        default_scheduler, mariadb, settings.ntfy.topic_url if settings.ntfy else None
+    )
 
     weather = _build_weather_retriever(settings.location, mariadb)
     register_weather_jobs(default_scheduler, weather, mariadb)
