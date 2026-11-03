@@ -35,7 +35,7 @@ new (small) GraphQL client, not a new credential-storage story.
 
 The `/v1/accounts/{account_number}/` endpoint's documented response schema contains
 no billing-period, statement, or invoice fields at all. Per
-[Endpoints — REST API docs](https://docs.octopus.energy/rest/guides/endpoints/)
+[Endpoints — REST API docs](https://developer.oegb-kraken.energy/guides/rest/api-endpoints/)
 (the current canonical location; the older `developer.octopus.energy/rest/reference/`
 URL now serves the same underlying docs), the response shape is:
 
@@ -151,7 +151,7 @@ mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) {
 ```
 
 Other current docs pages describe the same thing: a WebFetch summary of
-[GraphQL API Guides — API basics](https://docs.octopus.energy/graphql/guides/basics/)
+[GraphQL API Guides — API basics](https://developer.oegb-kraken.energy/guides/graphql/api-basics/)
 and search-indexed content from
 [Mutations — API docs](https://docs.octopus.energy/graphql/reference/mutations/) both
 describe `obtainKrakenToken` as accepting "email/password, an API key, or a pre-signed
@@ -189,7 +189,7 @@ established in Question 1, the full response schema for
 metadata), and per-meter-point `agreements[]` with only `tariff_code`, `valid_from`,
 `valid_to`. There is no `periodStartDay`, `nextBillingDate`, or any field describing a
 billing/invoice cycle. Source:
-[Endpoints — REST API docs](https://docs.octopus.energy/rest/guides/endpoints/).
+[Endpoints — REST API docs](https://developer.oegb-kraken.energy/guides/rest/api-endpoints/).
 
 `agreements[].valid_from`/`valid_to` mark tariff validity windows — i.e., "this tariff
 code applied to this meter point between these two dates" — which change only when a

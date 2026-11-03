@@ -70,7 +70,7 @@ tomorrow, not further**. `AGILE-24-10-01` is the current live Agile product per
 itself, called live, not a doc page describing it.
 
 Endpoint shape/pagination is documented at
-[REST API — Endpoints](https://docs.octopus.energy/rest/guides/endpoints/), but that
+[REST API — Endpoints](https://developer.oegb-kraken.energy/guides/rest/api-endpoints/), but that
 page (and `https://docs.octopus.energy/rest/reference/`, `.../rest/guides/tariffs/`)
 describe request/response shape only — **neither documents a publication-time SLA or
 horizon**; the ~1-day ceiling is an observed behavior, not a documented contract.
