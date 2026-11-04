@@ -265,10 +265,11 @@ the outage length.
        DROP COLUMN IF EXISTS label;
      ```
 
-  If the new image starts before step 1, the next refit (the fit is at most 7 days old)
-  fails to save any model, usable or not, because `label` is still required, and the job
-  logs the error. The forecast keeps being rewritten from the previous model on the other
-  days. Run step 1 and the next daily run recovers.
+  Run step 1 before the new image is pulled. If the image starts first, nothing breaks
+  until the latest fit is 7 or more days old. From then on every daily run tries to refit
+  and fails to save the model, usable or not, because `label` is still required. The job
+  logs the error and rewrites no forecast, so the expected-gas bars run out once the last
+  forecast day has passed. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history
 
