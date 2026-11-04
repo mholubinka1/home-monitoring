@@ -53,7 +53,6 @@ class _Derived:
 
     effective: dict[date, float]
     baseload: dict[date, BaselinePoint]
-    away: frozenset[date]
 
 
 @dataclass(frozen=True)
@@ -93,10 +92,8 @@ def _load_inputs(mariadb: MariaDBClient, today: date) -> _RunInputs | None:
 
 def _derive(inputs: _RunInputs, weight: float, threshold: float) -> _Derived:
     effective = heating_model.effective_temperatures(inputs.means, weight)
-    baseload, away = heating_model.baseload_and_away_days(
-        inputs.gas, effective, threshold
-    )
-    return _Derived(effective, baseload, away)
+    baseload, _ = heating_model.baseload_and_away_days(inputs.gas, effective, threshold)
+    return _Derived(effective, baseload)
 
 
 def _window_start(as_of: date) -> date:
@@ -125,35 +122,13 @@ def _unusable_record(
     )
 
 
-@dataclass(frozen=True)
-class _Window:
-    """The fit window's days that can be modelled: gas, an effective
-    temperature, a baseload, and not away."""
-
-    start: date
-    days: list[date]
-
-
-def _fit_window(inputs: _RunInputs, derived: _Derived) -> _Window:
-    start = _window_start(inputs.as_of)
-    days = [
-        day
-        for day in sorted(inputs.gas)
-        if day >= start
-        and day in derived.effective
-        and day in derived.baseload
-        and day not in derived.away
-    ]
-    return _Window(start, days)
-
-
 def _baseload_kind_count(
-    inputs: _RunInputs, derived: _Derived, window: _Window, kind: BaselineKind
+    inputs: _RunInputs, derived: _Derived, start: date, kind: BaselineKind
 ) -> int:
     return sum(
         1
-        for offset in range((inputs.as_of - window.start).days + 1)
-        if (point := derived.baseload.get(window.start + timedelta(days=offset)))
+        for offset in range((inputs.as_of - start).days + 1)
+        if (point := derived.baseload.get(start + timedelta(days=offset)))
         and point.kind is kind
     )
 
@@ -166,10 +141,10 @@ def _usable_record(
     derived = _derive(inputs, _require(fit.weight, "weight"), threshold)
     if quality is None or inputs.as_of not in derived.baseload:
         raise ValueError("a usable fit has no quality or baseload")
-    window = _fit_window(inputs, derived)
+    start = _window_start(inputs.as_of)
     return HeatingModelRecord(
         fitted_at=now,
-        window_start=window.start,
+        window_start=start,
         window_end=inputs.as_of,
         usable=True,
         unusable_reason=None,
@@ -180,13 +155,13 @@ def _usable_record(
         r_squared=quality.r_squared,
         baseload=derived.baseload[inputs.as_of].kwh,
         baseload_measured_days=_baseload_kind_count(
-            inputs, derived, window, BaselineKind.MEASURED
+            inputs, derived, start, BaselineKind.MEASURED
         ),
         baseload_interpolated_days=_baseload_kind_count(
-            inputs, derived, window, BaselineKind.INTERPOLATED
+            inputs, derived, start, BaselineKind.INTERPOLATED
         ),
         baseload_held_days=_baseload_kind_count(
-            inputs, derived, window, BaselineKind.HELD
+            inputs, derived, start, BaselineKind.HELD
         ),
     )
 
