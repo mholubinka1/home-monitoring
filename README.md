@@ -240,7 +240,8 @@ the outage length.
   clean-up ([ADR-0030](.agent-docs/adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md))
   needs this, in two phases, because `watchtower` may replace the image before you run any SQL.
   Run each statement with
-  `docker exec -e MYSQL_PWD home-monitoring-db mariadb -u<user> home_monitoring -e "<SQL>"`.
+  `docker exec -e MYSQL_PWD home-monitoring-db mariadb -u<user> home_monitoring -e "<SQL>"`
+  (export `MYSQL_PWD` as the app user's password first).
   1. **First, before the new image runs** (safe with the old and the new code): the new code
      no longer writes `label`, so let the column be empty.
 
@@ -264,8 +265,10 @@ the outage length.
        DROP COLUMN IF EXISTS label;
      ```
 
-  If the new image starts before step 1, saving any model, usable or not, fails (`label`
-  is still required) and the job logs the error; the forecast is not refreshed until then. Run step 1 and the next daily run recovers.
+  If the new image starts before step 1, the next refit (the fit is at most 7 days old)
+  fails to save any model, usable or not, because `label` is still required, and the job
+  logs the error. The forecast keeps being rewritten from the previous model on the other
+  days. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history
 
