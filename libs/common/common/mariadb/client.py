@@ -75,7 +75,8 @@ class SessionBuilder:
         # makes settings.database retarget every query. See ADR-0025.
         # pool_pre_ping: a pooled connection the server has dropped (a restart,
         # or the memory cap's OOM kill) is replaced on checkout instead of failing
-        # the first query after it.
+        # the first query after it. A server still down at checkout still raises;
+        # the jobs' retry with backoff covers that window.
         self.engine = create_engine(uri, pool_pre_ping=True).execution_options(
             schema_translate_map={"octopus": settings.database}
         )
