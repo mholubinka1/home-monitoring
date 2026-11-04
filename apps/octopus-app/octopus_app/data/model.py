@@ -14,7 +14,7 @@ class Energy(Enum):
 
 
 def as_energy_char(energy: Energy) -> str:
-    match energy:
+    match (energy):
         case Energy.electricity:
             return "E"
         case Energy.gas:
@@ -22,7 +22,7 @@ def as_energy_char(energy: Energy) -> str:
 
 
 def energy_from_char(char: str) -> Energy:
-    match char:
+    match (char):
         case "E":
             return Energy.electricity
         case "G":
@@ -112,7 +112,7 @@ class HeatingForecastRecord:
 
 
 def get_raw_unit(energy: Energy) -> Unit:
-    match energy:
+    match (energy):
         case Energy.gas:
             return Unit.m3
         case Energy.electricity:

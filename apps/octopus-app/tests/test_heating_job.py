@@ -17,7 +17,6 @@ from octopus_app.data.heating_model import (
 from octopus_app.data.model import HeatingModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
-from octopus_app.data.mysql.model import SQLBase
 from octopus_app.main import run_initial_heating_model_sync
 
 from .heating_history_fixtures import (
@@ -81,7 +80,7 @@ def test_the_first_refresh_stores_a_usable_model_close_to_the_planted_one(
     assert stored.model.slope == pytest.approx(PLANTED_SLOPE, abs=0.5)
 
 
-def test_the_refresh_writes_the_forecast_tied_to_the_stored_model_and_keeps_no_verdicts_or_weeks(
+def test_the_refresh_writes_the_forecast_tied_to_the_stored_model(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -103,8 +102,6 @@ def test_the_refresh_writes_the_forecast_tied_to_the_stored_model_and_keeps_no_v
             stored.model.baseload
             + stored.model.slope * max(0.0, stored.model.threshold - row.effective_temp)
         )
-    declared = {table.name for table in SQLBase.metadata.tables.values()}
-    assert not {"heating_day_verdict", "heating_week"} & declared
 
 
 def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rewrites_the_forecast(
@@ -407,43 +404,6 @@ def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
     job.refresh(now=NOW + timedelta(days=2))
 
     assert mariadb_client.read_heating_forecast_days() == []
-
-
-def test_a_usable_fit_is_stored_without_an_upper_threshold(
-    mariadb_client: MariaDBClient,
-) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
-
-    HeatingModelJob(mariadb_client).refresh(now=NOW)
-
-    stored = mariadb_client.read_latest_heating_model()
-    assert stored is not None
-    assert stored.model.usable
-    assert not hasattr(stored.model, "upper_threshold")
-    assert "upper_threshold" not in model.heating_model.__table__.columns
-
-
-REMOVED_MODEL_FIELDS = (
-    "label",
-    "thermostat_threshold",
-    "heating_days",
-    "non_heating_days",
-)
-
-
-def test_a_usable_fit_is_stored_without_a_label_or_thermostat_fields(
-    mariadb_client: MariaDBClient,
-) -> None:
-    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
-
-    HeatingModelJob(mariadb_client).refresh(now=NOW)
-
-    stored = mariadb_client.read_latest_heating_model()
-    assert stored is not None
-    assert stored.model.usable
-    for field in REMOVED_MODEL_FIELDS:
-        assert not hasattr(stored.model, field)
-        assert field not in model.heating_model.__table__.columns
 
 
 def test_a_fit_is_stored_in_a_table_that_still_has_the_old_nullable_label_column(

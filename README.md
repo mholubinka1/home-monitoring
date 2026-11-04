@@ -7,7 +7,7 @@ native MySQL data source.
 Cheapest-tariff comparison and cost forecasting are planned but not yet implemented —
 see `.agent-docs/specs/` for the roadmap.
 
-The learned heating model, which judges each day's gas against the weather, is
+The learned heating model, which projects the gas a day should use from the weather, is
 explained in plain language in [docs/heating-model.md](docs/heating-model.md).
 
 ## Architecture
@@ -265,7 +265,7 @@ the outage length.
      ```
 
   If the new image starts before step 1, the weekly refit fails to save its model (`label`
-  is still required) and the job logs the error. Run step 1 and the next daily run recovers.
+  is still required) and the job logs the error; the forecast is not refreshed until then. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history
 
