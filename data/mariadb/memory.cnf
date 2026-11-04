@@ -16,9 +16,11 @@
 #
 # Copy it to the host BEFORE applying a compose file that mounts it: Docker creates
 # a directory at a missing bind-mount source, and the buffers would silently stay at
-# 128 MB. The first deployment needs the container recreated (docker compose up -d),
-# because a restart does not pick up a new mount; later edits to this file only need
-# a restart. See .agent-docs/specs/chore-reduce-mariadb-memory.md for the rationale.
+# 128 MB. Apply it, and every later edit, by recreating the container
+# (docker compose up -d --force-recreate home-monitoring-db): a restart does not pick
+# up a new mount, and keeps reading the old file if it was replaced (scp, rsync, an
+# editor that saves by rename) rather than edited in place. See
+# .agent-docs/specs/chore-reduce-mariadb-memory.md for the rationale.
 
 [mysqld]
 aria_pagecache_buffer_size = 8M
