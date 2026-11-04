@@ -1,5 +1,7 @@
 # Issues: feature/octopus-go-tariff-support
 
+> Work complete — PR ready to merge.
+
 ## Cost Forecast prices Octopus Go at the effective rate paid
 
 **GitHub issue**: #723
@@ -14,10 +16,10 @@ Recognise a tariff code containing `-GO-` as the `go` Tariff Type and, for it, p
 
 ### Acceptance criteria
 
-- [ ] Given a tariff code `E-1R-GO-VAR-22-10-14-C`, when the tariff type is determined, then it is `go`; Agile, Economy 7 and variable codes keep their types
-- [ ] Given elapsed days with usage skewed to the cheap window, when the Cost Forecast refreshes, then the projection uses the effective rate, not the flat or time-weighted average
-- [ ] Given no real elapsed day, when the Cost Forecast refreshes, then the projection uses today's time-weighted average rate
-- [ ] pre-commit (including pylint) passes
+- [x] Given a tariff code `E-1R-GO-VAR-22-10-14-C`, when the tariff type is determined, then it is `go`; Agile, Economy 7 and variable codes keep their types
+- [x] Given elapsed days with usage skewed to the cheap window, when the Cost Forecast refreshes, then the projection uses the effective rate, not the flat or time-weighted average
+- [x] Given no real elapsed day, when the Cost Forecast refreshes, then the projection uses today's time-weighted average rate
+- [x] pre-commit (including pylint) passes
 
 ---
 
@@ -35,10 +37,10 @@ The Agile Prices panel always reads the Agile product (the account's own if Agil
 
 ### Acceptance criteria
 
-- [ ] Given a Go account, when the Agile Prices panel loads, then it queries the Agile product, not the account's product
-- [ ] Given a Go account, when the Cheapest Time Window loads, then the Agile forecast is not used
-- [ ] Given an Agile account, when the Cheapest Time Window loads, then forecast fallback still applies
-- [ ] The JSON and the reference doc contain the same SQL
+- [x] Given a Go account, when the Agile Prices panel loads, then it queries the Agile product, not the account's product
+- [x] Given a Go account, when the Cheapest Time Window loads, then the Agile forecast is not used
+- [x] Given an Agile account, when the Cheapest Time Window loads, then forecast fallback still applies
+- [x] The JSON and the reference doc contain the same SQL
 
 ---
 
@@ -56,10 +58,10 @@ A full-width Stat panel at the top of the electricity dashboard showing the curr
 
 ### Acceptance criteria
 
-- [ ] The dashboard has a stat panel titled "Current Tariff" with a unique id
-- [ ] Its query reads the current electricity agreement joined to `product`
-- [ ] `stat` is listed in the dashboard's required panel types
-- [ ] No panels overlap or exceed 24 columns
-- [ ] The reference doc documents the panel
+- [x] The dashboard has a stat panel titled "Current Tariff" with a unique id
+- [x] Its query reads the current electricity agreement joined to `product`
+- [x] `stat` is listed in the dashboard's required panel types
+- [x] No panels overlap or exceed 24 columns
+- [x] The reference doc documents the panel
 
 ---
