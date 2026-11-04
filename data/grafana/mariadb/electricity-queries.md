@@ -73,7 +73,7 @@ instead of the `valid_from`/`valid_to` range-predicate join. The subquery also r
 
 ### Current Tariff — stat, id 22
 
-Full-width banner at the top of the dashboard naming the account's current electricity tariff by its product display name (for example "Octopus Go"), falling back to the tariff code when the product is not in the catalogue. Reads the agreement in force now. Shows "no current agreement" when none matches. Every other panel sits below it.
+Full-width banner at the top of the dashboard naming the account's current electricity tariff by its product display name (for example "Octopus Go"), falling back to the tariff code when the product is not in the catalogue. Reads the agreement in force now. Shows "no current agreement" when none matches. The panel selects the `tariff` field explicitly (`reduceOptions.fields` is `/^tariff$/`), because an empty selector shows numeric fields only and would hide the name. Every other panel sits below it.
 
 ```sql
 SELECT COALESCE(p.display_name, a.tariff_code) AS tariff
