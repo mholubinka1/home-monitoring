@@ -24,7 +24,7 @@ One electricity dashboard shows everything. The Agile Prices panel gains the das
 - Fuel price (latest) (id 20) and Fuel price vs effective charging limit (id 21) are added from `fuel-threshold.json`. Ids do not clash with the existing ids.
 - Both dashboards use the same `DS_MYSQL` input, the same `region` variable and the same time range and refresh, so no new inputs or variables are needed. The `__requires` list gains the gauge panel type.
 - Layout: the Agile Prices panel keeps its current slot and width, and the two fuel panels go in a new row at the bottom so existing panels do not move.
-- The `fuel_price_threshold` table is created and written by hypervolt-agile in the same database. No schema or app change is made in this repo. Until hypervolt-agile has recorded a row, the new panels and the limit line show no data.
+- The `fuel_price_threshold` table is created and written by hypervolt-agile in the same database. No schema or app change is made in this repo. Until hypervolt-agile has recorded a row, the gauge reads "no price recorded", and the chart and the limit line show no data.
 - The dashboard title and uid stay those of the electricity dashboard. The dashboard `version` is not hand-edited beyond what the export provides.
 - `data/grafana/mariadb/electricity-queries.md` gains entries for the two new panels and the new Agile Prices query, in the file's existing per-panel format.
 

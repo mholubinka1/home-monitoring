@@ -580,7 +580,7 @@ ORDER BY t.yearweek;
 
 ## Row 5 — Fuel Threshold
 
-These panels come from the hypervolt-agile charging scheduler's own dashboard. The `fuel_price_threshold` table is created and written by hypervolt-agile in the same `home_monitoring` database, not by this repo's apps, so both panels show no data until it has recorded a row.
+These panels come from the hypervolt-agile charging scheduler's own dashboard. The `fuel_price_threshold` table is created and written by hypervolt-agile in the same `home_monitoring` database, not by this repo's apps, so until it has recorded a row the gauge reads "no price recorded" and the chart shows no data.
 
 ### Fuel price (latest) — gauge, id 20
 

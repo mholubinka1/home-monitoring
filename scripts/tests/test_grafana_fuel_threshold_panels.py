@@ -37,6 +37,8 @@ def test_agile_prices_reads_the_effective_charging_limit_as_its_second_query() -
     targets = {t["refId"]: t for t in _panel(AGILE_PRICES_ID)["targets"]}
 
     assert FUEL_TABLE in targets["B"]["rawSql"]
+    assert "$__timeFrom()" in targets["B"]["rawSql"]
+    assert "$__timeTo()" in targets["B"]["rawSql"]
 
 
 def test_panel_ids_are_unique_and_agile_prices_keeps_id_3() -> None:
@@ -65,6 +67,11 @@ def test_fuel_gauge_and_chart_read_the_fuel_price_threshold() -> None:
 
     assert (gauge["type"], gauge["title"]) == ("gauge", "Fuel price (latest)")
     assert chart["title"] == "Fuel price vs effective charging limit"
+    defaults = gauge["fieldConfig"]["defaults"]
+    assert (defaults["min"], defaults["max"]) == (100, 200)
+    steps = defaults["thresholds"]["steps"]
+    assert [s["value"] for s in steps] == [None, 140, 155, 170]
+    assert chart["timeFrom"] == "30d"
     for panel in (gauge, chart):
         assert all(FUEL_TABLE in t["rawSql"] for t in panel["targets"])
 
