@@ -95,7 +95,7 @@ ORDER BY a.valid_from DESC LIMIT 1;
 
 Thresholds changed to match the same blue/green/yellow/orange/red band style used elsewhere on this dashboard (Load Shift Efficiency, Cheapest Time Window): blue below £1, green from £1, yellow from £3, orange from £4, red from £5 (previously just green/amber/red at £3/£5). `min: -1` (was `0`); the field previously also carried a `max: 19` cap, since removed so the axis auto-scales. `thresholdsStyle: area` renders the bands as a coloured background rather than just axis colouring. A field override forces the `cost_gbp` series line itself to a fixed purple colour, independent of the threshold-driven background.
 
-The day's standing charge is the one in force at local midday (the half-hour starting at 12:00 local), the same convention the app uses for estimated gap days, so a tariff change part-way through a day takes one agreement's charge rather than the larger of the two; on the one spring-forward day a year, when no half-hour starts at 12:00, it falls back to the larger. The same rule applies to Daily Average Cost below.
+The day's standing charge is the one in force at local midday (the half-hour starting at wall-clock 12:00 local, which exists on every day including clock-change days; the app's elapsed-cost read uses the same rule), so a tariff change part-way through a day takes one agreement's charge rather than the larger of the two. It falls back to the larger only if that half-hour has no consumption row. The same rule applies to Daily Average Cost below.
 
 The `product_rate` join fix from earlier (correlated subquery instead of the range-predicate form that measured at 88.9s elsewhere in this file) is unchanged and still in place.
 

@@ -35,7 +35,7 @@ Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff co
 _Avoid_: dynamic tariff, agile octopus
 
 **Octopus Go**:
-Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices the remaining consumption at the effective unit rate actually paid per kWh on the billing period's real elapsed days wholly under the current agreement (so it reflects how much is used in the cheap window), falling back to the time-weighted average of today's published windows when no such day exists yet.
+Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices every remaining half-hour of the Billing Period individually: the rate of the agreement covering that half-hour (so a tariff change inside the period is priced from its start), times the usual usage at that time of day taken from the real elapsed days wholly under the current agreement, spread evenly across the day when no such day exists yet. Beyond the published rates a half-hour takes the rate at the same local clock time on the latest fully published day.
 _Avoid_: time-of-use tariff (too generic), off-peak tariff
 
 **Standing Charge**:
@@ -121,7 +121,7 @@ Cost computed directly from real consumption × the real rates actually charged 
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period (for **Octopus Go**, future price is the effective rate paid per kWh rather than an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
+A projection of total cost for the current billing period (for **Octopus Go**, each remaining half-hour is priced individually rather than from an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:

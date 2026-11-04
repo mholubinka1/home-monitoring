@@ -453,3 +453,73 @@ def test_go_usage_pattern_ignores_days_on_the_previous_tariff(
     assert row.projected_total_cost == pytest.approx(
         Decimal("6.44") + Decimal(31) * Decimal("2.04"), abs=Decimal("0.01")
     )
+
+
+@responses.activate
+def test_go_pattern_beyond_published_rates_follows_the_local_clock_across_a_clock_change(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Only 25 October (the 25-hour clock-change day) is published. Its cheap
+    # window is 00:30-05:30 local, i.e. 6 elapsed hours (23:30Z-05:30Z), and
+    # 26-27 October must repeat it by local clock time: 10 cheap half-hours,
+    # not the 12 an elapsed-hours mapping would give.
+    _mock_billing_period("2026-10-25", "2026-10-28")
+    clock_change_day_start = datetime(2026, 10, 24, 23, 0, tzinfo=UTC)
+    windows = [
+        (clock_change_day_start, datetime(2026, 10, 24, 23, 30), PEAK_RATE),
+        (datetime(2026, 10, 24, 23, 30), datetime(2026, 10, 25, 5, 30), OFF_PEAK_RATE),
+        (datetime(2026, 10, 25, 5, 30), datetime(2026, 10, 26, 0, 0), PEAK_RATE),
+    ]
+    with mariadb_client.session_write_scope() as s:
+        s.add(
+            model.agreement(
+                id="E20220101000000",
+                energy="E",
+                product_code=GO_PRODUCT_CODE,
+                tariff_code=GO_TARIFF_CODE,
+                valid_from=datetime(2022, 1, 1),
+                valid_to=None,
+            )
+        )
+        s.add(
+            model.product_rate(
+                id=f"{GO_PRODUCT_CODE}_{REGION}_202201010000",
+                product_code=GO_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+                valid_to=clock_change_day_start,
+                unit_rate=Decimal("20.00"),
+                standing_charge=STANDING_CHARGE,
+            )
+        )
+        for valid_from, valid_to, unit_rate in windows:
+            s.add(
+                model.product_rate(
+                    id=f"{GO_PRODUCT_CODE}_{REGION}_{valid_from:%Y%m%d%H%M}",
+                    product_code=GO_PRODUCT_CODE,
+                    region=REGION,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    unit_rate=unit_rate,
+                    standing_charge=STANDING_CHARGE,
+                )
+            )
+        _seed_complete_day(s, date(2026, 10, 24), "0.1")
+
+    retriever = CostForecastRetriever(
+        _source(mariadb_client, [_make_electricity_meter(tariff_code=GO_TARIFF_CODE)])
+    )
+    retriever.refresh(as_of=clock_change_day_start)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # actual: 24 October, 4.8 kWh @ 20p + 50p standing = £1.46.
+    assert row.actual_cost_to_date == Decimal("1.46")
+    # 25 October (published, 50 slots of 0.096 kWh, 12 of them cheap):
+    # 120.96p. 26 and 27 October (48 slots of 0.1 kWh, 10 cheap): 124p each.
+    # Three remaining days of 50p standing charge.
+    remaining_pence = Decimal("120.96") + 2 * Decimal(124) + 3 * STANDING_CHARGE
+    assert row.projected_total_cost == pytest.approx(
+        Decimal("1.46") + remaining_pence / 100, abs=Decimal("0.01")
+    )

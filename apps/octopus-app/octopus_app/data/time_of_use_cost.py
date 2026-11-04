@@ -1,6 +1,6 @@
 import logging.config
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
 from typing import Protocol
@@ -9,8 +9,11 @@ from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data.model import DailyCostSummary, Energy
 from octopus_app.data.octopus.model import Agreement, Rate
-from octopus_app.data.rate_segments import (RateSegment, day_segments,
-                                            segments_fully_cover_day)
+from octopus_app.data.rate_segments import (
+    RateSegment,
+    day_segments,
+    segments_fully_cover_day,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -69,16 +72,19 @@ class _SlotRates:
         self._agreement_for_slot = agreement_for_slot
         self._as_of_day = local_day.to_local_date(as_of)
         self._published: dict[tuple[str, date], list[RateSegment]] = {}
-        self._patterns: dict[str, tuple[datetime, list[RateSegment]]] = {}
+        self._patterns: dict[str, tuple[date, list[RateSegment]]] = {}
 
     def unit_rate(self, slot_start: datetime, day: date) -> Decimal:
         product_code = self._agreement_for_slot(slot_start).product_code
         rate = self._rate_at(self._segments(product_code, day), slot_start)
         if rate is not None:
             return rate
-        pattern_start, pattern_segments = self._pattern(product_code)
-        offset = slot_start - local_day.start_of_local_day(day)
-        rate = self._rate_at(pattern_segments, pattern_start + offset, clamp=True)
+        pattern_day, pattern_segments = self._pattern(product_code)
+        local_zone = local_day.get_local_timezone()
+        same_clock_time = datetime.combine(
+            pattern_day, slot_start.astimezone(local_zone).time(), tzinfo=local_zone
+        ).astimezone(UTC)
+        rate = self._rate_at(pattern_segments, same_clock_time)
         if rate is None:
             raise RuntimeError(
                 f"No product_rate found for {product_code} covering {slot_start} "
@@ -98,12 +104,12 @@ class _SlotRates:
             )
         return self._published[key]
 
-    def _pattern(self, product_code: str) -> tuple[datetime, list[RateSegment]]:
+    def _pattern(self, product_code: str) -> tuple[date, list[RateSegment]]:
         if product_code not in self._patterns:
             self._patterns[product_code] = self._latest_full_day(product_code)
         return self._patterns[product_code]
 
-    def _latest_full_day(self, product_code: str) -> tuple[datetime, list[RateSegment]]:
+    def _latest_full_day(self, product_code: str) -> tuple[date, list[RateSegment]]:
         first = self._as_of_day + timedelta(days=PUBLISHED_RATE_HORIZON_DAYS)
         for days_back in range(PUBLISHED_RATE_HORIZON_DAYS + PATTERN_LOOKBACK_DAYS + 1):
             day = first - timedelta(days=days_back)
@@ -111,23 +117,17 @@ class _SlotRates:
             day_end = local_day.start_of_local_day(day + timedelta(days=1))
             segments = self._segments(product_code, day)
             if segments_fully_cover_day(segments, day_start, day_end):
-                return day_start, segments
+                return day, segments
         raise RuntimeError(
             f"No fully published day found for {product_code} -- cannot "
             "project remaining billing period cost."
         )
 
     @staticmethod
-    def _rate_at(
-        segments: list[RateSegment], instant: datetime, clamp: bool = False
-    ) -> Decimal | None:
+    def _rate_at(segments: list[RateSegment], instant: datetime) -> Decimal | None:
         for start, end, rate in segments:
             if start <= instant < end:
                 return rate.unit_rate
-        # A 25-hour clock-change day maps its last hour past a 24-hour
-        # pattern day; that hour takes the pattern day's final rate.
-        if clamp and segments and instant >= segments[-1][1]:
-            return segments[-1][2].unit_rate
         return None
 
 

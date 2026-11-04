@@ -2,7 +2,7 @@ import logging.config
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass, fields
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
 from typing import TYPE_CHECKING, Any
@@ -166,9 +166,12 @@ class _DailyAccumulator:
 
 
 def _starts_at_local_midday(period_from: datetime, day: date) -> bool:
+    # Wall-clock 12:00, which exists on every day including both clock-change
+    # days (an elapsed 12 hours after midnight does not).
     if period_from.tzinfo is None:
         period_from = period_from.replace(tzinfo=UTC)
-    return period_from == local_day.start_of_local_day(day) + timedelta(hours=12)
+    local = period_from.astimezone(local_day.get_local_timezone())
+    return local.date() == day and local.time() == time(12, 0)
 
 
 def _energy_scoped_id(energy_char: str, dt: datetime) -> str:

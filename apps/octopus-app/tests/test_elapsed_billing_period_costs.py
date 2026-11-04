@@ -389,3 +389,27 @@ def test_a_day_s_standing_charge_is_the_one_in_force_at_local_midday(
 
     # 4.8 kWh @ 10p = 48p, plus the midday 40p standing charge.
     assert result.day_cost_gbp == Decimal("0.88")
+
+
+def test_the_midday_standing_charge_is_read_at_twelve_o_clock_on_the_clock_change_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # 29 March 2026 is the 23-hour spring-forward day. The charge changes at
+    # 12:30 local (11:30 UTC), so wall-clock 12:00 is still the earlier 40p;
+    # twelve elapsed hours after midnight (13:00 local) would wrongly give 60p.
+    day = date(2026, 3, 29)
+    midnight = _local_midnight(day)
+    charge_change = datetime(2026, 3, 29, 11, 30, tzinfo=UTC)
+    with mariadb_client.session_write_scope() as s:
+        _seed_agreement(s, datetime(2022, 1, 1, tzinfo=UTC))
+        _seed_rate(s, datetime(2022, 1, 1, tzinfo=UTC), charge_change, "10.00", "40.00")
+        _seed_rate(s, charge_change, None, "10.00", "60.00")
+        for slot in range(46):
+            _seed_consumption(s, midnight + timedelta(minutes=30 * slot), "0.1")
+
+    [result] = mariadb_client.read_elapsed_billing_period_costs(
+        midnight, _local_midnight(day + timedelta(days=1)), REGION, Energy.electricity
+    )
+
+    # 4.6 kWh @ 10p = 46p, plus the 40p charge at 12:00 local.
+    assert result.day_cost_gbp == Decimal("0.86")

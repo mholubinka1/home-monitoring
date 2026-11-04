@@ -12,7 +12,7 @@
 
 ### What to build
 
-Recognise a tariff code containing `-GO-` as the `go` Tariff Type and, for it, project the remaining Billing Period at the effective unit rate paid per kWh on real elapsed days, falling back to the time-weighted average of today's published windows when no real day exists. Add the **Octopus Go** glossary term. Keep the projection method within the repo's pylint limits.
+(The effective-rate projection described here was superseded by the slot-by-slot projection in the last slice.) Recognise a tariff code containing `-GO-` as the `go` Tariff Type and, for it, project the remaining Billing Period at the effective unit rate paid per kWh on real elapsed days, falling back to the time-weighted average of today's published windows when no real day exists. Add the **Octopus Go** glossary term. Keep the projection method within the repo's pylint limits.
 
 ### Acceptance criteria
 
