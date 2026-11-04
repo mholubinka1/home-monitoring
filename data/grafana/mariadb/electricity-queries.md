@@ -301,7 +301,7 @@ ORDER BY FIELD(DAYNAME(d), 'Monday','Tuesday','Wednesday','Thursday','Friday','S
 
 **No panel title** — cleared intentionally (see the "remove a panel title" note in project history); identifiable only by its field override renaming `window_size` → "Cheapest Time Window", and by the heading below. Represented in `dashboard.json` as an explicit `"title": ""` rather than an omitted key, so the blank title round-trips reliably through Grafana's export/import rather than depending on unspecified default behaviour for a missing field.
 
-Follows the account's tariff, not Agile specifically: the `slots` CTE generates every half-hour for the next 5 days, `slot_products` gives each the product of the agreement covering it (by `valid_from`/`valid_to`; in a gap between agreements or past the last one, the latest agreement that had begun by then, since a contract is expected to renew; a future-dated tariff change is priced from its start) and each then takes whichever `product_rate` row of that product covers it, so a tariff publishing multi-hour windows (Octopus Go: a cheap 00:30–05:30 local-time window, one hour earlier in UTC during BST, and a peak rate for the rest of the day) is expanded to the same half-hourly series as Agile rates, keeping the `ROWS BETWEEN` window averages correct. `agile_forecast` fills a slot only where the product covering it is an Agile one; on any other tariff the `3days`/`5days` columns can only reach as far as rates are published. 4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so on Agile the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". Assumes no gaps in the half-hourly series (actual or forecast) — a missing slot shifts a window's average incorrectly. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
+Follows the account's tariff, not Agile specifically: the `slots` CTE generates every half-hour for the next 5 days, `slot_products` gives each the product of the agreement covering it (by `valid_from`/`valid_to`; in a gap between agreements or past the last one, the latest agreement that had begun by then, since a contract is expected to renew; a future-dated tariff change is priced from its start) and each then takes whichever `product_rate` row of that product covers it, so a tariff publishing multi-hour windows (Octopus Go: a cheap 00:30–05:30 local-time window, one hour earlier in UTC during BST, and a peak rate for the rest of the day) is expanded to the same half-hourly series as Agile rates, keeping the `ROWS BETWEEN` window averages correct. `agile_forecast` fills a slot only where the product covering it is an Agile one; on any other tariff the `3days`/`5days` columns can only reach as far as rates are published. 4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so on Agile the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". A window is only offered when every one of its half-hours has a rate (the window functions check both the count and that the span is unbroken), so a series that stops at the last published rate never reports a partial block as a full one. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
 
 ```sql
 WITH RECURSIVE slots AS (
@@ -357,10 +357,18 @@ rates AS (
 windows AS (
   SELECT
     time AS window_start,
-    AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS avg_1h,
-    AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 3 FOLLOWING) AS avg_2h,
-    AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING) AS avg_3h,
-    AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 7 FOLLOWING) AS avg_4h
+    CASE WHEN COUNT(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) = 2
+          AND MAX(time) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) = time + INTERVAL 30 MINUTE
+         THEN AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) END AS avg_1h,
+    CASE WHEN COUNT(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 3 FOLLOWING) = 4
+          AND MAX(time) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 3 FOLLOWING) = time + INTERVAL 90 MINUTE
+         THEN AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 3 FOLLOWING) END AS avg_2h,
+    CASE WHEN COUNT(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING) = 6
+          AND MAX(time) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING) = time + INTERVAL 150 MINUTE
+         THEN AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING) END AS avg_3h,
+    CASE WHEN COUNT(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 7 FOLLOWING) = 8
+          AND MAX(time) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 7 FOLLOWING) = time + INTERVAL 210 MINUTE
+         THEN AVG(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND 7 FOLLOWING) END AS avg_4h
   FROM rates
 )
 SELECT
@@ -368,17 +376,17 @@ SELECT
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 1 DAY
+   ) FROM windows WHERE avg_1h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `24hrs`,
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 3 DAY
+   ) FROM windows WHERE avg_1h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `3days`,
   (SELECT CONCAT(
      CASE WHEN avg_1h < 0 THEN '🔵' WHEN avg_1h < 10 THEN '🟢' WHEN avg_1h < 20 THEN '🟡' WHEN avg_1h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_1h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 5 DAY
+   ) FROM windows WHERE avg_1h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 1 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_1h ASC LIMIT 1) AS `5days`
 
 UNION ALL
@@ -388,17 +396,17 @@ SELECT
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 1 DAY
+   ) FROM windows WHERE avg_2h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_2h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 3 DAY
+   ) FROM windows WHERE avg_2h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_2h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_2h < 0 THEN '🔵' WHEN avg_2h < 10 THEN '🟢' WHEN avg_2h < 20 THEN '🟡' WHEN avg_2h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_2h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 5 DAY
+   ) FROM windows WHERE avg_2h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 2 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_2h ASC LIMIT 1)
 
 UNION ALL
@@ -408,17 +416,17 @@ SELECT
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 1 DAY
+   ) FROM windows WHERE avg_3h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_3h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 3 DAY
+   ) FROM windows WHERE avg_3h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_3h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_3h < 0 THEN '🔵' WHEN avg_3h < 10 THEN '🟢' WHEN avg_3h < 20 THEN '🟡' WHEN avg_3h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_3h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 5 DAY
+   ) FROM windows WHERE avg_3h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 3 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_3h ASC LIMIT 1)
 
 UNION ALL
@@ -428,17 +436,17 @@ SELECT
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 1 DAY
+   ) FROM windows WHERE avg_4h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 1 DAY
    ORDER BY avg_4h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 3 DAY
+   ) FROM windows WHERE avg_4h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 3 DAY
    ORDER BY avg_4h ASC LIMIT 1),
   (SELECT CONCAT(
      CASE WHEN avg_4h < 0 THEN '🔵' WHEN avg_4h < 10 THEN '🟢' WHEN avg_4h < 20 THEN '🟡' WHEN avg_4h <= 25 THEN '🟠' ELSE '🔴' END,
      ' ', DATE_FORMAT(CONVERT_TZ(window_start, 'UTC', '${timezone}'), '%a %H:%i'), ' · ', ROUND(avg_4h, 2), 'p'
-   ) FROM windows WHERE window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 5 DAY
+   ) FROM windows WHERE avg_4h IS NOT NULL AND window_start >= NOW() AND window_start + INTERVAL 4 HOUR <= NOW() + INTERVAL 5 DAY
    ORDER BY avg_4h ASC LIMIT 1)
 
 ORDER BY FIELD(window_size, '1h', '2h', '3h', '4h');

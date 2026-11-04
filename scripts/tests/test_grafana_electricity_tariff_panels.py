@@ -103,3 +103,22 @@ def test_cheapest_window_prices_each_slot_by_the_agreement_covering_it() -> None
     assert "sp.time < COALESCE(pr2.valid_to" in sql
     assert f"sp.product_code {AGILE_PRODUCT_PATTERN}" in sql
     assert "current_agreement" not in sql
+
+
+def test_the_current_tariff_panel_selects_the_text_field_it_shows() -> None:
+    panel = next(p for p in _dashboard()["panels"] if p["id"] == CURRENT_TARIFF_ID)
+
+    # An empty selector shows numeric fields only, which would hide the name.
+    assert panel["options"]["reduceOptions"]["fields"] == "/^tariff$/"
+
+
+def test_cheapest_window_only_offers_blocks_whose_every_half_hour_has_a_rate() -> None:
+    sql = _sql(CHEAPEST_WINDOW_ID)
+
+    for slots, name in ((2, "avg_1h"), (4, "avg_2h"), (6, "avg_3h"), (8, "avg_4h")):
+        assert (
+            f"COUNT(rate) OVER (ORDER BY time ROWS BETWEEN CURRENT ROW AND {slots - 1} FOLLOWING) = {slots}"
+            in sql
+        )
+        assert f"time + INTERVAL {(slots - 1) * 30} MINUTE" in sql
+        assert sql.count(f"FROM windows WHERE {name} IS NOT NULL") == 3
