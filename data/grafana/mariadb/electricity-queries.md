@@ -69,6 +69,24 @@ instead of the `valid_from`/`valid_to` range-predicate join. This doesn't apply 
 
 ---
 
+## Current Tariff
+
+### Current Tariff — stat, id 22
+
+Full-width banner at the top of the dashboard naming the account's current electricity tariff by its product display name (for example "Octopus Go"), falling back to the tariff code when the product is not in the catalogue. Reads the agreement in force now. Shows "no current agreement" when none matches. Every other panel sits below it.
+
+```sql
+SELECT COALESCE(p.display_name, a.tariff_code) AS tariff
+FROM agreement a
+LEFT JOIN product p ON p.product_code = a.product_code
+WHERE a.energy = 'E'
+  AND a.valid_from <= NOW()
+  AND NOW() < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+ORDER BY a.valid_from DESC LIMIT 1;
+```
+
+---
+
 ## Row 1 — Cost Summary
 
 ### Yesterday's Cost (Electricity) — timeseries, id 1
@@ -167,18 +185,25 @@ ORDER BY c.period_from;
 
 ### Agile Prices: Today/Tomorrow (Actual + Forecast) — timeseries, id 3
 
-No panel-level time override — relies entirely on the dashboard's shared `now-3h` to `now+120h` range for its lookahead (see the dashboard-level time range note at the top of this file). Threshold *lines* (not fill) at the exact price bands used elsewhere on this dashboard: light-blue below 0p, green from 0p, yellow from 10p, semi-dark-orange from 20p, red from 25p — same bands as the Cheapest Time Window table's colour coding below (and reused as-is by the Daily Average Unit Price panel further down), applied here as reference lines rather than cell colours. Unit is `p/kwh` (see the field-formatting convention note above). The forecast branch excludes any half-hour `product_rate` already has a row for, preferring the actual rate over `agile_forecast` wherever both exist — same precedence rule as the Cheapest Time Window table below, applied here so the panel never plots two conflicting points for one timestamp (e.g. during an `agile_forecast` refresh outage, where stale forecast rows would otherwise linger alongside newly-published actual rates for the same slots). The dashboard-level `+24h` and `0h` annotation markers (see the annotations note at the top of this file) are filtered to render only on this panel.
+No panel-level time override — relies entirely on the dashboard's shared `now-3h` to `now+120h` range for its lookahead (see the dashboard-level time range note at the top of this file). Threshold *lines* (not fill) at the exact price bands used elsewhere on this dashboard: light-blue below 0p, green from 0p, yellow from 10p, semi-dark-orange from 20p, red from 25p — same bands as the Cheapest Time Window table's colour coding below (and reused as-is by the Daily Average Unit Price panel further down), applied here as reference lines rather than cell colours. Unit is `p/kwh` (see the field-formatting convention note above). The panel is always about Agile, whatever tariff the account is on: the `agile_product` CTE takes the account's current product when it is an Agile one, otherwise the newest Agile product in the `product` catalogue (its comparison rates are synced for every available product). Not being on Agile therefore leaves the panel unchanged. The forecast branch excludes any half-hour `product_rate` already has a row for, preferring the actual rate over `agile_forecast` wherever both exist — same precedence rule as the Cheapest Time Window table below, applied here so the panel never plots two conflicting points for one timestamp (e.g. during an `agile_forecast` refresh outage, where stale forecast rows would otherwise linger alongside newly-published actual rates for the same slots). The dashboard-level `+24h` and `0h` annotation markers (see the annotations note at the top of this file) are filtered to render only on this panel.
 
 ```sql
+WITH agile_product AS (
+  SELECT COALESCE(
+    (SELECT a.product_code FROM agreement a
+     WHERE a.energy = 'E'
+       AND a.product_code REGEXP '^AGILE-[0-9]'
+       AND a.valid_from <= NOW()
+       AND NOW() < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+     ORDER BY a.valid_from DESC LIMIT 1),
+    (SELECT p.product_code FROM product p
+     WHERE p.product_code REGEXP '^AGILE-[0-9]'
+     ORDER BY p.product_code DESC LIMIT 1)
+  ) AS product_code
+)
 SELECT valid_from AS time, unit_rate AS rate_pence_per_kwh, 'actual' AS series
 FROM product_rate
-WHERE product_code = (
-  SELECT product_code FROM agreement
-  WHERE energy = 'E'
-    AND valid_from <= NOW()
-    AND NOW() < COALESCE(valid_to, '9999-12-31 23:59:59')
-  ORDER BY valid_from DESC LIMIT 1
-)
+WHERE product_code = (SELECT product_code FROM agile_product)
 AND region = '${region}'
 AND valid_from >= CURDATE()
 
@@ -190,13 +215,7 @@ WHERE f.region = '${region}'
   AND f.period_from >= NOW()
   AND NOT EXISTS (
     SELECT 1 FROM product_rate pr2
-    WHERE pr2.product_code = (
-      SELECT product_code FROM agreement
-      WHERE energy = 'E'
-        AND valid_from <= NOW()
-        AND NOW() < COALESCE(valid_to, '9999-12-31 23:59:59')
-      ORDER BY valid_from DESC LIMIT 1
-    )
+    WHERE pr2.product_code = (SELECT product_code FROM agile_product)
     AND pr2.region = '${region}'
     AND pr2.valid_from = f.period_from
   )
@@ -277,28 +296,41 @@ ORDER BY FIELD(DAYNAME(d), 'Monday','Tuesday','Wednesday','Thursday','Friday','S
 
 **No panel title** — cleared intentionally (see the "remove a panel title" note in project history); identifiable only by its field override renaming `window_size` → "Cheapest Time Window", and by the heading below. Represented in `dashboard.json` as an explicit `"title": ""` rather than an omitted key, so the blank title round-trips reliably through Grafana's export/import rather than depending on unspecified default behaviour for a missing field.
 
-4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". Assumes no gaps in the half-hourly series (actual or forecast) — a missing slot shifts a window's average incorrectly. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
+Follows the account's current tariff, not Agile specifically: the `slots` CTE generates every half-hour for the next 5 days and each takes whichever `product_rate` row covers it, so a tariff publishing multi-hour windows (Octopus Go: a cheap 00:30–05:30 UTC window and a peak rate for the rest of the day) is expanded to the same half-hourly series as Agile rates, keeping the `ROWS BETWEEN` window averages correct. `agile_forecast` fills the later horizons only while the current product is an Agile one; on any other tariff the `3days`/`5days` columns can only reach as far as rates are published. 4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". Assumes no gaps in the half-hourly series (actual or forecast) — a missing slot shifts a window's average incorrectly. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
 
 ```sql
-WITH current_agreement AS (
+WITH RECURSIVE current_agreement AS (
   SELECT product_code FROM agreement
   WHERE energy = 'E'
     AND valid_from <= NOW()
     AND NOW() < COALESCE(valid_to, '9999-12-31 23:59:59')
   ORDER BY valid_from DESC LIMIT 1
 ),
+slots AS (
+  SELECT TIMESTAMP(DATE(NOW()), SEC_TO_TIME(CEIL(TIME_TO_SEC(TIME(NOW())) / 1800) * 1800)) AS time
+  UNION ALL
+  SELECT time + INTERVAL 30 MINUTE FROM slots
+  WHERE time + INTERVAL 30 MINUTE < NOW() + INTERVAL 5 DAY
+),
 actual_rates AS (
-  SELECT valid_from AS time, unit_rate AS rate
-  FROM product_rate
-  WHERE product_code = (SELECT product_code FROM current_agreement)
-    AND region = '${region}'
-    AND valid_from >= NOW()
-    AND valid_from < NOW() + INTERVAL 5 DAY
+  SELECT s.time, pr.unit_rate AS rate
+  FROM slots s
+  JOIN product_rate pr
+    ON pr.id = (
+      SELECT pr2.id FROM product_rate pr2
+      WHERE pr2.product_code = (SELECT product_code FROM current_agreement)
+        AND pr2.region = '${region}'
+        AND pr2.valid_from <= s.time
+      ORDER BY pr2.valid_from DESC
+      LIMIT 1
+    )
+  WHERE s.time < COALESCE(pr.valid_to, '9999-12-31 23:59:59')
 ),
 forecast_rates AS (
   SELECT f.period_from AS time, f.forecast_unit_rate AS rate
   FROM agile_forecast f
-  WHERE f.region = '${region}'
+  WHERE (SELECT product_code FROM current_agreement) REGEXP '^AGILE-[0-9]'
+    AND f.region = '${region}'
     AND f.period_from >= NOW()
     AND f.period_from < NOW() + INTERVAL 5 DAY
     AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = f.period_from)
