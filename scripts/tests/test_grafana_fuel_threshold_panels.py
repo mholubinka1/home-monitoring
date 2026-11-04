@@ -54,6 +54,10 @@ def test_query_b_is_named_effective_charging_limit() -> None:
     properties = {p["id"]: p["value"] for p in query_b["properties"]}
 
     assert properties["displayName"] == "Effective charging limit"
+    assert properties["custom.lineStyle"]["fill"] == "dash"
+    assert properties["color"]["fixedColor"] == "semi-dark-purple"
+    assert properties["custom.hideFrom"]["legend"] is True
+    assert properties["custom.hideFrom"]["tooltip"] is True
 
 
 def test_fuel_gauge_and_chart_read_the_fuel_price_threshold() -> None:
@@ -86,6 +90,10 @@ def test_existing_panels_remain_and_gauge_is_required() -> None:
 
     assert set(EXISTING_TITLES) <= titles
     assert "gauge" in {r["id"] for r in dashboard["__requires"]}
+    assert "region" in {v["name"] for v in dashboard["templating"]["list"]}
+    marker_annotations = [a for a in dashboard["annotations"]["list"] if "filter" in a]
+    assert marker_annotations
+    assert all(a["filter"]["ids"] == [AGILE_PRICES_ID] for a in marker_annotations)
 
 
 def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> None:
@@ -95,4 +103,4 @@ def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> Non
 
     assert "### Fuel price (latest) — gauge, id 20" in reference
     assert "### Fuel price vs effective charging limit — timeseries, id 21" in reference
-    assert "Effective charging limit" in reference
+    assert "Query B draws the **Effective charging limit**" in reference

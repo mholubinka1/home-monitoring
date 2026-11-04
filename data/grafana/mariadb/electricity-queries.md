@@ -584,7 +584,7 @@ These panels come from the hypervolt-agile charging scheduler's own dashboard. T
 
 ### Fuel price (latest) — gauge, id 20
 
-The most recent recorded fuel price in pence per litre (`p/L`), as a gauge from 0 to 100 with threshold colours green, yellow from 140, orange from 155 and red from 170.
+The most recent recorded fuel price in pence per litre (`p/L`), as a gauge from 100 to 200 with threshold colours green, yellow from 140, orange from 155 and red from 170.
 
 ```sql
 SELECT fuel_price_pence_per_litre AS fuel_price_p_per_litre
@@ -595,7 +595,7 @@ ORDER BY recorded_at DESC LIMIT 1;
 
 ### Fuel price vs effective charging limit — timeseries, id 21
 
-Every recorded fuel price and effective charging limit over the dashboard's time range, so the two can be compared as they move. The fuel price is in `p/L` and the limit is in pence per kWh including VAT.
+Every recorded fuel price and effective charging limit over the last 30 days (`timeFrom: 30d`, not the dashboard's shared range), so the two can be compared as they move. The fuel price is in `p/L` and the limit is in pence per kWh including VAT.
 
 ```sql
 SELECT recorded_at AS time,
