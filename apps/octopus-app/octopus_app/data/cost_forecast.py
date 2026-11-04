@@ -727,24 +727,35 @@ class CostForecastRetriever:
         if covering is not None:
             return covering
         meter = next(m for m in self._client.meters if m.energy == energy)
-        begun = [a for a in meter.agreements if a.valid_from <= slot]
+        begun = [
+            a
+            for a in meter.agreements
+            if a.valid_from <= slot and not a.has_zero_or_negative_width
+        ]
         if begun:
             return max(begun, key=lambda a: a.valid_from)
         return min(meter.agreements, key=lambda a: a.valid_from)
 
     def _usage_since(self, energy: Energy, agreement: Agreement) -> datetime:
         # Where the current tariff began: a contract renewed onto the same
-        # product carries on the same tariff, so its usage history counts.
+        # product (even after a gap) carries on the same tariff, so its usage
+        # history counts, back to the last agreement on a different product.
         meter = next(m for m in self._client.meters if m.energy == energy)
+        earlier_agreements = sorted(
+            (
+                a
+                for a in meter.agreements
+                if a.valid_from < agreement.valid_from
+                and not a.has_zero_or_negative_width
+            ),
+            key=lambda a: a.valid_from,
+            reverse=True,
+        )
         since = agreement.valid_from
-        for earlier in sorted(
-            meter.agreements, key=lambda a: a.valid_from, reverse=True
-        ):
-            if (
-                earlier.product_code == agreement.product_code
-                and earlier.valid_to == since
-            ):
-                since = earlier.valid_from
+        for earlier in earlier_agreements:
+            if earlier.product_code != agreement.product_code:
+                break
+            since = earlier.valid_from
         return since
 
     def _project_agile_variable_cost(

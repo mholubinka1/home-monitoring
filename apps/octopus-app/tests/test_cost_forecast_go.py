@@ -625,6 +625,12 @@ def test_a_gap_between_agreements_is_priced_by_the_one_that_had_begun(
         valid_from=datetime(2022, 1, 1, tzinfo=UTC),
         valid_to=go_ends,
     )
+    # A cancelled switch to Agile that never ran sits at the start of the gap.
+    never_ran = Agreement(
+        tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+        valid_from=go_ends,
+        valid_to=go_ends,
+    )
     with mariadb_client.session_write_scope() as s:
         _seed_go_agreement_row(s, go_ends)
         _seed_flat_rate(s, GO_PRODUCT_CODE, "20.00")
@@ -638,7 +644,7 @@ def test_a_gap_between_agreements_is_priced_by_the_one_that_had_begun(
                 _make_electricity_meter(
                     tariff_code=f"E-1R-{FIXED_PRODUCT_CODE}-{REGION}",
                     valid_from=fixed_begins,
-                    prior_agreements=[go_agreement],
+                    prior_agreements=[go_agreement, never_ran],
                 )
             ],
         )
@@ -692,3 +698,69 @@ def test_a_later_agreement_with_no_published_rates_fails_the_refresh_without_a_r
 
     with mariadb_client.session_read_scope() as session:
         assert session.query(model.cost_forecast).count() == 0
+
+
+@responses.activate
+def test_go_usage_pattern_carries_across_a_gap_between_agreements_on_the_same_product(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    first_term_ends = datetime(2026, 7, 6, 23, 0, tzinfo=UTC)
+    second_term_begins = datetime(2026, 7, 7, 0, 0, tzinfo=UTC)
+    first_term = Agreement(
+        tariff_code=GO_TARIFF_CODE,
+        valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+        valid_to=first_term_ends,
+    )
+    with mariadb_client.session_write_scope() as s:
+        _seed_go_agreement_row(s, first_term_ends)
+        _seed_july_6_go_rates(s)
+        # 7 July's rate covering local midday (for the day's standing charge).
+        s.add(
+            model.product_rate(
+                id=f"{GO_PRODUCT_CODE}_{REGION}_202607070030",
+                product_code=GO_PRODUCT_CODE,
+                region=REGION,
+                valid_from=datetime(2026, 7, 7, 0, 30, tzinfo=UTC),
+                valid_to=datetime(2026, 7, 7, 12, 30, tzinfo=UTC),
+                unit_rate=PEAK_RATE,
+                standing_charge=STANDING_CHARGE,
+            )
+        )
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        for row in s.query(model.consumption).all():
+            if (
+                datetime(2026, 7, 6, 0, 30)
+                <= row.period_from
+                < datetime(2026, 7, 6, 5, 30)
+            ):
+                row.est_kwh = row.raw_value = Decimal("0.4")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=GO_TARIFF_CODE,
+                    valid_from=second_term_begins,
+                    prior_agreements=[first_term],
+                )
+            ],
+        )
+    )
+    # 13:00 local on 7 July, an hour after the second term began: no whole
+    # day under it yet, but 6 July under the first term (same product) shapes
+    # the usage -- 7.8 kWh a day, 154p of unit charges on the repeated 6 July
+    # pattern, so only the 66p of peak slots from 13:00 are left today.
+    retriever.refresh(as_of=datetime(2026, 7, 7, 12, 0, tzinfo=UTC))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    remaining_days = 30
+    expected_remaining = (
+        Decimal(66) + remaining_days * Decimal(154) + remaining_days * STANDING_CHARGE
+    ) / 100
+    assert row.projected_total_cost == pytest.approx(
+        row.actual_cost_to_date + expected_remaining, abs=Decimal("0.02")
+    )

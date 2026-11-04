@@ -35,7 +35,7 @@ Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff co
 _Avoid_: dynamic tariff, agile octopus
 
 **Octopus Go**:
-Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices every remaining half-hour of the Billing Period individually: the rate of the agreement covering that half-hour (so a tariff change inside the period is priced from its start), times the usual usage at that time of day taken from the real elapsed days wholly under the current agreement, spread evenly across the day when no such day exists yet. Beyond the published rates a half-hour takes the rate at the same local clock time on the latest fully published day.
+Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices every remaining half-hour of the Billing Period individually: the rate of the agreement covering that half-hour (so a tariff change inside the period is priced from its start), times the usual usage at that time of day taken from the real elapsed days wholly on the current tariff (a renewal onto the same product, even after a gap, continues it), spread evenly across the day when no such day exists yet. Beyond the published rates a half-hour takes the rate at the same local clock time on the latest fully published day.
 _Avoid_: time-of-use tariff (too generic), off-peak tariff
 
 **Standing Charge**:
