@@ -121,7 +121,7 @@ Cost computed directly from real consumption × the real rates actually charged 
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period (for **Octopus Go**, each remaining half-hour is priced individually rather than from an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
+A projection of total cost for the current billing period (for **Octopus Go**, each remaining half-hour is priced individually rather than from an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and for an Agile tariff, future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:
@@ -157,7 +157,7 @@ The pair of Grafana panels (monthly total consumption over the trailing 12 month
 _Avoid_: annual comparison, YoY chart
 
 **Cheap Window**:
-The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within today's or tomorrow's Agile half-hourly rates, computed live at query time rather than stored.
+The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates of the tariff covering each half-hour (the Agile forecast fills unpublished Agile half-hours), computed live at query time rather than stored.
 _Avoid_: best time to use power, price dip
 
 **Day Completeness**:

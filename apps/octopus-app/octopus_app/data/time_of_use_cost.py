@@ -81,6 +81,10 @@ class _SlotRates:
             return rate
         pattern_day, pattern_segments = self._pattern(product_code)
         local_zone = local_day.get_local_timezone()
+        # By wall-clock time, so a clock-change day on either side lines up
+        # (a repeated autumn hour maps to its first occurrence, and a local
+        # time skipped in spring resolves an hour later: only a rate change
+        # inside those hours could differ, and Go has none).
         same_clock_time = datetime.combine(
             pattern_day, slot_start.astimezone(local_zone).time(), tzinfo=local_zone
         ).astimezone(UTC)
@@ -180,10 +184,11 @@ class TimeOfUseProjection:
         total_weight = sum(weights, Decimal(0))
         return sum(
             (
-                _remaining_fraction(slot, self._as_of)
+                fraction
                 * (daily_kwh * weight / total_weight)
                 * self._slot_rates.unit_rate(slot, day)
                 for slot, weight in zip(slots, weights)
+                if (fraction := _remaining_fraction(slot, self._as_of)) > 0
             ),
             Decimal(0),
         )

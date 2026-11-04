@@ -133,23 +133,15 @@ class PricingRetriever:
                     exc_info=True,
                 )
 
-    def _ended_electricity_agreements(self, as_of: datetime) -> dict[str, Agreement]:
-        # Per product, the agreement that ended last.
-        ended: dict[str, Agreement] = {}
-        for meter, agreement in self._meter_agreement_pairs():
-            if (
-                meter.energy != Energy.electricity
-                or agreement.has_zero_or_negative_width
-                or agreement.valid_to is None
-                or agreement.valid_to > as_of
-            ):
-                continue
-            latest = ended.get(agreement.product_code)
-            if latest is None or (
-                latest.valid_to is not None and agreement.valid_to > latest.valid_to
-            ):
-                ended[agreement.product_code] = agreement
-        return ended
+    def _ended_electricity_agreements(self, as_of: datetime) -> list[Agreement]:
+        return [
+            agreement
+            for meter, agreement in self._meter_agreement_pairs()
+            if meter.energy == Energy.electricity
+            and not agreement.has_zero_or_negative_width
+            and agreement.valid_to is not None
+            and agreement.valid_to <= as_of
+        ]
 
     def _sync_comparison_rates(
         self, products: list[Product], window_start: datetime, as_of: datetime
@@ -158,14 +150,20 @@ class PricingRetriever:
         # its end, so its product is fetched here from that end onward (with
         # the agreement's own tariff code, leaving the rates already stored
         # for the agreement untouched) or its prices -- e.g. Agile after a
-        # move to Go -- would stop being published to the dashboard. A
-        # zero-width agreement still counts as owned: it never ran, but its
-        # product must not be fetched under an arbitrarily-picked billing
-        # method.
-        ended = self._ended_electricity_agreements(as_of)
+        # move to Go -- would stop being published to the dashboard. A product
+        # that any other agreement still uses, or a zero-width one (which
+        # never ran), stays owned: it must not be fetched under an
+        # arbitrarily-picked billing method.
+        ended_agreements = self._ended_electricity_agreements(as_of)
+        ended_ids = {id(agreement) for agreement in ended_agreements}
         own_product_codes = {
-            agreement.product_code for _, agreement in self._meter_agreement_pairs()
-        } - ended.keys()
+            agreement.product_code
+            for _, agreement in self._meter_agreement_pairs()
+            if id(agreement) not in ended_ids
+        }
+        ended: dict[str, Agreement] = {}
+        for agreement in sorted(ended_agreements, key=lambda a: a.valid_to or as_of):
+            ended[agreement.product_code] = agreement
         for product in products:
             if product.direction == Direction.EXPORT:
                 continue
