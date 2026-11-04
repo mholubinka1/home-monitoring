@@ -203,6 +203,17 @@ WHERE f.region = '${region}'
 ORDER BY time;
 ```
 
+Query B draws the **Effective charging limit** from the hypervolt-agile scheduler as a flat dashed purple line across the whole time range, hidden from the legend and tooltip. It reads the most recent `fuel_price_threshold` row twice, once stamped at the start of the range and once at the end. Until hypervolt-agile has recorded a row the line is simply absent.
+
+```sql
+SELECT $__timeFrom() AS time, effective_limit_incl_vat AS effective_limit_p_per_kwh
+FROM (SELECT effective_limit_incl_vat FROM fuel_price_threshold ORDER BY recorded_at DESC LIMIT 1) latest
+UNION ALL
+SELECT $__timeTo(), effective_limit_incl_vat
+FROM (SELECT effective_limit_incl_vat FROM fuel_price_threshold ORDER BY recorded_at DESC LIMIT 1) latest
+ORDER BY time;
+```
+
 ### Load Shift Efficiency — timeseries, id 5
 
 Replaces the two-line "p/kWh Efficiency vs Day's Avg Rate" panel from earlier drafts with a single derived percentage: how much cheaper your actual weighted-average rate is than the day's flat average rate, i.e. how well consumption is shifted toward cheap half-hours. Positive = shifted toward cheap hours; negative = shifted toward expensive ones. `timeFrom: 45d`. Thresholds: dark-red below 0%, green from 0%, blue from 20%. `min: -50`, `max: 51`.
@@ -565,6 +576,34 @@ SELECT
 FROM target t
 LEFT JOIN weekly c ON c.yearweek = t.comparator_yearweek
 ORDER BY t.yearweek;
+```
+
+## Row 6 — Fuel Threshold
+
+These panels come from the hypervolt-agile charging scheduler's own dashboard. The `fuel_price_threshold` table is created and written by hypervolt-agile in the same `home_monitoring` database, not by this repo's apps, so until it has recorded a row the gauge reads "no price recorded" and the chart shows no data.
+
+### Fuel price (latest) — gauge, id 20
+
+The most recent recorded fuel price in pence per litre (`p/L`), as a gauge from 100 to 200 with threshold colours green, yellow from 140, orange from 155 and red from 170.
+
+```sql
+SELECT fuel_price_pence_per_litre AS fuel_price_p_per_litre
+FROM fuel_price_threshold
+WHERE fuel_price_pence_per_litre IS NOT NULL
+ORDER BY recorded_at DESC LIMIT 1;
+```
+
+### Fuel price vs effective charging limit — timeseries, id 21
+
+Every recorded fuel price and effective charging limit over the last 30 days (`timeFrom: 30d`, not the dashboard's shared range), so the two can be compared as they move. The fuel price is in `p/L` and the limit is in pence per kWh including VAT.
+
+```sql
+SELECT recorded_at AS time,
+  fuel_price_pence_per_litre AS fuel_price_p_per_litre,
+  effective_limit_incl_vat AS effective_limit_p_per_kwh
+FROM fuel_price_threshold
+WHERE $__timeFilter(recorded_at)
+ORDER BY recorded_at;
 ```
 
 ---
