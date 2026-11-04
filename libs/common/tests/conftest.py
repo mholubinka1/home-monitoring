@@ -31,12 +31,19 @@ def _reset_local_timezone() -> Iterator[None]:
 # libs/common has no dependency on scripts/.
 _ROOT_PASSWORD = "test-root-password"
 
+# CI runs on the Pi itself, which answers Docker slowly under memory pressure: 10 s
+# timed out `docker info` and `docker logs` there and errored the real-database tests.
+_DOCKER_COMMAND_TIMEOUT_SECONDS = 60
+
 
 def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
     result = subprocess.run(
-        ["docker", "info"], capture_output=True, timeout=10, check=False
+        ["docker", "info"],
+        capture_output=True,
+        timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
+        check=False,
     )
     return result.returncode == 0
 
@@ -66,7 +73,12 @@ def _run_sql(
     if database is not None:
         argv.append(database)
     return subprocess.run(
-        argv, input=sql_text, capture_output=True, text=True, timeout=30, check=False
+        argv,
+        input=sql_text,
+        capture_output=True,
+        text=True,
+        timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
+        check=False,
     )
 
 
@@ -81,7 +93,7 @@ def _wait_for_real_server(container_name: str, timeout_seconds: float = 60) -> N
             ["docker", "logs", container_name],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
             check=False,
         )
         ready_count = logs.stdout.count("ready for connections") + logs.stderr.count(
@@ -98,7 +110,7 @@ def _published_port(container_name: str) -> int:
         ["docker", "port", container_name, "3306/tcp"],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
         check=True,
     )
     # e.g. "0.0.0.0:54321\n" -- take the last line in case IPv4 and IPv6 both print.
@@ -180,7 +192,7 @@ def mariadb_container() -> Iterator[MariaDBContainer]:
             ],
             capture_output=True,
             check=True,
-            timeout=30,
+            timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
         )
         _wait_for_real_server(name)
         yield MariaDBContainer(name=name, port=_published_port(name))

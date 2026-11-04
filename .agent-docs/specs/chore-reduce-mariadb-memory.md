@@ -169,6 +169,17 @@ though none is expected, since the InnoDB buffer pool is unchanged.
        not `0B` (proof the kernel enforces it).
      - Both apps' next scheduled jobs record successful job runs.
 - **No schema, data or API changes.** The app → database contract is unchanged.
+- **Test-fixture Docker timeouts raised to 60 s (added mid-build, 2026-11-04).** CI runs
+  on a self-hosted runner that is the Pi itself, and the real-MariaDB test fixtures
+  give each Docker CLI call 10 s (`docker info`, `docker logs`, `docker port`) or 30 s
+  (`docker run`, `docker exec`). On the memory-starved Pi those calls intermittently
+  time out: PR #739's CI failed twice on a `docker info` and then a `docker logs`
+  timeout. The errored test is not collected as run, which drops total coverage to
+  95.82% against the 96% gate. Every Docker CLI timeout in the `libs/common` and
+  `scripts` test fixtures becomes one named constant of 60 s per fixtures file.
+  This is a CI-stability fix for the same root cause and is in this PR by the user's
+  decision, even though it is unrelated to the config change itself. No new test: a
+  timeout value has no behaviour a test could assert without testing the constant.
 - **No ADR.** Every decision is a configuration value that's trivial to reverse.
   The "why" lives in comments beside each setting.
 

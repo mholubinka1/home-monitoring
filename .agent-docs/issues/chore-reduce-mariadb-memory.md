@@ -54,6 +54,7 @@ reboot. Then copy `memory.cnf` to the host config directory, edit the live
 - [x] The database service sets `mem_limit` to 512m and `memswap_limit` equal to it (no swap)
 - [x] Deployment-layout tests assert each of the above and fail if any is removed
 - [x] The existing `logging.cnf` tests and all other deployment-layout tests still pass
+- [ ] Every Docker CLI timeout in the `libs/common` and `scripts` test fixtures is one named 60 s constant, so a loaded Pi no longer errors the real-database tests and drops coverage below the gate
 - [ ] Live: the Pi's memory cgroup is enabled: `cgroup_enable=memory` added to `/boot/firmware/cmdline.txt`, the Pi rebooted, no `No memory limit support` warning in `docker info`, and every container healthy again
 - [ ] Live: the apps run an image that includes the reconnect fix (#735) before the database is recreated
 - [ ] Live: `memory.cnf` is on the host and the live `pi-desktop` compose file matches the reference copy in the repo
