@@ -232,3 +232,75 @@ def test_go_projection_ignores_elapsed_days_priced_on_the_previous_tariff(
     assert row.projected_total_cost == pytest.approx(
         Decimal("4.36") + Decimal("43.80"), abs=Decimal("0.01")
     )
+
+
+@responses.activate
+def test_go_projection_excludes_the_day_the_account_switched_part_way_through(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-02", "2026-08-02")
+    switch_to_go = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    agile_agreement = Agreement(
+        tariff_code=f"E-1R-{AGILE_PRODUCT_CODE}-{REGION}",
+        valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+        valid_to=switch_to_go,
+    )
+    with mariadb_client.session_write_scope() as s:
+        for agreement_id, product_code, valid_from, valid_to in (
+            ("E20220101000000", AGILE_PRODUCT_CODE, datetime(2022, 1, 1), switch_to_go),
+            ("E20260702110000", GO_PRODUCT_CODE, switch_to_go, None),
+        ):
+            s.add(
+                model.agreement(
+                    id=agreement_id,
+                    energy="E",
+                    product_code=product_code,
+                    tariff_code=f"E-1R-{product_code}-{REGION}",
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                )
+            )
+        for product_code, unit_rate in (
+            (AGILE_PRODUCT_CODE, "50.00"),
+            (GO_PRODUCT_CODE, "20.00"),
+        ):
+            s.add(
+                model.product_rate(
+                    id=f"{product_code}_{REGION}_202601010000",
+                    product_code=product_code,
+                    region=REGION,
+                    valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+                    valid_to=None,
+                    unit_rate=Decimal(unit_rate),
+                    standing_charge=STANDING_CHARGE,
+                )
+            )
+        # 4.8 kWh on each of 1 and 2 July; the switch to Go falls inside 2 July.
+        _seed_complete_day(s, date(2026, 7, 1), "0.1")
+        _seed_complete_day(s, date(2026, 7, 2), "0.1")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=GO_TARIFF_CODE,
+                    valid_from=switch_to_go,
+                    prior_agreements=[agile_agreement],
+                )
+            ],
+        )
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 3)))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # 1 July: 4.8 kWh @ 50p + 50p standing = 290p. 2 July switched at 11:00
+    # UTC: 24 half-hours @ 50p and 24 @ 20p (0.1 kWh each) + 50p = 218p.
+    assert row.actual_cost_to_date == Decimal("5.08")
+    # No whole day is under Go yet, so the 20p average of the published rate
+    # is used (the half-Agile day would blend it to ~35p): 30 * (96p + 50p).
+    assert row.projected_total_cost == pytest.approx(
+        Decimal("5.08") + Decimal("43.80"), abs=Decimal("0.01")
+    )

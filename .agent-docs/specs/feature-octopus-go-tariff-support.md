@@ -22,7 +22,7 @@ Recognise Go as a Tariff Type, project its cost from the rate the household actu
 
 - New Tariff Type `go`, detected from a tariff code containing `-GO-`. Defined in the domain glossary as **Octopus Go**.
 - Go publishes two multi-hour product-rate windows per day (cheap 00:30–05:30 local time, peak otherwise). The existing generic rate fetch and storage already handle this, so no pricing-pipeline or schema change is needed.
-- Cost Forecast: for `go`, the remaining consumption is priced at the effective unit rate paid per kWh over real (not gap-filled, not today) elapsed days, i.e. (day cost less standing charge) / kWh. With no such day, the time-weighted average of today's published windows is used. Other tariff types are unchanged.
+- Cost Forecast: for `go`, the remaining consumption is priced at the effective unit rate paid per kWh over real (not gap-filled, not today) elapsed days wholly under the current agreement (a switch part-way through a day excludes that day), i.e. (day cost less standing charge) / kWh. With no such day, the time-weighted average of today's published windows is used. Other tariff types are unchanged.
 - Agile Prices panel (id 3): the actual series and the forecast de-duplication read the Agile product (the account's own if it is Agile, otherwise the newest Agile product in the catalogue, whose comparison rates are already synced), not the account's current product.
 - Cheapest Time Window panel (id 13): rates are expanded to half-hourly slots from whichever product-rate row covers each slot, for the account's current product. The Agile forecast is used only when the current product is Agile.
 - Panels joining consumption to product rates by "latest rate at or before the slot" already work on Go and are unchanged.

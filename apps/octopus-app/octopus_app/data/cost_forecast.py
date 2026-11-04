@@ -772,8 +772,12 @@ class CostForecastRetriever:
         # Only days under the current agreement count: days priced on a
         # previous tariff (e.g. Agile before a switch to Go) would blend the
         # old tariff's costs into the effective rate.
-        agreement_start = local_day.to_local_date(agreement.valid_from)
-        agreement_days = [d for d in real_days if d.date >= agreement_start]
+        # A switch part-way through a day leaves that day half on the old
+        # tariff, so counting starts from the first day wholly on this one.
+        first_whole_day = local_day.to_local_date(agreement.valid_from)
+        if agreement.valid_from != local_day.start_of_local_day(first_whole_day):
+            first_whole_day += timedelta(days=1)
+        agreement_days = [d for d in real_days if d.date >= first_whole_day]
         real_kwh = sum((d.total_kwh for d in agreement_days), Decimal(0))
         if real_kwh > 0:
             variable_pence = sum(
@@ -787,6 +791,10 @@ class CostForecastRetriever:
         # No real consumption yet (first day of a billing period): fall back
         # to the time-weighted average of today's published windows (never
         # empty: the current rate, already looked up, overlaps today).
+        logger.info(
+            f"No whole elapsed day under {agreement.tariff_code} yet -- "
+            "projecting at the time-weighted average of today's published rates."
+        )
         today = local_day.to_local_date(as_of)
         day_start = local_day.start_of_local_day(today)
         day_end = local_day.start_of_local_day(today + timedelta(days=1))
