@@ -86,7 +86,6 @@ class HeatingModelRecord:  # pylint: disable=too-many-instance-attributes
     unusable_reason: str | None
     days_used: int | None
     threshold: float | None
-    upper_threshold: float | None
     slope: float | None
     weight: float | None
     r_squared: float | None

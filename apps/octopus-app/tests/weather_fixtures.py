@@ -44,7 +44,6 @@ def heating_model_record(
         unusable_reason=None if usable else "the fit explains too little",
         days_used=300,
         threshold=13.0,
-        upper_threshold=14.0,
         slope=3.76,
         weight=0.8,
         r_squared=0.69,

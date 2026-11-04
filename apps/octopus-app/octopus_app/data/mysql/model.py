@@ -154,7 +154,6 @@ class heating_model(SQLBase):
     unusable_reason = Column(String(100))
     days_used = Column(Integer)
     threshold = Column(_DOUBLE)
-    upper_threshold = Column(_DOUBLE)
     slope = Column(_DOUBLE)
     weight = Column(_DOUBLE)
     r_squared = Column(_DOUBLE)

@@ -9,7 +9,6 @@ from logging import Logger, getLogger
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data import (
-    heating_bootstrap,
     heating_forecast,
     heating_model,
     thermostat_check,
@@ -68,7 +67,6 @@ class _Params:
     threshold: float
     slope: float
     weight: float
-    upper: float
 
     @classmethod
     def from_record(cls, record: HeatingModelRecord) -> "_Params":
@@ -76,7 +74,6 @@ class _Params:
             threshold=_require(record.threshold, "threshold"),
             slope=_require(record.slope, "slope"),
             weight=_require(record.weight, "weight"),
-            upper=_require(record.upper_threshold, "upper threshold"),
         )
 
 
@@ -122,7 +119,6 @@ def _unusable_record(
         unusable_reason=fit.reason.value if fit.reason else None,
         days_used=quality.days_used if quality else None,
         threshold=fit.threshold,
-        upper_threshold=None,
         slope=fit.slope,
         weight=fit.weight,
         r_squared=quality.r_squared if quality else None,
@@ -182,17 +178,6 @@ def _thermostat(
     )
 
 
-def _upper(
-    inputs: _RunInputs, derived: _Derived, window: _Window, fit: HeatingFit
-) -> float:
-    threshold = _require(fit.threshold, "threshold")
-    excess = {day: inputs.gas[day] - derived.baseload[day].kwh for day in window.days}
-    upper = heating_bootstrap.bootstrap_threshold_upper(
-        [(derived.effective[d], excess[d]) for d in window.days]
-    )
-    return threshold if upper is None else max(upper, threshold)
-
-
 def _usable_record(
     mariadb: MariaDBClient, inputs: _RunInputs, fit: HeatingFit, now: datetime
 ) -> HeatingModelRecord:
@@ -202,7 +187,6 @@ def _usable_record(
     if quality is None or inputs.as_of not in derived.baseload:
         raise ValueError("a usable fit has no quality or baseload")
     window = _fit_window(inputs, derived)
-    upper = _upper(inputs, derived, window, fit)
     check = _thermostat(mariadb, inputs, derived, window)
     label = thermostat_check.label_model(threshold, check)
     return HeatingModelRecord(
@@ -213,7 +197,6 @@ def _usable_record(
         unusable_reason=None,
         days_used=quality.days_used,
         threshold=threshold,
-        upper_threshold=upper,
         slope=fit.slope,
         weight=fit.weight,
         r_squared=quality.r_squared,

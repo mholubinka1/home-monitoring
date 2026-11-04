@@ -39,8 +39,6 @@ NOW = datetime(2026, 10, 13, 4, 0, tzinfo=UTC)  # the 04:00 daily job, next morn
 # These tests are about what the job does with a fit, not the fit's precision
 # (test_heating_model_fit.py covers that on the full grid). A coarse grid is a
 # subset of the full one with 16x fewer candidates, which matters on the CI runner.
-# The threshold bootstrap keeps the full grid: on a coarse one its uncertainty
-# band collapses onto the fitted threshold.
 COARSE_THRESHOLDS = tuple(t for t in THRESHOLDS if round(t * 2) == t * 2)
 COARSE_WEIGHTS = (0.0, 0.2, 0.4, 0.6, WEIGHT_MAX)
 
@@ -52,11 +50,7 @@ HISTORY_DAYS = FIT_WINDOW_DAYS + BASELOAD_WINDOW_DAYS
 
 
 @pytest.fixture(autouse=True)
-def _coarse_fit_grid(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    if request.node.get_closest_marker("full_fit_grid"):
-        return
+def _coarse_fit_grid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         heating_model,
         "fit_heating_model",
@@ -269,7 +263,6 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_projects(
             unusable_reason=None,
             days_used=333,
             threshold=PLANTED_THRESHOLD,
-            upper_threshold=PLANTED_THRESHOLD + 1,
             slope=PLANTED_SLOPE,
             weight=WEIGHT_MAX,
             r_squared=0.9,
@@ -422,10 +415,7 @@ def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
     assert mariadb_client.read_heating_forecast_days() == []
 
 
-# The upper threshold sits a few 0.1 C steps above the fitted one, so this needs
-# the fit on the full grid.
-@pytest.mark.full_fit_grid
-def test_the_upper_threshold_is_on_the_grid_is_on_the_grid(
+def test_a_usable_fit_is_stored_without_an_upper_threshold(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -434,10 +424,9 @@ def test_the_upper_threshold_is_on_the_grid_is_on_the_grid(
 
     stored = mariadb_client.read_latest_heating_model()
     assert stored is not None
-    threshold, upper = stored.model.threshold, stored.model.upper_threshold
-    assert upper in THRESHOLDS
-    assert upper >= threshold
-    assert upper > threshold
+    assert stored.model.usable
+    assert not hasattr(stored.model, "upper_threshold")
+    assert "upper_threshold" not in model.heating_model.__table__.columns
 
 
 def test_without_heating_status_history_the_model_is_only_estimated(
