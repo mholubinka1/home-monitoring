@@ -769,12 +769,17 @@ class CostForecastRetriever:
         # the rate the remaining consumption will pay. The effective rate
         # actually paid per kWh over the real elapsed days reflects when this
         # household really uses power (e.g. mostly in the cheap window).
-        real_kwh = sum((d.total_kwh for d in real_days), Decimal(0))
+        # Only days under the current agreement count: days priced on a
+        # previous tariff (e.g. Agile before a switch to Go) would blend the
+        # old tariff's costs into the effective rate.
+        agreement_start = local_day.to_local_date(agreement.valid_from)
+        agreement_days = [d for d in real_days if d.date >= agreement_start]
+        real_kwh = sum((d.total_kwh for d in agreement_days), Decimal(0))
         if real_kwh > 0:
             variable_pence = sum(
                 (
                     d.day_cost_gbp * 100 - current_rate.standing_charge
-                    for d in real_days
+                    for d in agreement_days
                 ),
                 Decimal(0),
             )
