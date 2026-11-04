@@ -58,7 +58,7 @@ class _Derived:
 
 @dataclass(frozen=True)
 class _Params:
-    """The numbers a day is judged and projected with."""
+    """The numbers a day is projected with."""
 
     threshold: float
     slope: float
@@ -219,7 +219,7 @@ def _forecast_rows(
     ]
 
 
-def _judge_and_write(
+def _write_forecast(
     mariadb: MariaDBClient,
     inputs: _RunInputs,
     stored: StoredHeatingModel,
@@ -285,9 +285,9 @@ class HeatingModelJob:
         refitted = self._refit(inputs, now) if refit else None
         stored = refitted or usable
         if stored is None:
-            logger.info("Heating model refresh: no usable model yet; nothing judged.")
+            logger.info("Heating model refresh: no usable model yet; nothing written.")
             return
-        if _judge_and_write(self._mariadb, inputs, stored, now):
+        if _write_forecast(self._mariadb, inputs, stored, now):
             logger.info(
                 f"Heating model refresh: {'refitted' if refitted else 'kept'} "
                 f"model {stored.id}."
@@ -302,7 +302,7 @@ class HeatingModelJob:
             logger.info(
                 f"Heating model refresh: unusable fit "
                 f"({fit.reason.value if fit.reason else 'no reason'}); "
-                "re-judging with the previous usable model, if any."
+                "keeping the previous usable model, if any."
             )
             return None
         record = _usable_record(inputs, fit, now)

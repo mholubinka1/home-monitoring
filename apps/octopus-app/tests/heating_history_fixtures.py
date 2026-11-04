@@ -116,13 +116,6 @@ def seed_forecast_means(client: MariaDBClient, means: dict[date, float]) -> None
         )
 
 
-def effective_of(means: dict[date, float], day: date) -> float:
-    """The planted effective temperature of a day."""
-    return (1 - PLANTED_WEIGHT) * means[day] + PLANTED_WEIGHT * means[
-        day - timedelta(days=1)
-    ]
-
-
 def seed_gas_day(client: MariaDBClient, day: date, kwh: float) -> None:
     """One complete gas day."""
     client.write_consumption_summary(
