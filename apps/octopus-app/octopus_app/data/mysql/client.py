@@ -152,7 +152,23 @@ class _DailyAccumulator:
     total_kwh: Decimal = Decimal(0)
     variable_cost: Decimal = Decimal(0)
     standing_charge: Decimal = Decimal(0)
+    midday_standing_charge: Decimal | None = None
     row_count: int = 0
+
+    @property
+    def day_standing_charge(self) -> Decimal:
+        # The charge in force at local midday, the convention already used for
+        # estimated gap days; the largest charge seen only when no half-hour
+        # starts at midday (a short day, or a day with a gap there).
+        if self.midday_standing_charge is not None:
+            return self.midday_standing_charge
+        return self.standing_charge
+
+
+def _starts_at_local_midday(period_from: datetime, day: date) -> bool:
+    if period_from.tzinfo is None:
+        period_from = period_from.replace(tzinfo=UTC)
+    return period_from == local_day.start_of_local_day(day) + timedelta(hours=12)
 
 
 def _energy_scoped_id(energy_char: str, dt: datetime) -> str:
@@ -554,6 +570,8 @@ class MariaDBClient(MariaDBClientBase):
             bucket.total_kwh += row.est_kwh
             bucket.variable_cost += row.est_kwh * row.unit_rate
             bucket.standing_charge = max(bucket.standing_charge, row.standing_charge)
+            if _starts_at_local_midday(row.period_from, day):
+                bucket.midday_standing_charge = row.standing_charge
             bucket.row_count += 1
 
         # Octopus's consumption API has a real settlement lag -- a day can
@@ -570,7 +588,7 @@ class MariaDBClient(MariaDBClientBase):
             DailyCostSummary(
                 date=day,
                 total_kwh=bucket.total_kwh,
-                day_cost_gbp=(bucket.variable_cost + bucket.standing_charge) / 100,
+                day_cost_gbp=(bucket.variable_cost + bucket.day_standing_charge) / 100,
             )
             for day, bucket in daily.items()
             if day == today
