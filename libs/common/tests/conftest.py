@@ -126,6 +126,23 @@ class MariaDBContainer:
         result = _run_sql(self.name, sql_text, database=database)
         assert result.returncode == 0, result.stderr
 
+    def kill_other_connections(self) -> int:
+        """Drop every other client connection to the server, as a server restart
+        does to a pooled client. Returns how many were dropped."""
+        listed = _run_sql(
+            self.name,
+            "SELECT id FROM information_schema.processlist "
+            "WHERE user = 'root' AND id <> CONNECTION_ID();",
+        )
+        assert listed.returncode == 0, listed.stderr
+        # Tab-separated, one header row then one connection id per line.
+        connection_ids = listed.stdout.split()[1:]
+        if connection_ids:
+            self.run_sql(
+                "".join(f"KILL {connection_id};" for connection_id in connection_ids)
+            )
+        return len(connection_ids)
+
     def table_names(self, database: str) -> set[str]:
         result = _run_sql(self.name, "SHOW TABLES;", database=database)
         assert result.returncode == 0, result.stderr
