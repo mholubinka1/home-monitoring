@@ -72,6 +72,8 @@ def test_fuel_gauge_and_chart_read_the_fuel_price_threshold() -> None:
     steps = defaults["thresholds"]["steps"]
     assert [s["value"] for s in steps] == [None, 140, 155, 170]
     assert chart["timeFrom"] == "30d"
+    for override in chart["fieldConfig"]["overrides"]:
+        assert override["matcher"]["options"] in chart["targets"][0]["rawSql"]
     for panel in (gauge, chart):
         assert all(FUEL_TABLE in t["rawSql"] for t in panel["targets"])
 
