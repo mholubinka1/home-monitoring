@@ -17,6 +17,15 @@ services:
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
       MARIADB_DATABASE: home_monitoring
+      # glibc otherwise keeps up to 8 arenas per core (~64 MB each) and never returns
+      # freed memory to the OS; on the Pi that grew mariadbd to ~1.2 GB over 22 MB of data.
+      MALLOC_ARENA_MAX: 2
+    # Safety net above the ~300 MB steady state: past this the kernel kills mariadbd and
+    # restart: unless-stopped brings it back in seconds. memswap_limit == mem_limit means
+    # no swap. Both are silently ignored unless the Pi boots with cgroup_enable=memory
+    # (see .agent-docs/specs/chore-reduce-mariadb-memory.md).
+    mem_limit: 512m
+    memswap_limit: 512m
     ports:
       - "3306:3306"
     volumes:
@@ -26,6 +35,8 @@ services:
       - /mnt/media/pi-media/containers/home-monitoring-db/log:/var/log/mysql
       - /mnt/media/pi-media/containers/home-monitoring-db/config/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - /mnt/media/pi-media/containers/home-monitoring-db/config/logging.cnf:/etc/mysql/conf.d/logging.cnf:ro
+      # memory.cnf (from data/mariadb/) shrinks the buffers this server never uses.
+      - /mnt/media/pi-media/containers/home-monitoring-db/config/memory.cnf:/etc/mysql/conf.d/memory.cnf:ro
     healthcheck:
       test: "mariadb --user=$${MARIADB_USER} --password=$${MARIADB_PASSWORD} --execute \"SHOW DATABASES;\""
       start_interval: 10s

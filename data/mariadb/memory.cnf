@@ -1,0 +1,22 @@
+# MariaDB memory config
+#
+# Copy this file to containers/home-monitoring-db/config/memory.cnf on the host
+# (/mnt/media/pi-media/containers/home-monitoring-db/config/memory.cnf).
+# deployments/mariadb/docker-compose.yml mounts it read-only into
+# /etc/mysql/conf.d/.
+#
+# The database holds ~22 MB of data on a 3.8 GB Raspberry Pi shared with other
+# services, so the server defaults are sized far too large. These two buffers are
+# effectively unused here, and each defaults to 128 MB:
+#   aria_pagecache_buffer_size  Aria tables, used only for internal temp tables
+#   key_buffer_size             MyISAM index cache; no table here is MyISAM
+#
+# innodb_buffer_pool_size is deliberately left at its 128 MB default: it is mostly
+# empty today but is the cache the dashboards' queries actually use.
+#
+# Needs a container restart to take effect. See
+# .agent-docs/specs/chore-reduce-mariadb-memory.md for the full rationale.
+
+[mysqld]
+aria_pagecache_buffer_size = 8M
+key_buffer_size = 8M
