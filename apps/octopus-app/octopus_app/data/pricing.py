@@ -73,7 +73,7 @@ class PricingRetriever:
         products = self._client.fetch_products()
         self._sync_product_catalogue(products)
         self._sync_own_product_rates(window_start)
-        self._sync_comparison_rates(products, window_start)
+        self._sync_comparison_rates(products, window_start, as_of)
 
     def _sync_agreements(self) -> None:
         for meter in self._client.meters:
@@ -134,10 +134,20 @@ class PricingRetriever:
                 )
 
     def _sync_comparison_rates(
-        self, products: list[Product], window_start: datetime
+        self, products: list[Product], window_start: datetime, as_of: datetime
     ) -> None:
+        # An agreement that has ended no longer syncs rates past its end, so
+        # its product must be fetched here or its prices (e.g. Agile after a
+        # move to Go) would stop being published to the dashboard. A
+        # zero-width agreement still counts as owned: it never ran, but its
+        # product must not be fetched under an arbitrarily-picked billing
+        # method.
         own_product_codes = {
-            agreement.product_code for _, agreement in self._meter_agreement_pairs()
+            agreement.product_code
+            for _, agreement in self._meter_agreement_pairs()
+            if agreement.has_zero_or_negative_width
+            or agreement.valid_to is None
+            or agreement.valid_to > as_of
         }
         for product in products:
             if product.direction == Direction.EXPORT:
