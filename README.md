@@ -235,6 +235,37 @@ the outage length.
   matters again if the data volume is wiped and MariaDB re-initializes from empty.
 - **A brand new table/column** added by a future feature: no manual DDL step needed —
   the schema sync creates it automatically on the next `octopus-app` startup.
+- **A table or column a feature stops using**: the schema sync never drops anything, so
+  the old table or column stays until you drop it by hand. The 2026-11-04 heating-model
+  clean-up ([ADR-0030](.agent-docs/adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md))
+  needs this, in two phases, because `watchtower` may replace the image before you run any SQL.
+  Run each statement with
+  `docker exec -e MYSQL_PWD home-monitoring-db mariadb -u<user> home_monitoring -e "<SQL>"`.
+  1. **First, before the new image runs** (safe with the old and the new code): the new code
+     no longer writes `label`, so let the column be empty.
+
+     ```sql
+     ALTER TABLE heating_model MODIFY label VARCHAR(20) NULL;
+     ```
+
+  2. **Then pull and restart `octopus-app`**, check its log shows a clean start, and **last**
+     drop what is no longer used:
+
+     ```sql
+     DROP TABLE IF EXISTS heating_day_verdict, heating_week;
+     ALTER TABLE heating_model
+       DROP COLUMN IF EXISTS upper_threshold,
+       DROP COLUMN IF EXISTS noise_base,
+       DROP COLUMN IF EXISTS noise_per_degree_day,
+       DROP COLUMN IF EXISTS noise_floor,
+       DROP COLUMN IF EXISTS thermostat_threshold,
+       DROP COLUMN IF EXISTS heating_days,
+       DROP COLUMN IF EXISTS non_heating_days,
+       DROP COLUMN IF EXISTS label;
+     ```
+
+  If the new image starts before step 1, the weekly refit fails to save its model (`label`
+  is still required) and the job logs the error. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history
 
