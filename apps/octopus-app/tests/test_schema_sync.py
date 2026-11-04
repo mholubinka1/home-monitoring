@@ -127,9 +127,7 @@ def test_a_database_with_every_table_already_present_is_left_untouched(
 
 HEATING_TABLES = {
     "heating_model",
-    "heating_day_verdict",
     "heating_forecast_day",
-    "heating_week",
 }
 
 
@@ -157,11 +155,13 @@ def test_a_database_that_already_has_the_heating_tables_keeps_their_rows(
     SQLBase.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
     session.add(
-        model.heating_week(
-            week_start=date(2026, 10, 5),
+        model.heating_forecast_day(
+            date=date(2026, 10, 5),
             model_id=1,
-            complete_days=7,
-            status="shown",
+            forecast_mean=6.0,
+            effective_temp=6.5,
+            expected_gas=40.0,
+            computed_at=datetime(2026, 10, 4, 5, 0),
         )
     )
     session.commit()
@@ -169,7 +169,9 @@ def test_a_database_that_already_has_the_heating_tables_keeps_their_rows(
     _sync_against(engine, monkeypatch)
 
     read_session = sessionmaker(bind=engine)()
-    assert read_session.query(model.heating_week).one().week_start == date(2026, 10, 5)
+    assert read_session.query(model.heating_forecast_day).one().date == date(
+        2026, 10, 5
+    )
 
 
 def test_a_column_missing_from_an_existing_table_is_added_on_startup(

@@ -509,7 +509,7 @@ def test_only_an_unusable_heating_model_falls_back_to_the_flat_average_for_the_w
 def test_a_newer_unusable_refit_does_not_hide_the_latest_usable_models_forecast(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # After an unusable refit the job re-judges with the previous usable
+    # After an unusable refit the job keeps the previous usable
     # model, so the forecast rows stay tied to that model, not the newest row.
     _mock_billing_period("2026-07-07", "2026-08-07")
     with mariadb_client.session_write_scope() as s:

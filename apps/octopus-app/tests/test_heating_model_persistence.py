@@ -15,7 +15,6 @@ def _record(
         unusable_reason=None if usable else "the fit explains too little",
         days_used=333,
         threshold=threshold,
-        upper_threshold=14.0,
         slope=3.76,
         weight=0.8,
         r_squared=0.69,
@@ -23,13 +22,6 @@ def _record(
         baseload_measured_days=300,
         baseload_interpolated_days=60,
         baseload_held_days=5,
-        noise_base=3.42,
-        noise_per_degree_day=1.25,
-        noise_floor=1.0,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
 
 
@@ -111,7 +103,6 @@ def test_an_unusable_fit_with_no_numbers_round_trips(
         unusable_reason="too few days",
         days_used=None,
         threshold=None,
-        upper_threshold=None,
         slope=None,
         weight=None,
         r_squared=None,
@@ -119,13 +110,6 @@ def test_an_unusable_fit_with_no_numbers_round_trips(
         baseload_measured_days=None,
         baseload_interpolated_days=None,
         baseload_held_days=None,
-        noise_base=None,
-        noise_per_degree_day=None,
-        noise_floor=None,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
     mariadb_client.write_heating_model(empty)
 

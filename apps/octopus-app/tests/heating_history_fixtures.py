@@ -13,7 +13,6 @@ from common import local_day
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql.client import (
     MariaDBClient,
-    heating_status_table,
     weather_forecast_table,
     weather_observation_table,
 )
@@ -117,13 +116,6 @@ def seed_forecast_means(client: MariaDBClient, means: dict[date, float]) -> None
         )
 
 
-def effective_of(means: dict[date, float], day: date) -> float:
-    """The planted effective temperature of a day."""
-    return (1 - PLANTED_WEIGHT) * means[day] + PLANTED_WEIGHT * means[
-        day - timedelta(days=1)
-    ]
-
-
 def seed_gas_day(client: MariaDBClient, day: date, kwh: float) -> None:
     """One complete gas day."""
     client.write_consumption_summary(
@@ -159,23 +151,3 @@ def seed_holiday(client: MariaDBClient, first_day: date, days: int, kwh: float) 
     """A stretch of away days: near-zero but non-zero gas."""
     for offset in range(days):
         seed_gas_day(client, first_day + timedelta(days=offset), kwh)
-
-
-def seed_heating_readings(
-    client: MariaDBClient, heating: dict[date, bool], per_day: int = 720
-) -> None:
-    """A full day of two-minute heating_status polls for each given day: demand
-    ('ON') all day on a heating day, none on a non-heating day."""
-    rows = [
-        {
-            "polled_at": (local_day.start_of_local_day(day) + timedelta(minutes=2 * i))
-            .astimezone(UTC)
-            .replace(tzinfo=None),
-            "state": "ON" if wanted else "OFF",
-            "boost_active": False,
-        }
-        for day, wanted in heating.items()
-        for i in range(per_day)
-    ]
-    with client.session_write_scope() as session:
-        session.execute(heating_status_table.insert(), rows)

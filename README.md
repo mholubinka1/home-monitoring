@@ -7,7 +7,7 @@ native MySQL data source.
 Cheapest-tariff comparison and cost forecasting are planned but not yet implemented —
 see `.agent-docs/specs/` for the roadmap.
 
-The learned heating model, which judges each day's gas against the weather, is
+The learned heating model, which projects the gas a day should use from the weather, is
 explained in plain language in [docs/heating-model.md](docs/heating-model.md).
 
 ## Architecture
@@ -235,6 +235,41 @@ the outage length.
   matters again if the data volume is wiped and MariaDB re-initializes from empty.
 - **A brand new table/column** added by a future feature: no manual DDL step needed —
   the schema sync creates it automatically on the next `octopus-app` startup.
+- **A table or column a feature stops using**: the schema sync never drops anything, so
+  the old table or column stays until you drop it by hand. The 2026-11-04 heating-model
+  clean-up ([ADR-0030](.agent-docs/adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md))
+  needs this, in two phases, because `watchtower` may replace the image before you run any SQL.
+  Run each statement with
+  `docker exec -e MYSQL_PWD home-monitoring-db mariadb -u<user> home_monitoring -e "<SQL>"`
+  (export `MYSQL_PWD` as the app user's password first).
+  1. **First, before the new image runs** (safe with the old and the new code): the new code
+     no longer writes `label`, so let the column be empty.
+
+     ```sql
+     ALTER TABLE heating_model MODIFY COLUMN IF EXISTS label VARCHAR(20) NULL;
+     ```
+
+  2. **Then pull and restart `octopus-app`**, check its log shows a clean start, and **last**
+     drop what is no longer used:
+
+     ```sql
+     DROP TABLE IF EXISTS heating_day_verdict, heating_week;
+     ALTER TABLE heating_model
+       DROP COLUMN IF EXISTS upper_threshold,
+       DROP COLUMN IF EXISTS noise_base,
+       DROP COLUMN IF EXISTS noise_per_degree_day,
+       DROP COLUMN IF EXISTS noise_floor,
+       DROP COLUMN IF EXISTS thermostat_threshold,
+       DROP COLUMN IF EXISTS heating_days,
+       DROP COLUMN IF EXISTS non_heating_days,
+       DROP COLUMN IF EXISTS label;
+     ```
+
+  Run step 1 before the new image is pulled. If the image starts first, nothing breaks
+  until the latest fit is 7 or more days old. From then on every daily run tries to refit
+  and fails to save the model, usable or not, because `label` is still required. The job
+  logs the error and rewrites no forecast, so the expected-gas bars run out once the last
+  forecast day has passed. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history
 

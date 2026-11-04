@@ -1,6 +1,5 @@
 import logging.config
 import math
-from collections.abc import Iterator
 from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -8,8 +7,6 @@ from logging import Logger, getLogger
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
-    JSON,
-    Boolean,
     Column,
     Date,
     DateTime,
@@ -29,14 +26,12 @@ from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
 from common.mariadb.client import MariaDBClientBase
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data.heating_weeks import WeekRow, WeekStatus
 from octopus_app.data.model import (
     Consumption,
     ConsumptionSummary,
     CostForecast,
     DailyCostSummary,
     Energy,
-    HeatingDayVerdictRecord,
     HeatingForecastRecord,
     HeatingModelRecord,
     StoredHeatingModel,
@@ -52,18 +47,16 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
-from octopus_app.data.thermostat_check import HeatingReading
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
 
 SUMMARIZATION_WINDOW_DAYS = 14
-HEATING_READ_CHUNK = 5000  # heating_status rows fetched per round trip
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# weather_observation/weather_forecast/heating_status are owned by hive-app, but
+# weather_observation/weather_forecast are owned by hive-app, but
 # live in the same shared `octopus` MariaDB schema this client already connects
 # to. They're declared here as plain Core Table objects against a SEPARATE,
 # unregistered MetaData() instance -- never as ORM classes added to
@@ -102,22 +95,6 @@ weather_forecast_table = Table(
     Column("max_temp", Float),
     Column("mean_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
-    schema="octopus",
-)
-
-heating_status_table = Table(
-    "heating_status",
-    weather_metadata,
-    Column("id", Integer, primary_key=True),
-    Column("polled_at", DateTime, nullable=False),
-    Column("current_temp", Float),
-    Column("target_temp", Float),
-    Column("mode", String(20)),
-    Column("state", String(20)),
-    Column("boost_active", Boolean),
-    Column("boost_ends_at", DateTime),
-    Column("schedule", JSON),
-    Column("working", Boolean),
     schema="octopus",
 )
 
@@ -344,34 +321,6 @@ class MariaDBClient(MariaDBClientBase):
             logger.error(f"Failed to replace {description}: {e}")
             raise MariaDBError(e) from e
 
-    def replace_heating_day_verdicts(
-        self, model_id: int, rows: list[HeatingDayVerdictRecord]
-    ) -> None:
-        self._replace_all_rows(
-            model.heating_day_verdict,
-            [
-                model.heating_day_verdict(model_id=model_id, **_values_of(row))
-                for row in rows
-            ],
-            "heating day verdicts",
-        )
-
-    def read_heating_day_verdicts(
-        self, start_date: date, end_date: date
-    ) -> list[tuple[int, HeatingDayVerdictRecord]]:
-        hv = model.heating_day_verdict
-        with self.session_read_scope() as session:
-            stored = (
-                session.query(hv)
-                .filter(hv.date >= start_date, hv.date <= end_date)
-                .order_by(hv.date)
-                .all()
-            )
-            return [
-                (row.model_id, _record_of(HeatingDayVerdictRecord, row))
-                for row in stored
-            ]
-
     def replace_heating_forecast_days(
         self, model_id: int, rows: list[HeatingForecastRecord], computed_at: datetime
     ) -> None:
@@ -397,30 +346,6 @@ class MariaDBClient(MariaDBClientBase):
             return [
                 (row.model_id, _record_of(HeatingForecastRecord, row))
                 for row in session.query(hf).order_by(hf.date).all()
-            ]
-
-    def replace_heating_weeks(self, model_id: int, rows: list[WeekRow]) -> None:
-        self._replace_all_rows(
-            model.heating_week,
-            [
-                model.heating_week(
-                    model_id=model_id,
-                    **_values_of(row) | {"status": row.status.value},
-                )
-                for row in rows
-            ],
-            "heating weeks",
-        )
-
-    def read_heating_weeks(self) -> list[tuple[int, WeekRow]]:
-        hw = model.heating_week
-        with self.session_read_scope() as session:
-            return [
-                (
-                    row.model_id,
-                    _record_of(WeekRow, row, status=WeekStatus(row.status)),
-                )
-                for row in session.query(hw).order_by(hw.week_start).all()
             ]
 
     def read_current_product_rate(
@@ -707,37 +632,6 @@ class MariaDBClient(MariaDBClientBase):
             if all(stamp in by_hour for stamp in stamps):
                 means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
         return means
-
-    def read_heating_readings(
-        self, start: datetime, end: datetime
-    ) -> Iterator[HeatingReading]:
-        """The heating_status polls with start <= polled_at < end, in no
-        particular order, streamed in chunks so a year of two-minute polls
-        (about 262,000 rows) is never held in memory at once. The session
-        stays open until the iterator is exhausted or closed."""
-        # heating_status is hive-app's table, read cross-app (see the
-        # module-level comment on weather_observation_table). The DB holds
-        # naive UTC; the half-open window arguments are tz-aware.
-        hs = heating_status_table
-        try:
-            with self.session_read_scope() as session:
-                rows = (
-                    session.query(hs.c.polled_at, hs.c.state, hs.c.boost_active)
-                    .filter(
-                        hs.c.polled_at >= start.astimezone(UTC).replace(tzinfo=None),
-                        hs.c.polled_at < end.astimezone(UTC).replace(tzinfo=None),
-                    )
-                    .yield_per(HEATING_READ_CHUNK)
-                )
-                for polled_at, state, boost_active in rows:
-                    yield HeatingReading(
-                        polled_at=polled_at.replace(tzinfo=UTC),
-                        state=state or "",
-                        boost_active=bool(boost_active),
-                    )
-        except (OperationalError, ProgrammingError) as error:
-            if not _is_missing_table_error(error):
-                raise
 
     def read_weather_forecast_mean_temps(
         self, start_date: date, end_date: date

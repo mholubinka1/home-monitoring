@@ -44,7 +44,6 @@ def heating_model_record(
         unusable_reason=None if usable else "the fit explains too little",
         days_used=300,
         threshold=13.0,
-        upper_threshold=14.0,
         slope=3.76,
         weight=0.8,
         r_squared=0.69,
@@ -52,13 +51,6 @@ def heating_model_record(
         baseload_measured_days=200,
         baseload_interpolated_days=50,
         baseload_held_days=5,
-        noise_base=3.4,
-        noise_per_degree_day=1.2,
-        noise_floor=1.0,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
 
 

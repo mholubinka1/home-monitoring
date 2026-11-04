@@ -86,7 +86,6 @@ class HeatingModelRecord:  # pylint: disable=too-many-instance-attributes
     unusable_reason: str | None
     days_used: int | None
     threshold: float | None
-    upper_threshold: float | None
     slope: float | None
     weight: float | None
     r_squared: float | None
@@ -94,39 +93,12 @@ class HeatingModelRecord:  # pylint: disable=too-many-instance-attributes
     baseload_measured_days: int | None
     baseload_interpolated_days: int | None
     baseload_held_days: int | None
-    noise_base: float | None
-    noise_per_degree_day: float | None
-    noise_floor: float | None
-    thermostat_threshold: float | None
-    heating_days: int | None
-    non_heating_days: int | None
-    label: str  # 'estimated' or 'confirmed'
 
 
 @dataclass(frozen=True)
 class StoredHeatingModel:
     id: int
     model: HeatingModelRecord
-
-
-@dataclass(frozen=True)
-class HeatingDayVerdictRecord:  # pylint: disable=too-many-instance-attributes
-    """One day's heating verdict as stored: gas against what the model expects."""
-
-    date: date
-    mean_temp: float | None
-    effective_temp: float | None
-    actual_gas: float
-    expected_gas: float
-    baseload: float
-    baseload_kind: str  # 'measured', 'interpolated' or 'held'
-    needed: bool
-    away: bool
-    expected_heating: float
-    normal_variation: float
-    possible: float
-    clear: float
-    margin: float
 
 
 @dataclass(frozen=True)

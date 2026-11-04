@@ -819,9 +819,9 @@ class CostForecastRetriever:
         return _hours_between(max(as_of, day_start), day_end)
 
     def _model_expected_gas(self) -> dict[date, Decimal]:
-        # The forecast rows are tied to the model that judged them, and the
+        # The forecast rows are tied to the model that produced them, and the
         # job keeps them on the latest USABLE model (an unusable refit
-        # re-judges with the previous one), so that is the model to read --
+        # keeps the previous one), so that is the model to read --
         # never the newest row. No usable model, or rows left over from a
         # different one, means no model figure for any day.
         stored = self._client.read_latest_usable_heating_model()
