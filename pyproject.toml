@@ -107,8 +107,10 @@ max-attributes = 8
 # from the default (20) to fit its current shape, then to 24 for the gas cost
 # forecast's read methods (#511, since #630 read_daily_consumption_summary,
 # read_latest_usable_heating_model, read_heating_forecast_days), then to
-# 25 for read_product_rates_for_local_day (ADR-0023's gap-day rate pricing).
-max-public-methods = 25
+# 25 for read_product_rates_for_local_day (ADR-0023's gap-day rate pricing),
+# then to 26 for read_half_hourly_consumption (the Octopus Go projection's
+# time-of-day usage).
+max-public-methods = 26
 
 [tool.pylint."messages control"]
 # Each disable below is a deliberate fit to this codebase's established conventions,

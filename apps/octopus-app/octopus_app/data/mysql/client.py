@@ -595,6 +595,23 @@ class MariaDBClient(MariaDBClientBase):
             or bucket.row_count == local_day.expected_half_hour_count(day)
         ]
 
+    def read_half_hourly_consumption(
+        self, energy: Energy, period_from: datetime, period_to: datetime
+    ) -> list[tuple[datetime, Decimal]]:
+        c = model.consumption
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(c.period_from, c.est_kwh)
+                .filter(
+                    c.energy == as_energy_char(energy),
+                    c.period_from >= period_from,
+                    c.period_from < period_to,
+                )
+                .all()
+            )
+        # DATETIME columns come back tz-naive; every value stored is UTC.
+        return [(row.period_from.replace(tzinfo=UTC), row.est_kwh) for row in rows]
+
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
     ) -> list[ConsumptionSummary]:
