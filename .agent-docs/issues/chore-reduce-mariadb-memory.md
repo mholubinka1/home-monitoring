@@ -48,12 +48,12 @@ reboot. Then copy `memory.cnf` to the host config directory, edit the live
 
 ### Acceptance criteria
 
-- [ ] The reference compose file sets `MALLOC_ARENA_MAX` to 2 on the database service
-- [ ] The database service mounts `memory.cnf` read-only at `/etc/mysql/conf.d/memory.cnf` from `containers/home-monitoring-db/config/`
-- [ ] `memory.cnf` sets `aria_pagecache_buffer_size` and `key_buffer_size` to 8M in `[mysqld]`, with a header comment explaining the values and the copy-to-host step
-- [ ] The database service sets `mem_limit` to 512m and `memswap_limit` equal to it (no swap)
-- [ ] Deployment-layout tests assert each of the above and fail if any is removed
-- [ ] The existing `logging.cnf` tests and all other deployment-layout tests still pass
+- [x] The reference compose file sets `MALLOC_ARENA_MAX` to 2 on the database service
+- [x] The database service mounts `memory.cnf` read-only at `/etc/mysql/conf.d/memory.cnf` from `containers/home-monitoring-db/config/`
+- [x] `memory.cnf` sets `aria_pagecache_buffer_size` and `key_buffer_size` to 8M in `[mysqld]`, with a header comment explaining the values and the copy-to-host step
+- [x] The database service sets `mem_limit` to 512m and `memswap_limit` equal to it (no swap)
+- [x] Deployment-layout tests assert each of the above and fail if any is removed
+- [x] The existing `logging.cnf` tests and all other deployment-layout tests still pass
 - [ ] Live: the Pi's memory cgroup is enabled: `cgroup_enable=memory` added to `/boot/firmware/cmdline.txt`, the Pi rebooted, no `No memory limit support` warning in `docker info`, and every container healthy again
 - [ ] Live: the apps run an image that includes the reconnect fix (#735) before the database is recreated
 - [ ] Live: `memory.cnf` is on the host and the live `pi-desktop` compose file matches the reference copy in the repo
