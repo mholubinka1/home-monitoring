@@ -49,8 +49,8 @@ Every container keeps its configuration and logs under its own directory on the 
 directory name: `octopus-app`, `hive-app` and `home-monitoring-db`. The apps use
 `/mnt/media/pi-media/containers/<name>/config/config.yml` (mounted to `/config`) and
 `/mnt/media/pi-media/containers/<name>/log/` (mounted to `/log`). The database follows
-the same layout with its own contents: `home-monitoring-db/config/` holds `init.sql` and
-`logging.cnf`, `home-monitoring-db/data/` is MariaDB's data directory and
+the same layout with its own contents: `home-monitoring-db/config/` holds `init.sql`,
+`logging.cnf` and `memory.cnf`, `home-monitoring-db/data/` is MariaDB's data directory and
 `home-monitoring-db/log/` (mounted to `/var/log/mysql`) holds its error and slow-query
 logs. Each app's template lives next to its deployment:
 `deployments/octopus-app/config.yml.template` and
@@ -186,6 +186,15 @@ the outage length.
      (mounted read-only into `/etc/mysql/conf.d/`; it enables the error and slow-query
      logs, so server errors go to `home-monitoring-db/log/error.log` and no longer
      appear in `docker logs`)
+   - the repo's `data/mariadb/memory.cnf` copied to `home-monitoring-db/config/`
+     (mounted read-only into `/etc/mysql/conf.d/`; it shrinks the unused Aria and key
+     buffers). On an existing deployment, copy it before applying the compose change,
+     or Docker creates a directory at the missing path. The compose file also caps the
+     container at 512 MB with no swap, which Docker only enforces if the Pi's kernel
+     boots with `cgroup_enable=memory` in `/boot/firmware/cmdline.txt`; without it the
+     cap is silently ignored. Check it is enforced with
+     `docker stats --no-stream home-monitoring-db`, which should show a limit of
+     `512MiB`, not `0B`
 2. **Create `config.yml`** from the app's `config.yml.template` (see Configuration above) and
    place it at the path you chose for the app's config bind mount.
 3. **Create `.env`** from `.env.template` in the repository root — the directory you'll

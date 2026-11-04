@@ -22,6 +22,10 @@ import pytest
 # test host.
 _ROOT_PASSWORD = "test-root-password"
 
+# CI runs on the Pi itself, which answers Docker slowly under memory pressure: 10 s
+# timed out `docker info` and `docker logs` there and errored the real-database tests.
+_DOCKER_COMMAND_TIMEOUT_SECONDS = 60
+
 TABLES = [
     "consumption",
     "agreement",
@@ -41,7 +45,10 @@ def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
     result = subprocess.run(
-        ["docker", "info"], capture_output=True, timeout=10, check=False
+        ["docker", "info"],
+        capture_output=True,
+        timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
+        check=False,
     )
     return result.returncode == 0
 
@@ -87,7 +94,7 @@ def run_sql(
         input=sql_text,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
         check=False,
     )
 
@@ -108,7 +115,7 @@ def _wait_for_real_server(container_name: str, timeout_seconds: float = 60) -> N
             ["docker", "logs", container_name],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
             check=False,
         )
         ready_count = logs.stdout.count("ready for connections") + logs.stderr.count(
@@ -141,7 +148,7 @@ def mariadb_container():
             ],
             capture_output=True,
             check=True,
-            timeout=30,
+            timeout=_DOCKER_COMMAND_TIMEOUT_SECONDS,
         )
         _wait_for_real_server(name)
         yield name

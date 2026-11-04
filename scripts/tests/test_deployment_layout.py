@@ -119,6 +119,43 @@ def test_the_database_logging_config_is_mounted_read_only_into_conf_d() -> None:
     ), f"logging.cnf must mount from containers/home-monitoring-db/config/, got {mount.host_path!r}"
 
 
+def test_the_database_limits_glibc_to_two_memory_arenas() -> None:
+    database = _services()["home-monitoring-db"]
+
+    arena_max = str(database.get("environment", {}).get("MALLOC_ARENA_MAX", ""))
+
+    assert arena_max == "2", f"MALLOC_ARENA_MAX must be 2, got {arena_max!r}"
+
+
+def test_the_database_has_a_hard_memory_cap_with_no_swap() -> None:
+    database = _services()["home-monitoring-db"]
+
+    assert (
+        database.get("mem_limit") == "512m"
+    ), f"mem_limit must be 512m, got {database.get('mem_limit')!r}"
+    assert database.get("memswap_limit") == database.get("mem_limit"), (
+        "memswap_limit must equal mem_limit so the container gets no swap, "
+        f"got {database.get('memswap_limit')!r}"
+    )
+
+
+def test_the_database_memory_config_is_mounted_read_only_into_conf_d() -> None:
+    database = _services()["home-monitoring-db"]
+
+    mounts = [
+        volume
+        for volume in _volumes(database)
+        if volume.container_path == "/etc/mysql/conf.d/memory.cnf"
+    ]
+
+    assert mounts, "no volume mounts a file at /etc/mysql/conf.d/memory.cnf"
+    mount = mounts[0]
+    assert mount.mode == "ro", f"memory.cnf must be read-only, got {mount.mode!r}"
+    assert mount.host_path == (
+        f"{CONTAINERS_ROOT}home-monitoring-db/config/memory.cnf"
+    ), f"memory.cnf must mount from containers/home-monitoring-db/config/, got {mount.host_path!r}"
+
+
 class _MariaDbConfigParser(configparser.ConfigParser):
     """Reads a my.cnf-style file the way MariaDB reads option names: valueless
     directives allowed, and hyphens and underscores interchangeable."""
@@ -160,6 +197,15 @@ def test_the_logging_config_enables_the_error_and_slow_query_logs() -> None:
         "true",
     ), "slow_query_log must be enabled"
     assert not _general_log_enabled(cnf_text), "general_log must stay off"
+
+
+def test_the_memory_config_shrinks_the_aria_and_key_buffers_to_8_megabytes() -> None:
+    cnf_text = (REPO_ROOT / "data/mariadb/memory.cnf").read_text()
+    mysqld = _parse_cnf(cnf_text)["mysqld"]
+
+    for option in ("aria_pagecache_buffer_size", "key_buffer_size"):
+        value = (mysqld.get(option) or "").upper()
+        assert value == "8M", f"{option} must be 8M, got {value!r}"
 
 
 def test_a_bare_general_log_directive_counts_as_enabling_the_general_log() -> None:
