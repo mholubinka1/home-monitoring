@@ -27,12 +27,16 @@ Octopus's identifiers for a pricing plan; the product code is derived from the t
 _Avoid_: plan ID, rate code
 
 **Tariff Type**:
-The classification of a pricing plan — `variable`, `economy7`, `agile`, `fixed`, or `prepay`. Only `economy7` and `agile` are currently detected in code.
+The classification of a pricing plan — `variable`, `economy7`, `agile`, `fixed`, `prepay` or `go`. Only `economy7`, `agile` and `go` (a tariff code containing `-GO-`, e.g. Octopus Go `GO-VAR-22-10-14`) are currently detected in code.
 _Avoid_: plan type, rate type
 
 **Agile**:
 Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff code containing `AGILE`. Its rates are fetched and stored through the same generic path as every other product (see `PricingRetriever`); a dedicated Agile cost forecast feature is still unbuilt (see Cost and Forecasting below).
 _Avoid_: dynamic tariff, agile octopus
+
+**Octopus Go**:
+Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 UTC) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices the remaining consumption at the effective unit rate actually paid per kWh on the billing period's real elapsed days (so it reflects how much is used in the cheap window), falling back to the time-weighted average of today's published windows when no real day exists yet.
+_Avoid_: time-of-use tariff (too generic), off-peak tariff
 
 **Standing Charge**:
 The fixed daily charge component of a tariff. Modelled in `Price`/`Rate` and persisted per product/region in the `product_rate` table by `PricingRetriever`.

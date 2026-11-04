@@ -711,14 +711,9 @@ class CostForecastRetriever:
         # is gap-filled or still-partial -- there's no complete day to
         # prefer yet, and an empty list would raise below rather than
         # produce a (rough, self-correcting) forecast.
-        as_of_local_date = local_day.to_local_date(as_of)
-        real_daily_totals = [
-            d.total_kwh
-            for d in daily_costs
-            if not d.is_gap_filled and d.date != as_of_local_date
-        ]
+        real_days = self._real_elapsed_days(daily_costs, as_of)
         future_daily_kwh = project_daily_average_consumption(
-            real_daily_totals or [d.total_kwh for d in daily_costs]
+            [d.total_kwh for d in real_days] or [d.total_kwh for d in daily_costs]
         )
         current_rate = self._client.read_current_product_rate(
             agreement.product_code, self._client.region_code, as_of
@@ -744,11 +739,60 @@ class CostForecastRetriever:
                 billing_period.end, as_of, future_daily_kwh, current_rate
             )
         else:
-            variable_cost = (
-                (remaining_hours / 24) * future_daily_kwh * current_rate.unit_rate
-            )
+            unit_rate = current_rate.unit_rate
+            if agreement.tariff_type == TariffType.go:
+                unit_rate = self._time_of_use_unit_rate(
+                    agreement, real_days, current_rate, as_of
+                )
+            variable_cost = (remaining_hours / 24) * future_daily_kwh * unit_rate
 
         return (variable_cost + standing_cost) / 100
+
+    @staticmethod
+    def _real_elapsed_days(
+        daily_costs: list[DailyCostSummary], as_of: datetime
+    ) -> list[DailyCostSummary]:
+        as_of_local_date = local_day.to_local_date(as_of)
+        return [
+            d for d in daily_costs if not d.is_gap_filled and d.date != as_of_local_date
+        ]
+
+    def _time_of_use_unit_rate(
+        self,
+        agreement: Agreement,
+        real_days: list[DailyCostSummary],
+        current_rate: Rate,
+        as_of: datetime,
+    ) -> Decimal:
+        # A time-of-use tariff (Octopus Go) publishes a different rate per
+        # window of the day, so the rate in force at as_of says nothing about
+        # the rate the remaining consumption will pay. The effective rate
+        # actually paid per kWh over the real elapsed days reflects when this
+        # household really uses power (e.g. mostly in the cheap window).
+        real_kwh = sum((d.total_kwh for d in real_days), Decimal(0))
+        if real_kwh > 0:
+            variable_pence = sum(
+                (
+                    d.day_cost_gbp * 100 - current_rate.standing_charge
+                    for d in real_days
+                ),
+                Decimal(0),
+            )
+            return variable_pence / real_kwh
+        # No real consumption yet (first day of a billing period): fall back
+        # to the time-weighted average of today's published windows (never
+        # empty: the current rate, already looked up, overlaps today).
+        today = local_day.to_local_date(as_of)
+        day_start = local_day.start_of_local_day(today)
+        day_end = local_day.start_of_local_day(today + timedelta(days=1))
+        segments = self._day_segments(
+            self._client.read_product_rates_for_local_day(
+                agreement.product_code, self._client.region_code, today
+            ),
+            day_start,
+            day_end,
+        )
+        return self._average_unit_rate(segments)
 
     def _project_agile_variable_cost(
         self, billing_period_end: date, future_daily_kwh: Decimal, as_of: datetime

@@ -120,6 +120,7 @@ class TariffType(Enum):
     agile = (2,)
     fixed = (3,)
     prepay = (4,)
+    go = (5,)
 
 
 def to_tariff_type(tariff_code: str) -> TariffType:
@@ -127,6 +128,8 @@ def to_tariff_type(tariff_code: str) -> TariffType:
         return TariffType.economy7
     if "AGILE" in tariff_code:
         return TariffType.agile
+    if "-GO-" in tariff_code:
+        return TariffType.go
     logger.warning(
         f"Tariff type determination logic is incomplete: {tariff_code} has been tagged as {TariffType.variable}."
     )
