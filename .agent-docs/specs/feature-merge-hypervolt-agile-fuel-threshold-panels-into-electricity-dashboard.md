@@ -19,13 +19,13 @@ One electricity dashboard shows everything. The Agile Prices panel gains the das
 
 ## Implementation Decisions
 
-- The base is the current live electricity dashboard export, supplied by the user from Grafana, not the older committed copy.
+- The base is the committed electricity dashboard. A Grafana export supplied during the work was rejected as the base because it was older (version 9, no `timezone` variable, `Europe/London` hardcoded), so using it would have undone the timezone variable (ADR-0010).
 - The Agile Prices panel (id 3) is replaced by the hypervolt-agile version: same position in the data model, plus query B (effective charging limit) and its override (dashed, purple, hidden from legend and tooltip). The panel keeps id 3 so the `+24h` and `0h` annotation markers, which are filtered to panel id 3, still apply.
 - Fuel price (latest) (id 20) and Fuel price vs effective charging limit (id 21) are added from `fuel-threshold.json`. Ids do not clash with the existing ids.
 - Both dashboards use the same `DS_MYSQL` input, the same `region` variable and the same time range and refresh, so no new inputs or variables are needed. The `__requires` list gains the gauge panel type.
 - Layout: the Agile Prices panel keeps its current slot and width, and the two fuel panels go in a new row at the bottom so existing panels do not move.
 - The `fuel_price_threshold` table is created and written by hypervolt-agile in the same database. No schema or app change is made in this repo. Until hypervolt-agile has recorded a row, the gauge reads "no price recorded", and the chart and the limit line show no data.
-- The dashboard title and uid stay those of the electricity dashboard. The dashboard `version` is not hand-edited beyond what the export provides.
+- The dashboard title and uid stay those of the electricity dashboard. The dashboard `version` is not hand-edited.
 - `data/grafana/mariadb/electricity-queries.md` gains entries for the two new panels and the new Agile Prices query, in the file's existing per-panel format.
 
 ## Testing Decisions
@@ -44,5 +44,5 @@ One electricity dashboard shows everything. The Agile Prices panel gains the das
 
 ## Further Notes
 
-- The user has updated the electricity dashboard in the main checkout (uncommitted at 11:24 on 2026-11-04). That file, not the committed one, is the merge base.
+- The user's updated Grafana export (uncommitted in the main checkout at 11:24 on 2026-11-04) is not the merge base: it was older than the committed file, so the user chose to merge onto the committed dashboard instead. Any other changes in that export were not carried over.
 - `init-agent-docs` rewrote `.agent-docs/context.md`; that change was reverted to allow the branch switch, and a backup is in the session scratchpad. It is not part of this change.
