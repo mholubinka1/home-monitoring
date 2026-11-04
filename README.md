@@ -245,7 +245,7 @@ the outage length.
      no longer writes `label`, so let the column be empty.
 
      ```sql
-     ALTER TABLE heating_model MODIFY label VARCHAR(20) NULL;
+     ALTER TABLE heating_model MODIFY COLUMN IF EXISTS label VARCHAR(20) NULL;
      ```
 
   2. **Then pull and restart `octopus-app`**, check its log shows a clean start, and **last**
@@ -264,7 +264,7 @@ the outage length.
        DROP COLUMN IF EXISTS label;
      ```
 
-  If the new image starts before step 1, the weekly refit fails to save its model (`label`
+  If the new image starts before step 1, saving any model, usable or not, fails (`label`
   is still required) and the job logs the error; the forecast is not refreshed until then. Run step 1 and the next daily run recovers.
 
 ### Backfilling weather history

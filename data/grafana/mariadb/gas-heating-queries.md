@@ -39,8 +39,8 @@ agreement                 (octopus) id, energy, product_code, tariff_code, valid
 product_rate              (octopus) id, product_code, region, valid_from, valid_to, unit_rate, standing_charge
 cost_forecast             (octopus) billing_period_start/end, actual_cost_to_date,
                                     projected_total_cost, computed_at, energy, rates_estimated, estimated_days
-heating_model             (octopus) id, fitted_at, usable, threshold, upper_threshold, slope, weight,
-                                    r_squared, baseload, label ('estimated' or 'confirmed'), ...
+heating_model             (octopus) id, fitted_at, usable, threshold, slope, weight,
+                                    r_squared, baseload, ...
 heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
 ```
 
@@ -287,7 +287,7 @@ ORDER BY time;
 - **Pounds (B):** 14 October is unit cost 1.1548 (13.45352 kWh x 8.58396p) plus standing charge 0.2924, 1.4472 together; the same day rebuilt from the raw half-hour readings with the cost forecast's own formula (sum of kWh x unit rate, plus the standing charge) is 1.4473. Pounds only exist from 1 July 2026: the Pi holds gas rates from 30 June 2026 only, so earlier days have no rate and draw as gaps in the pounds view.
 - **Outdoor (C):** 3 October 15.7 C, 4 October 16.2 C, ... 15 October 17.2 C, and none for the current day (not complete yet).
 
-Queries D and E, the expected gas bars (lighter bars for today and the next days, from `heating_forecast_day`; D when the unit is kWh, E when it is pounds, like A and B). Only the forecast rows judged by the **latest usable** heating model are used (the cost forecast makes the same choice, so a refit that fails never leaves the bars on a stale model), and only from today's London date on, so a stalled model job cannot draw expected bars over days that have passed. With no usable model there are no expected bars. In pounds the expected kWh is priced with the rate and standing charge in force at the day's London midnight, the same lookup as query B, so a rate change inside the week is not foreseen, and a forecast day with no agreement or rate row has no pounds bar (a gap, not a zero). The bars are labelled `estimated` because the model is. The forecast outdoor temperature that used to sit beside them on this panel now lives on the temperatures panel. The bars stack the same way as the actual ones and are drawn with a lower fill opacity and an `expected` label.
+Queries D and E, the expected gas bars (lighter bars for today and the next days, from `heating_forecast_day`; D when the unit is kWh, E when it is pounds, like A and B). Only the forecast rows computed from the **latest usable** heating model are used (the cost forecast makes the same choice, so a refit that fails never leaves the bars on a stale model), and only from today's London date on, so a stalled model job cannot draw expected bars over days that have passed. With no usable model there are no expected bars. In pounds the expected kWh is priced with the rate and standing charge in force at the day's London midnight, the same lookup as query B, so a rate change inside the week is not foreseen, and a forecast day with no agreement or rate row has no pounds bar (a gap, not a zero). The bars are labelled `estimated` because they are a projection. The forecast outdoor temperature that used to sit beside them on this panel now lives on the temperatures panel. The bars stack the same way as the actual ones and are drawn with a lower fill opacity and an `expected` label.
 
 ```sql
 SELECT time, expected_kwh
