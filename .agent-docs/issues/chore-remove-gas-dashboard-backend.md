@@ -1,5 +1,7 @@
 # Issues: chore-remove-gas-dashboard-backend
 
+> Work complete — PR ready to merge.
+
 ## Remove day verdicts, weeks and the noise model (#730)
 
 **Blocked by**: None
@@ -12,10 +14,10 @@ The Heating Model job stops computing day verdicts, weekly rows and the noise mo
 
 ### Acceptance criteria
 
-- [ ] Given a fitted model, when the job refreshes, then the forecast rows are written and no verdict or week data is written or readable
-- [ ] A usable fit is stored without noise values; the forecast is the same as before for the same inputs
-- [ ] The verdict, week and noise modules, their persistence tests and the verdict and week assertions in the job tests are gone
-- [ ] Pre-commit and the octopus-app tests pass
+- [x] Given a fitted model, when the job refreshes, then the forecast rows are written and no verdict or week data is written or readable
+- [x] A usable fit is stored without noise values; the forecast is the same as before for the same inputs
+- [x] The verdict, week and noise modules, their persistence tests and the verdict and week assertions in the job tests are gone
+- [x] Pre-commit and the octopus-app tests pass
 
 ---
 
@@ -31,9 +33,9 @@ The job stops bootstrapping an upper threshold. The bootstrap module, its job st
 
 ### Acceptance criteria
 
-- [ ] A refit stores a usable model without an upper threshold; the forecast is unchanged
-- [ ] The bootstrap module and its tests are gone
-- [ ] Pre-commit and the octopus-app tests pass
+- [x] A refit stores a usable model without an upper threshold; the forecast is unchanged
+- [x] The bootstrap module and its tests are gone
+- [x] Pre-commit and the octopus-app tests pass
 
 ---
 
@@ -49,11 +51,11 @@ The job stops cross-checking the fitted threshold against the thermostat. The th
 
 ### Acceptance criteria
 
-- [ ] A refit stores a model with no label or thermostat fields; the forecast is unchanged
-- [ ] With the old `label` column present and nullable, writing a fit works
-- [ ] The thermostat module, the readings reader and the cross-app readings test are gone
-- [ ] Schema Sync no longer declares the removed tables or columns
-- [ ] Pre-commit and the octopus-app tests pass
+- [x] A refit stores a model with no label or thermostat fields; the forecast is unchanged
+- [x] With the old `label` column present and nullable, writing a fit works
+- [x] The thermostat module, the readings reader and the cross-app readings test are gone
+- [x] Schema Sync no longer declares the removed tables or columns
+- [x] Pre-commit and the octopus-app tests pass
 
 ---
 
@@ -69,10 +71,10 @@ ADR-0030 gets a dated amendment superseding the verdict, week, bootstrap, noise 
 
 ### Acceptance criteria
 
-- [ ] ADR-0030 records what is superseded and why
-- [ ] The explainer and glossary no longer describe verdicts, weeks, the bootstrap, noise or the thermostat label
-- [ ] The README gives the exact SQL for both phases and says to run phase 1 before the new image and phase 2 after
-- [ ] Links in the edited docs resolve
+- [x] ADR-0030 records what is superseded and why
+- [x] The explainer and glossary no longer describe verdicts, weeks, the bootstrap, noise or the thermostat label
+- [x] The README gives the exact SQL for both phases and says to run phase 1 before the new image and phase 2 after
+- [x] Links in the edited docs resolve
 
 ---
 
@@ -88,7 +90,7 @@ Find every function, type, constant, import, fixture and config value in octopus
 
 ### Acceptance criteria
 
-- [ ] No unused function, type, constant, import or test helper remains from the removed features
-- [ ] Pre-commit and the octopus-app tests pass
+- [x] No unused function, type, constant, import or test helper remains from the removed features
+- [x] Pre-commit and the octopus-app tests pass
 
 ---
