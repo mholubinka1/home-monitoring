@@ -1,6 +1,6 @@
-# hive-app runbook: recovering from "re-authentication required"
+# hive-app runbook: Hive data lost
 
-hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive no longer recognises its remembered device and a fresh interactive login is needed, which may involve a live SMS 2FA code (see [ADR-0018](../../.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)). Until you complete the login below, heating polling keeps failing and `job_run` shows the failures. A headless container cannot read an SMS, so this is an interactive step you run on the Pi.
+hive-app sends the ntfy alert **hive-app: Hive data lost** when no new heating status has arrived for 30 minutes (see [ADR-0031](../../.agent-docs/adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md)). The message names the latest failed poll reason. Most outages heal by themselves; wait for the hourly reminder before acting. If the reason says Hive's persisted session can no longer be resumed, Hive no longer recognises the remembered device and a fresh interactive login is needed, which may involve a live SMS 2FA code: follow **Recover** below. For any other reason (for example `'NoneType' object has no attribute 'get'`, or a Hive API timeout), check `docker logs hive-app` and `job_run`, and Hive's own status. A headless container cannot read an SMS, so the login is an interactive step you run on the Pi.
 
 ## Recover
 
@@ -16,15 +16,15 @@ hive-app sends the ntfy alert **hive-app: re-authentication required** when Hive
 
 3. Enter the SMS code if prompted. The command prompts for a code only if Hive sends the SMS challenge; if Hive logs in with no challenge, it registers a new device and saves the state without any prompt. Either way, on success the command has registered a device with Hive and written `hive_auth_state.json` to `/mnt/media/pi-media/containers/hive-app/config/` (the container's `/config`), then prints a success message and exits `0`.
 
-4. **Do not restart the container.** The running app re-reads `hive_auth_state.json` on every heating poll (every 120 seconds), so it recovers on its own within about two minutes. The "required" alert is remembered in memory only, so a restart before that first successful poll would forget it and no "authentication recovered" notification would be sent (recovery itself would still work).
+4. **Do not restart the container.** The running app re-reads `hive_auth_state.json` on every heating poll (every 120 seconds), so it recovers on its own within about two minutes. The "lost" alert is remembered in memory only, so a restart before that first successful poll would forget it and no "restored" notification would be sent (recovery itself would still work).
 
 ## Verify
 
-- Within about two minutes ntfy delivers **hive-app: authentication recovered** (only if the "required" alert was actually delivered earlier by the same running process).
+- Within about three minutes ntfy delivers **hive-app: Hive data restored** (only if the "lost" alert was actually delivered earlier by the same running process, and outside quiet hours; otherwise it arrives when they end).
 - `docker logs hive-app` shows the heating poll succeeding again with no `HiveReauthRequired`.
 - `job_run` shows the heating refresh succeeding again.
 
-If you did restart before the first successful poll, or the container restarted for another reason in the meantime, expect no "recovered" notification; the log and `job_run` checks above still confirm recovery.
+If you did restart before the first successful poll, or the container restarted for another reason in the meantime, expect no "restored" notification; the log and `job_run` checks above still confirm recovery.
 
 ## If the command fails
 
@@ -40,12 +40,13 @@ A failed run never overwrites an existing `hive_auth_state.json`.
 
 ## The notifications
 
-hive-app sends exactly two ntfy notifications about Hive auth, both to the secret topic configured in `config.yml` (format in the [README](../../README.md#ntfy-notifications-hive-app)):
+hive-app sends these ntfy notifications about Hive data, all to the secret topic configured in `config.yml` (format and quiet hours in the [README](../../README.md#ntfy-notifications-hive-app)):
 
 | Notification | Title | Priority | Tags | Click |
 | --- | --- | --- | --- | --- |
-| Re-auth required | `hive-app: re-authentication required` | `high` | `warning,key` | this runbook |
-| Auth recovered | `hive-app: authentication recovered` | `default` | `white_check_mark` | none |
+| Data lost | `hive-app: Hive data lost` | `high` | `warning` | this runbook |
+| Still lost (hourly) | `hive-app: Hive data still lost` | `high` | `warning` | this runbook |
+| Data restored | `hive-app: Hive data restored` | `default` | `white_check_mark` | none |
 
 ## Why this is manual
 

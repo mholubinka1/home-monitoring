@@ -16,15 +16,23 @@ mariadb:
 # (no API key needed): the location is derived from the Octopus account
 # postcode, then IP geolocation. These sections only override that.
 
-# ntfy.sh topic used for the two hive-app notifications: "re-authentication
-# required" (links to deployments/hive-app/REAUTH_RUNBOOK.md) and
-# "authentication recovered". ntfy.sh topics are public -- the GUID is the only
-# secret, so keep the real URL only in the Pi's config.yml, never in the repo.
+# ntfy.sh topic used for the hive-app "Hive data lost" alert (no heating status
+# for 30 minutes; links to deployments/hive-app/REAUTH_RUNBOOK.md), its hourly
+# reminders and the "Hive data restored" notice. ntfy.sh topics are public --
+# the GUID is the only secret, so keep the real URL only in the Pi's
+# config.yml, never in the repo.
 # Topic format: home-monitoring-hive-auth-ntfy-<guid-no-dashes>, e.g.
 #   topic_url: https://ntfy.sh/home-monitoring-hive-auth-ntfy-<32 lowercase hex chars>
 # Generate one with: uuidgen | tr -d '-' | tr 'A-F' 'a-f'
+#
+# quiet_hours (optional): nothing is sent between start and end, in the
+# `timezone` below; what is due goes out when the window ends. Default 22:00 to
+# 08:00. Write the times in quotes -- YAML reads an unquoted 22:00 as a number.
 ntfy:
   topic_url:
+  # quiet_hours:
+  #   start: "22:00"
+  #   end: "08:00"
 
 # Optional. Household lat/long, used by the weather observation and forecast
 # jobs. Omit this section and the location is derived from the Octopus account

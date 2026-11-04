@@ -1,5 +1,6 @@
 import logging.config
 import sys
+from datetime import datetime, time
 from logging import Logger, getLogger
 
 import yaml
@@ -19,8 +20,32 @@ class HiveSettings(BaseModel):
     auth_state_path: str = "/config/hive_auth_state.json"
 
 
+class QuietHours(BaseModel):
+    """The local-time window in which no ntfy message is sent (ADR-0031). It
+    may span midnight; equal start and end means there are no quiet hours.
+    Written as quoted "HH:MM" text: YAML reads an unquoted 22:00 as the
+    number 1320, which must not be mistaken for a time."""
+
+    start: time = time(22, 0)
+    end: time = time(8, 0)
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _must_be_hh_mm_text(cls, value: object) -> time:
+        if isinstance(value, time):
+            return value
+        problem = f'must be quoted "HH:MM" text such as "22:00", got {value!r}'
+        if not isinstance(value, str):
+            raise ValueError(problem)  # noqa: TRY004 -- pydantic reports ValueError
+        try:
+            return datetime.strptime(value, "%H:%M").time()
+        except ValueError:
+            raise ValueError(problem) from None
+
+
 class NtfySettings(BaseModel):
     topic_url: str
+    quiet_hours: QuietHours = QuietHours()
 
 
 class LocationSettings(BaseModel):
@@ -34,8 +59,8 @@ class HiveApplicationSettings(BaseModel):
     # Optional: the weather jobs always register. Without `location`, the
     # Weather Location is derived from the Octopus Account Postcode, then IP
     # geolocation (ADR-0028); observations and forecasts both come from
-    # Open-Meteo. ntfy is consumed by #509's re-auth alerting. Both stay
-    # optional so a deployment doesn't need to populate config for
+    # Open-Meteo. ntfy is consumed by the Hive data-lost watchdog (ADR-0031).
+    # Both stay optional so a deployment doesn't need to populate config for
     # capabilities it doesn't use. Unknown keys (e.g. a section left over
     # from a removed provider) are ignored, not rejected.
     ntfy: NtfySettings | None = None

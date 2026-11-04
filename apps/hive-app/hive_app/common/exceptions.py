@@ -8,18 +8,17 @@ class HiveReauthRequired(Exception):
     recognized, tokens can't be refreshed, etc. -- see
     hive_client._REAUTH_REQUIRED_EXCEPTIONS for the apyhiveapi exceptions
     that map to this) -- a genuinely unrecoverable state for a headless
-    service (see .agent-docs/research/hive-api-access-approach.md and
-    ADR-0018). Kept distinct from apyhiveapi's own identically-named
-    exception so callers (startup auth and the heating-poll job, both
-    alerting via the shared ReauthAlert) depend only on this repo's own
-    exception type, not an apyhiveapi implementation detail. Every other
-    failure (network errors, ordinary API errors, and a Hive API timeout --
-    see HiveApiUnavailable) is NOT this type, so generic job-failure
-    handling treats it as an ordinary transient failure."""
+    service (see .agent-docs/research/hive-api-access-approach.md). Kept
+    distinct from apyhiveapi's own identically-named exception so callers
+    depend only on this repo's own exception type, not an apyhiveapi
+    implementation detail. It is an ordinary poll error: retried and
+    recorded as a failed job_run. The only live alert is the Hive data-lost
+    alert raised by the watchdog when data stops arriving (ADR-0031). A Hive
+    API timeout is a different type (see HiveApiUnavailable)."""
 
 
 class HiveApiUnavailable(Exception):
     """Raised when Hive's API timed out while a session was starting, so
     apyhiveapi saw no devices and reported a re-authentication requirement
     that is not real. An ordinary transient poll failure: retried and
-    recorded, never alerted."""
+    recorded."""

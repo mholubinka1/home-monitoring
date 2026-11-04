@@ -1,5 +1,7 @@
 # ntfy.sh as hive-app's re-auth alert channel
 
+Status: partly superseded by [ADR-0031](0031-hive-data-lost-alert-replaces-the-reauth-alert.md): the re-authentication notifications described here were replaced by a stale-data alert. The choice of ntfy.sh as the channel stands.
+
 Every existing job in this repo signals failure passively, through `job_run` rows a Grafana staleness panel surfaces on demand — nobody is notified proactively; you have to look at the dashboard. hive-app's Hive client introduces one failure mode that pattern doesn't fit: if Cognito forgets its remembered device, recovery needs a live SMS 2FA code, something a headless service cannot supply itself (see `.agent-docs/research/hive-api-access-approach.md`). A dashboard staleness panel that nobody's looking at leaves the heating client silently dead until someone happens to check.
 
 "Cognito forgets its remembered device" is the canonical case, but the alert covers every apyhiveapi failure that likewise needs a live re-login (see `_REAUTH_REQUIRED_EXCEPTIONS` in `hive_client.py`), and fires at container startup as well as from the heating poll, de-duplicated across both by a single shared `ReauthAlert`.

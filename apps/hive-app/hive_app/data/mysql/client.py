@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
 from common.mariadb.client import MariaDBClientBase
+from common.mariadb.model import job_run
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import (
     HeatingStatus,
@@ -62,6 +63,49 @@ class MariaDBClient(MariaDBClientBase):
             working=status.working,
         )
         self._write_all([record], "Heating status data")
+
+    def latest_heating_polled_at(self) -> datetime | None:
+        """When the newest heating_status row was polled (UTC), or None."""
+        with self.session_read_scope() as session:
+            latest = session.query(
+                func.max(sql_model.heating_status.polled_at)
+            ).scalar()
+            # The database stores naive UTC; stamp it back as UTC.
+            return latest.replace(tzinfo=UTC) if latest is not None else None
+
+    def first_heating_polled_after(self, moment: datetime) -> datetime | None:
+        """When the first heating_status row after `moment` was polled (UTC)."""
+        with self.session_read_scope() as session:
+            first = (
+                session.query(func.min(sql_model.heating_status.polled_at))
+                .filter(
+                    sql_model.heating_status.polled_at > moment.replace(tzinfo=None)
+                )
+                .scalar()
+            )
+            return first.replace(tzinfo=UTC) if first is not None else None
+
+    def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
+        """The first non-blank line (at most 200 characters) of the error of the most
+        recent failed run of the job after `since`, or None if there is none.
+        One line only: a database error's later lines carry SQL and values."""
+        with self.session_read_scope() as session:
+            error = (
+                session.query(job_run.error_message)
+                .filter(
+                    job_run.job_name == job_name,
+                    job_run.status == "failure",
+                    job_run.ran_at > since.replace(tzinfo=None),
+                )
+                .order_by(job_run.ran_at.desc(), job_run.id.desc())
+                .limit(1)
+                .scalar()
+            )
+            first_line = next(
+                (line.strip() for line in (error or "").splitlines() if line.strip()),
+                None,
+            )
+            return first_line[:200] if first_line else None
 
     def write_weather_observations(
         self, observations: list[WeatherObservation]

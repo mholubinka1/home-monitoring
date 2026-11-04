@@ -19,7 +19,12 @@ __all__ = ["SQLBase", "job_run"]
 
 class heating_status(SQLBase):
     __tablename__ = "heating_status"
-    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+    # Indexed for the Hive data watchdog's minute-by-minute newest-row lookup
+    # (ADR-0031); Schema Sync adds a missing index to an existing table.
+    __table_args__ = (
+        Index("ix_heating_status_polled_at", "polled_at"),
+        {"schema": "octopus"},
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     polled_at = Column(DateTime, nullable=False)

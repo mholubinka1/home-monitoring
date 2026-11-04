@@ -77,3 +77,32 @@ def test_existing_heating_status_gains_the_working_column_and_keeps_its_rows(
             text("SELECT state, working FROM heating_status")
         ).one()
     assert tuple(row) == ("ON", None)
+
+
+def test_an_existing_heating_status_table_gains_an_index_on_polled_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    ).execution_options(schema_translate_map={"octopus": "main"})
+    _LegacyBase.metadata.create_all(engine)
+    monkeypatch.setattr(
+        "common.mariadb.client.create_engine", lambda *args, **kwargs: engine
+    )
+
+    MariaDBClient(
+        MariaDBSettings(
+            host="localhost",
+            port=3306,
+            database="main",
+            username="test",
+            password="test",
+        )
+    )
+
+    indexed = [
+        index["column_names"] for index in inspect(engine).get_indexes("heating_status")
+    ]
+    assert ["polled_at"] in indexed
