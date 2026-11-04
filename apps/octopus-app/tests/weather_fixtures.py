@@ -51,10 +51,6 @@ def heating_model_record(
         baseload_measured_days=200,
         baseload_interpolated_days=50,
         baseload_held_days=5,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
 
 

@@ -161,10 +161,6 @@ class heating_model(SQLBase):
     baseload_measured_days = Column(Integer)
     baseload_interpolated_days = Column(Integer)
     baseload_held_days = Column(Integer)
-    thermostat_threshold = Column(_DOUBLE)
-    heating_days = Column(Integer)
-    non_heating_days = Column(Integer)
-    label = Column(String(20), nullable=False)
 
 
 class heating_forecast_day(SQLBase):

@@ -22,10 +22,6 @@ def _record(
         baseload_measured_days=300,
         baseload_interpolated_days=60,
         baseload_held_days=5,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
 
 
@@ -114,10 +110,6 @@ def test_an_unusable_fit_with_no_numbers_round_trips(
         baseload_measured_days=None,
         baseload_interpolated_days=None,
         baseload_held_days=None,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label="estimated",
     )
     mariadb_client.write_heating_model(empty)
 

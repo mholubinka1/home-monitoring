@@ -8,11 +8,7 @@ from logging import Logger, getLogger
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import (
-    heating_forecast,
-    heating_model,
-    thermostat_check,
-)
+from octopus_app.data import heating_forecast, heating_model
 from octopus_app.data.gas_day import is_usable
 from octopus_app.data.heating_model import BaselineKind, BaselinePoint, HeatingFit
 from octopus_app.data.model import (
@@ -126,10 +122,6 @@ def _unusable_record(
         baseload_measured_days=None,
         baseload_interpolated_days=None,
         baseload_held_days=None,
-        thermostat_threshold=None,
-        heating_days=None,
-        non_heating_days=None,
-        label=thermostat_check.ModelLabel.ESTIMATED.value,
     )
 
 
@@ -166,20 +158,8 @@ def _baseload_kind_count(
     )
 
 
-def _thermostat(
-    mariadb: MariaDBClient, inputs: _RunInputs, derived: _Derived, window: _Window
-) -> thermostat_check.ThermostatCheck | None:
-    readings = mariadb.read_heating_readings(
-        local_day.start_of_local_day(window.start),
-        local_day.start_of_local_day(inputs.as_of + timedelta(days=1)),
-    )
-    return thermostat_check.thermostat_threshold(
-        thermostat_check.classify_days(readings), derived.effective
-    )
-
-
 def _usable_record(
-    mariadb: MariaDBClient, inputs: _RunInputs, fit: HeatingFit, now: datetime
+    inputs: _RunInputs, fit: HeatingFit, now: datetime
 ) -> HeatingModelRecord:
     quality = fit.quality
     threshold = _require(fit.threshold, "threshold")
@@ -187,8 +167,6 @@ def _usable_record(
     if quality is None or inputs.as_of not in derived.baseload:
         raise ValueError("a usable fit has no quality or baseload")
     window = _fit_window(inputs, derived)
-    check = _thermostat(mariadb, inputs, derived, window)
-    label = thermostat_check.label_model(threshold, check)
     return HeatingModelRecord(
         fitted_at=now,
         window_start=window.start,
@@ -210,10 +188,6 @@ def _usable_record(
         baseload_held_days=_baseload_kind_count(
             inputs, derived, window, BaselineKind.HELD
         ),
-        thermostat_threshold=check.threshold if check else None,
-        heating_days=check.heating_days if check else None,
-        non_heating_days=check.non_heating_days if check else None,
-        label=label.value,
     )
 
 
@@ -331,7 +305,7 @@ class HeatingModelJob:
                 "re-judging with the previous usable model, if any."
             )
             return None
-        record = _usable_record(self._mariadb, inputs, fit, now)
+        record = _usable_record(inputs, fit, now)
         return StoredHeatingModel(self._mariadb.write_heating_model(record), record)
 
     def ready_for_first_fit(self, now: datetime | None = None) -> bool:

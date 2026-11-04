@@ -1,6 +1,5 @@
 import logging.config
 import math
-from collections.abc import Iterator
 from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -8,8 +7,6 @@ from logging import Logger, getLogger
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
-    JSON,
-    Boolean,
     Column,
     Date,
     DateTime,
@@ -50,18 +47,16 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
-from octopus_app.data.thermostat_check import HeatingReading
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
 
 SUMMARIZATION_WINDOW_DAYS = 14
-HEATING_READ_CHUNK = 5000  # heating_status rows fetched per round trip
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# weather_observation/weather_forecast/heating_status are owned by hive-app, but
+# weather_observation/weather_forecast are owned by hive-app, but
 # live in the same shared `octopus` MariaDB schema this client already connects
 # to. They're declared here as plain Core Table objects against a SEPARATE,
 # unregistered MetaData() instance -- never as ORM classes added to
@@ -100,22 +95,6 @@ weather_forecast_table = Table(
     Column("max_temp", Float),
     Column("mean_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
-    schema="octopus",
-)
-
-heating_status_table = Table(
-    "heating_status",
-    weather_metadata,
-    Column("id", Integer, primary_key=True),
-    Column("polled_at", DateTime, nullable=False),
-    Column("current_temp", Float),
-    Column("target_temp", Float),
-    Column("mode", String(20)),
-    Column("state", String(20)),
-    Column("boost_active", Boolean),
-    Column("boost_ends_at", DateTime),
-    Column("schedule", JSON),
-    Column("working", Boolean),
     schema="octopus",
 )
 
@@ -653,37 +632,6 @@ class MariaDBClient(MariaDBClientBase):
             if all(stamp in by_hour for stamp in stamps):
                 means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
         return means
-
-    def read_heating_readings(
-        self, start: datetime, end: datetime
-    ) -> Iterator[HeatingReading]:
-        """The heating_status polls with start <= polled_at < end, in no
-        particular order, streamed in chunks so a year of two-minute polls
-        (about 262,000 rows) is never held in memory at once. The session
-        stays open until the iterator is exhausted or closed."""
-        # heating_status is hive-app's table, read cross-app (see the
-        # module-level comment on weather_observation_table). The DB holds
-        # naive UTC; the half-open window arguments are tz-aware.
-        hs = heating_status_table
-        try:
-            with self.session_read_scope() as session:
-                rows = (
-                    session.query(hs.c.polled_at, hs.c.state, hs.c.boost_active)
-                    .filter(
-                        hs.c.polled_at >= start.astimezone(UTC).replace(tzinfo=None),
-                        hs.c.polled_at < end.astimezone(UTC).replace(tzinfo=None),
-                    )
-                    .yield_per(HEATING_READ_CHUNK)
-                )
-                for polled_at, state, boost_active in rows:
-                    yield HeatingReading(
-                        polled_at=polled_at.replace(tzinfo=UTC),
-                        state=state or "",
-                        boost_active=bool(boost_active),
-                    )
-        except (OperationalError, ProgrammingError) as error:
-            if not _is_missing_table_error(error):
-                raise
 
     def read_weather_forecast_mean_temps(
         self, start_date: date, end_date: date

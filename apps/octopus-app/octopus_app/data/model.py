@@ -93,10 +93,6 @@ class HeatingModelRecord:  # pylint: disable=too-many-instance-attributes
     baseload_measured_days: int | None
     baseload_interpolated_days: int | None
     baseload_held_days: int | None
-    thermostat_threshold: float | None
-    heating_days: int | None
-    non_heating_days: int | None
-    label: str  # 'estimated' or 'confirmed'
 
 
 @dataclass(frozen=True)
