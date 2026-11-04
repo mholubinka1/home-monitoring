@@ -320,6 +320,7 @@ slot_products AS (
     (SELECT a.product_code FROM agreement a
      WHERE a.energy = 'E'
        AND a.valid_from <= s.time
+       AND a.valid_from < COALESCE(a.valid_to, '9999-12-31 23:59:59')
      ORDER BY a.valid_from DESC LIMIT 1)
   ) AS product_code
   FROM slots s

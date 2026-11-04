@@ -99,6 +99,7 @@ def test_cheapest_window_prices_each_slot_by_the_agreement_covering_it() -> None
 
     assert "slot_products" in sql
     assert "s.time < COALESCE(a.valid_to" in sql
+    assert "a.valid_from < COALESCE(a.valid_to" in sql
     assert "sp.time < COALESCE(pr2.valid_to" in sql
     assert f"sp.product_code {AGILE_PRODUCT_PATTERN}" in sql
     assert "current_agreement" not in sql

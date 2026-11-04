@@ -99,7 +99,7 @@ Orchestrates paginated consumption retrieval from Octopus and writes it to Maria
 _Avoid_: consumption service
 
 **`PricingRetriever`**:
-Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product, writing all of it to MariaDB via `PricingSource`.
+Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product (and for a product whose electricity agreement has ended, from where that agreement ended), writing all of it to MariaDB via `PricingSource`.
 _Avoid_: pricing service
 
 **`MonitoringClient`**:
@@ -113,7 +113,7 @@ The tariff charge cycle for an account — the date range Octopus actually bills
 _Avoid_: billing cycle, invoice period
 
 **Product / Product Rate**:
-`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period — stored uniformly for every product, including whichever one the account is actually on, so actual cost and the price-curve panel read from the same table.
+`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period — stored uniformly for every product, including whichever one the account is actually on or was on, so actual cost and the price-curve panel read from the same table.
 _Avoid_: tariff (when referring to the public catalogue rather than the account's own agreement)
 
 **Actual Cost**:
