@@ -12,7 +12,6 @@ FUEL_TABLE = "fuel_price_threshold"
 EXISTING_TITLES = [
     "Yesterday's Cost (Electricity)",
     "Billing Period Progress ($billing_period_start → $billing_period_end)${rates_estimated_note}",
-    "Latest Consumption",
     "Agile Prices: Today/Tomorrow (Actual + Forecast)",
     "Load Shift Efficiency",
     "Average Consumption Per Day",
@@ -70,8 +69,8 @@ def test_fuel_gauge_and_chart_read_the_fuel_price_threshold() -> None:
     defaults = gauge["fieldConfig"]["defaults"]
     assert (defaults["min"], defaults["max"]) == (100, 200)
     steps = defaults["thresholds"]["steps"]
-    assert [s["value"] for s in steps] == [None, 140, 155, 170]
-    assert chart["timeFrom"] == "30d"
+    assert [s["value"] for s in steps] == [None, 120, 140, 160]
+    assert chart["timeFrom"] == "45d"
     for override in chart["fieldConfig"]["overrides"]:
         assert override["matcher"]["options"] in chart["targets"][0]["rawSql"]
     for panel in (gauge, chart):

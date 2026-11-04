@@ -86,6 +86,13 @@ class _RealCostForecastSource:
             energy, start_date, end_date
         )
 
+    def read_half_hourly_consumption(
+        self, energy: Energy, period_from: datetime, period_to: datetime
+    ) -> list[tuple[datetime, Decimal]]:
+        return self._mariadb.read_half_hourly_consumption(
+            energy, period_from, period_to
+        )
+
     def persist_cost_forecast(self, forecast: CostForecast) -> None:
         self._mariadb.write_cost_forecast(forecast)
 

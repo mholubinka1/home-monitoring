@@ -73,7 +73,7 @@ class PricingRetriever:
         products = self._client.fetch_products()
         self._sync_product_catalogue(products)
         self._sync_own_product_rates(window_start)
-        self._sync_comparison_rates(products, window_start)
+        self._sync_comparison_rates(products, window_start, as_of)
 
     def _sync_agreements(self) -> None:
         for meter in self._client.meters:
@@ -133,12 +133,37 @@ class PricingRetriever:
                     exc_info=True,
                 )
 
+    def _ended_electricity_agreements(self, as_of: datetime) -> list[Agreement]:
+        return [
+            agreement
+            for meter, agreement in self._meter_agreement_pairs()
+            if meter.energy == Energy.electricity
+            and not agreement.has_zero_or_negative_width
+            and agreement.valid_to is not None
+            and agreement.valid_to <= as_of
+        ]
+
     def _sync_comparison_rates(
-        self, products: list[Product], window_start: datetime
+        self, products: list[Product], window_start: datetime, as_of: datetime
     ) -> None:
+        # An electricity agreement that has ended no longer syncs rates past
+        # its end, so its product is fetched here from that end onward (with
+        # the agreement's own tariff code, leaving the rates already stored
+        # for the agreement untouched) or its prices -- e.g. Agile after a
+        # move to Go -- would stop being published to the dashboard. A product
+        # that any other agreement still uses, or a zero-width one (which
+        # never ran), stays owned: it must not be fetched under an
+        # arbitrarily-picked billing method.
+        ended_agreements = self._ended_electricity_agreements(as_of)
+        ended_ids = {id(agreement) for agreement in ended_agreements}
         own_product_codes = {
-            agreement.product_code for _, agreement in self._meter_agreement_pairs()
+            agreement.product_code
+            for _, agreement in self._meter_agreement_pairs()
+            if id(agreement) not in ended_ids
         }
+        ended: dict[str, Agreement] = {}
+        for agreement in sorted(ended_agreements, key=lambda a: a.valid_to or as_of):
+            ended[agreement.product_code] = agreement
         for product in products:
             if product.direction == Direction.EXPORT:
                 continue
@@ -149,9 +174,16 @@ class PricingRetriever:
                 # rate, since product_rate rows are keyed by product_code/
                 # region/valid_from, not tariff_code.
                 continue
-            tariff_code = self._client.fetch_electricity_tariff_code(
-                product.product_code, self._client.region_code
-            )
+            tariff_code: str | None
+            ended_agreement = ended.get(product.product_code)
+            if ended_agreement is not None and ended_agreement.valid_to is not None:
+                tariff_code = ended_agreement.tariff_code
+                period_from = max(window_start, ended_agreement.valid_to)
+            else:
+                tariff_code = self._client.fetch_electricity_tariff_code(
+                    product.product_code, self._client.region_code
+                )
+                period_from = window_start
             if tariff_code is None:
                 logger.info(
                     f"No electricity rate published for {product.product_code} "
@@ -160,7 +192,7 @@ class PricingRetriever:
                 continue
             try:
                 rates = self._client.fetch_electricity_rates(
-                    product.product_code, tariff_code, window_start, None
+                    product.product_code, tariff_code, period_from, None
                 )
                 self._client.persist_rate(
                     product.product_code, self._client.region_code, rates

@@ -27,12 +27,16 @@ Octopus's identifiers for a pricing plan; the product code is derived from the t
 _Avoid_: plan ID, rate code
 
 **Tariff Type**:
-The classification of a pricing plan — `variable`, `economy7`, `agile`, `fixed`, or `prepay`. Only `economy7` and `agile` are currently detected in code.
+The classification of a pricing plan — `variable`, `economy7`, `agile`, `fixed`, `prepay` or `go`. Only `economy7`, `agile` and `go` (a tariff code containing `-GO-`, e.g. Octopus Go `GO-VAR-22-10-14`) are currently detected in code.
 _Avoid_: plan type, rate type
 
 **Agile**:
 Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff code containing `AGILE`. Its rates are fetched and stored through the same generic path as every other product (see `PricingRetriever`); a dedicated Agile cost forecast feature is still unbuilt (see Cost and Forecasting below).
 _Avoid_: dynamic tariff, agile octopus
+
+**Octopus Go**:
+Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices every remaining half-hour of the Billing Period individually: the rate of the agreement covering that half-hour (so a tariff change inside the period is priced from its start), times the usual usage at that time of day taken from the real elapsed days wholly on the current tariff (a renewal onto the same product, even after a gap, continues it), spread evenly across the day when no such day exists yet. Beyond the published rates a half-hour takes the rate at the same local clock time on the latest fully published day.
+_Avoid_: time-of-use tariff (too generic), off-peak tariff
 
 **Standing Charge**:
 The fixed daily charge component of a tariff. Modelled in `Price`/`Rate` and persisted per product/region in the `product_rate` table by `PricingRetriever`.
@@ -95,7 +99,7 @@ Orchestrates paginated consumption retrieval from Octopus and writes it to Maria
 _Avoid_: consumption service
 
 **`PricingRetriever`**:
-Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product, writing all of it to MariaDB via `PricingSource`.
+Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product (and for a product whose electricity agreement has ended, from where that agreement ended), writing all of it to MariaDB via `PricingSource`.
 _Avoid_: pricing service
 
 **`MonitoringClient`**:
@@ -109,7 +113,7 @@ The tariff charge cycle for an account — the date range Octopus actually bills
 _Avoid_: billing cycle, invoice period
 
 **Product / Product Rate**:
-`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period — stored uniformly for every product, including whichever one the account is actually on, so actual cost and the price-curve panel read from the same table.
+`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period — stored uniformly for every product, including whichever one the account is actually on or was on, so actual cost and the price-curve panel read from the same table.
 _Avoid_: tariff (when referring to the public catalogue rather than the account's own agreement)
 
 **Actual Cost**:
@@ -117,7 +121,7 @@ Cost computed directly from real consumption × the real rates actually charged 
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period, built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
+A projection of total cost for the current billing period (for **Octopus Go**, each remaining half-hour is priced individually rather than from an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and for an Agile tariff, future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:
@@ -153,7 +157,7 @@ The pair of Grafana panels (monthly total consumption over the trailing 12 month
 _Avoid_: annual comparison, YoY chart
 
 **Cheap Window**:
-The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within today's or tomorrow's Agile half-hourly rates, computed live at query time rather than stored.
+The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates of the tariff covering each half-hour (the Agile forecast fills unpublished Agile half-hours), computed live at query time rather than stored.
 _Avoid_: best time to use power, price dip
 
 **Day Completeness**:

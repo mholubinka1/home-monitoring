@@ -20,10 +20,7 @@ from .test_cost_forecast_gap_pricing import (
     _seed_complete_day,
     _source,
 )
-from .test_cost_forecast_gas import (
-    GAS_PRODUCT_CODE,
-    PRODUCT_CODE,
-)
+from .test_cost_forecast_gas import GAS_PRODUCT_CODE, PRODUCT_CODE
 from .test_cost_forecast_gas import _make_electricity_meter as make_electricity_meter
 from .test_cost_forecast_gas import _make_gas_meter as make_gas_meter
 from .test_cost_forecast_gas import _source as gas_source

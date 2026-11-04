@@ -339,17 +339,12 @@ def test_a_mid_period_rate_change_is_reflected_per_half_hour_not_flattened(
     assert by_date[date(2026, 7, 6)].day_cost_gbp == Decimal("1.68")
 
 
-def test_a_mid_day_standing_charge_change_uses_the_higher_of_the_two(
+def test_a_mid_day_standing_charge_change_at_noon_uses_the_charge_from_noon(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # A rate change mid-day can carry a different standing charge too --
-    # the day's cost must deterministically pick the higher one (matching
-    # this file's prior MAX-based behaviour), not whichever row a DB engine
-    # happens to return last from an unordered result set. The higher
-    # charge (55.00) is seeded on the *morning* rate and consumption rows,
-    # inserted first -- an implementation that just overwrites with the
-    # last-seen row (rather than taking a max) would wrongly end up with
-    # the lower afternoon charge (40.00) instead.
+    # The change falls exactly on local midday, so the half-hour starting at
+    # midday is already on the new 40.00 charge -- not the earlier, higher
+    # 55.00 that a max() would have kept.
     local_noon = datetime(2026, 7, 6, 12, 0, tzinfo=LONDON).astimezone(UTC)
     with mariadb_client.session_write_scope() as s:
         _seed_agreement(s, datetime(2026, 1, 1, tzinfo=UTC))
@@ -365,32 +360,56 @@ def test_a_mid_day_standing_charge_change_uses_the_higher_of_the_two(
     )
 
     by_date = {r.date: r for r in results}
-    # (4.8 kWh @ 20.00p) + 55.00p (the higher standing charge) = 151.00p
-    assert by_date[date(2026, 7, 6)].day_cost_gbp == Decimal("1.51")
+    # (4.8 kWh @ 20.00p) + 40.00p (the charge at midday) = 136.00p
+    assert by_date[date(2026, 7, 6)].day_cost_gbp == Decimal("1.36")
 
 
-def test_a_mid_day_standing_charge_change_uses_the_higher_regardless_of_row_order(
+def test_a_day_s_standing_charge_is_the_one_in_force_at_local_midday(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Complements the test above with the seeding order reversed (higher
-    # charge on the *afternoon* rate, inserted second) -- the result must
-    # be the same higher charge either way, proving the selection is
-    # order-independent rather than incidentally correct for one
-    # particular row-return order.
-    local_noon = datetime(2026, 7, 6, 12, 0, tzinfo=LONDON).astimezone(UTC)
+    # The rate (and its standing charge) changes at 12:30, half an hour after
+    # local midday, so the day keeps the earlier 40p -- not the larger 60p
+    # that max() would pick.
+    day = date(2026, 1, 10)
+    midday_slot_end = _local_midnight(day) + timedelta(hours=12, minutes=30)
     with mariadb_client.session_write_scope() as s:
-        _seed_agreement(s, datetime(2026, 1, 1, tzinfo=UTC))
-        _seed_rate(s, datetime(2026, 1, 1, tzinfo=UTC), local_noon, "20.00", "40.00")
-        _seed_rate(s, local_noon, None, "20.00", "55.00")
-        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        _seed_agreement(s, datetime(2022, 1, 1, tzinfo=UTC))
+        _seed_rate(
+            s, datetime(2022, 1, 1, tzinfo=UTC), midday_slot_end, "10.00", "40.00"
+        )
+        _seed_rate(s, midday_slot_end, None, "10.00", "60.00")
+        _seed_complete_day(s, day)
 
-    results = mariadb_client.read_elapsed_billing_period_costs(
-        _local_midnight(date(2026, 7, 6)),
-        _local_midnight(date(2026, 7, 7)),
+    [result] = mariadb_client.read_elapsed_billing_period_costs(
+        _local_midnight(day),
+        _local_midnight(day + timedelta(days=1)),
         REGION,
         Energy.electricity,
     )
 
-    by_date = {r.date: r for r in results}
-    # (4.8 kWh @ 20.00p) + 55.00p (the higher standing charge) = 151.00p
-    assert by_date[date(2026, 7, 6)].day_cost_gbp == Decimal("1.51")
+    # 4.8 kWh @ 10p = 48p, plus the midday 40p standing charge.
+    assert result.day_cost_gbp == Decimal("0.88")
+
+
+def test_the_midday_standing_charge_is_read_at_twelve_o_clock_on_the_clock_change_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # 29 March 2026 is the 23-hour spring-forward day. The charge changes at
+    # 12:30 local (11:30 UTC), so wall-clock 12:00 is still the earlier 40p;
+    # twelve elapsed hours after midnight (13:00 local) would wrongly give 60p.
+    day = date(2026, 3, 29)
+    midnight = _local_midnight(day)
+    charge_change = datetime(2026, 3, 29, 11, 30, tzinfo=UTC)
+    with mariadb_client.session_write_scope() as s:
+        _seed_agreement(s, datetime(2022, 1, 1, tzinfo=UTC))
+        _seed_rate(s, datetime(2022, 1, 1, tzinfo=UTC), charge_change, "10.00", "40.00")
+        _seed_rate(s, charge_change, None, "10.00", "60.00")
+        for slot in range(46):
+            _seed_consumption(s, midnight + timedelta(minutes=30 * slot), "0.1")
+
+    [result] = mariadb_client.read_elapsed_billing_period_costs(
+        midnight, _local_midnight(day + timedelta(days=1)), REGION, Energy.electricity
+    )
+
+    # 4.6 kWh @ 10p = 46p, plus the 40p charge at 12:00 local.
+    assert result.day_cost_gbp == Decimal("0.86")

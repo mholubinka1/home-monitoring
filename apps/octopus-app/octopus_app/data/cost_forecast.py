@@ -1,7 +1,7 @@
 import logging.config
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from itertools import groupby, pairwise
+from itertools import groupby
 from logging import Logger, getLogger
 from typing import Protocol
 
@@ -23,6 +23,8 @@ from octopus_app.data.octopus.model import (
     Rate,
     TariffType,
 )
+from octopus_app.data.rate_segments import day_segments, segments_fully_cover_day
+from octopus_app.data.time_of_use_cost import TimeOfUseProjection
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -133,6 +135,10 @@ class CostForecastSource(MeterSource, Protocol):
     def read_product_rates_for_local_day(
         self, product_code: str, region: str, day: date
     ) -> list[Rate]: ...
+
+    def read_half_hourly_consumption(
+        self, energy: Energy, period_from: datetime, period_to: datetime
+    ) -> list[tuple[datetime, Decimal]]: ...
 
     def read_daily_consumption_summary(
         self, energy: Energy, start_date: date, end_date: date
@@ -420,7 +426,7 @@ class CostForecastRetriever:
         # resolved to its single winning rate. Both the standing charge and
         # the variable cost read from this one partition, so they can never
         # again disagree about which rate covers which instant.
-        segments = self._day_segments(rates, day_start, day_end)
+        segments = day_segments(rates, day_start, day_end)
         # Standing-charge-only day (today): only the rate at "midday" (12
         # hours after the local day starts -- the same instant
         # _midday_standing_charge reads, 13:00 local on a spring-forward
@@ -436,7 +442,7 @@ class CostForecastRetriever:
         rates_estimated = False
         standing_segments, standing_start = segments, day_start
         variable_cost = self._segments_variable_cost(segments, daily_kwh)
-        if daily_kwh is not None and not self._segments_fully_cover_day(
+        if daily_kwh is not None and not segments_fully_cover_day(
             segments, day_start, day_end
         ):
             # A past day needing a variable cost with an upstream rate hole
@@ -493,16 +499,14 @@ class CostForecastRetriever:
             earlier_day = day - timedelta(days=offset)
             earlier_start = local_day.start_of_local_day(earlier_day)
             earlier_end = local_day.start_of_local_day(earlier_day + timedelta(days=1))
-            earlier_segments = self._day_segments(
+            earlier_segments = day_segments(
                 self._client.read_product_rates_for_local_day(
                     agreement.product_code, self._client.region_code, earlier_day
                 ),
                 earlier_start,
                 earlier_end,
             )
-            if self._segments_fully_cover_day(
-                earlier_segments, earlier_start, earlier_end
-            ):
+            if segments_fully_cover_day(earlier_segments, earlier_start, earlier_end):
                 return earlier_segments, earlier_start
         raise RuntimeError(
             f"No product_rate found for {agreement.product_code} "
@@ -592,58 +596,6 @@ class CostForecastRetriever:
             variable_cost += (segment_hours / 24) * daily_kwh * rate.unit_rate
         return variable_cost
 
-    @staticmethod
-    def _day_overlap(
-        rate: Rate, day_start: datetime, day_end: datetime
-    ) -> tuple[datetime, datetime] | None:
-        overlap_start = max(rate.valid_from, day_start)
-        overlap_end = min(rate.valid_to or day_end, day_end)
-        if overlap_end <= overlap_start:
-            return None
-        return overlap_start, overlap_end
-
-    @classmethod
-    def _day_segments(
-        cls, rates: list[Rate], day_start: datetime, day_end: datetime
-    ) -> list[tuple[datetime, datetime, Rate]]:
-        # Partitions [day_start, day_end) into non-overlapping segments, each
-        # assigned a single winning rate -- the one with the latest
-        # valid_from among every rate whose (day-clipped) window fully
-        # spans that segment ("most-recently-started wins", the same
-        # tiebreak read_current_product_rate already uses for its own
-        # overlapping-row lookup). A stretch no rate's window fully spans
-        # produces no segment at all, surfacing as a gap for the callers'
-        # coverage checks to catch (_segments_fully_cover_day, or the
-        # midday-only check for a standing-charge-only day).
-        clipped = [
-            (overlap[0], overlap[1], rate)
-            for rate in rates
-            if (overlap := cls._day_overlap(rate, day_start, day_end)) is not None
-        ]
-        boundaries = sorted({day_start, day_end, *(b for c in clipped for b in c[:2])})
-        segments: list[tuple[datetime, datetime, Rate]] = []
-        for segment_start, segment_end in pairwise(boundaries):
-            covering = [
-                c for c in clipped if c[0] <= segment_start and segment_end <= c[1]
-            ]
-            if not covering:
-                continue
-            winner = max(covering, key=lambda c: c[2].valid_from)
-            segments.append((segment_start, segment_end, winner[2]))
-        return segments
-
-    @staticmethod
-    def _segments_fully_cover_day(
-        segments: list[tuple[datetime, datetime, Rate]],
-        day_start: datetime,
-        day_end: datetime,
-    ) -> bool:
-        if not segments or segments[0][0] != day_start or segments[-1][1] != day_end:
-            return False
-        return all(
-            segments[i][1] == segments[i + 1][0] for i in range(len(segments) - 1)
-        )
-
     def _remaining_billing_window(
         self,
         billing_period: BillingPeriod,
@@ -711,14 +663,9 @@ class CostForecastRetriever:
         # is gap-filled or still-partial -- there's no complete day to
         # prefer yet, and an empty list would raise below rather than
         # produce a (rough, self-correcting) forecast.
-        as_of_local_date = local_day.to_local_date(as_of)
-        real_daily_totals = [
-            d.total_kwh
-            for d in daily_costs
-            if not d.is_gap_filled and d.date != as_of_local_date
-        ]
+        real_days = self._real_elapsed_days(daily_costs, as_of)
         future_daily_kwh = project_daily_average_consumption(
-            real_daily_totals or [d.total_kwh for d in daily_costs]
+            [d.total_kwh for d in real_days] or [d.total_kwh for d in daily_costs]
         )
         current_rate = self._client.read_current_product_rate(
             agreement.product_code, self._client.region_code, as_of
@@ -743,12 +690,73 @@ class CostForecastRetriever:
             variable_cost = self._project_gas_variable_cost(
                 billing_period.end, as_of, future_daily_kwh, current_rate
             )
+        elif agreement.tariff_type == TariffType.go:
+            variable_cost = TimeOfUseProjection(
+                self._client,
+                energy,
+                lambda slot: self._agreement_for_slot(energy, slot),
+                as_of,
+            ).variable_cost(
+                self._usage_since(energy, agreement),
+                billing_period.end,
+                future_daily_kwh,
+                real_days,
+            )
         else:
             variable_cost = (
                 (remaining_hours / 24) * future_daily_kwh * current_rate.unit_rate
             )
 
         return (variable_cost + standing_cost) / 100
+
+    @staticmethod
+    def _real_elapsed_days(
+        daily_costs: list[DailyCostSummary], as_of: datetime
+    ) -> list[DailyCostSummary]:
+        as_of_local_date = local_day.to_local_date(as_of)
+        return [
+            d for d in daily_costs if not d.is_gap_filled and d.date != as_of_local_date
+        ]
+
+    def _agreement_for_slot(self, energy: Energy, slot: datetime) -> Agreement:
+        # The agreement covering the slot. In a gap between agreements, or
+        # past the end of the last one, the latest agreement that had begun
+        # by then, since a contract is expected to renew; before the first
+        # ever began, the first.
+        covering = self._agreement_covering(energy, slot)
+        if covering is not None:
+            return covering
+        meter = next(m for m in self._client.meters if m.energy == energy)
+        begun = [
+            a
+            for a in meter.agreements
+            if a.valid_from <= slot and not a.has_zero_or_negative_width
+        ]
+        if begun:
+            return max(begun, key=lambda a: a.valid_from)
+        return min(meter.agreements, key=lambda a: a.valid_from)
+
+    def _usage_since(self, energy: Energy, agreement: Agreement) -> datetime:
+        # Where the current tariff began: a contract renewed onto the same
+        # product (even after a gap) carries on the same tariff, so its usage
+        # history counts, back to the last agreement on a different product.
+        meter = next(m for m in self._client.meters if m.energy == energy)
+        earlier_agreements = sorted(
+            (
+                a
+                for a in meter.agreements
+                if a.valid_from < agreement.valid_from
+                and not a.has_zero_or_negative_width
+            ),
+            key=lambda a: a.valid_from,
+            reverse=True,
+        )
+        since = agreement.valid_from
+        for earlier in earlier_agreements:
+            if earlier.product_code != agreement.product_code:
+                break
+            since = earlier.valid_from
+        return since
 
     def _project_agile_variable_cost(
         self, billing_period_end: date, future_daily_kwh: Decimal, as_of: datetime
