@@ -86,3 +86,13 @@ def test_existing_panels_remain_and_gauge_is_required() -> None:
 
     assert set(EXISTING_TITLES) <= titles
     assert "gauge" in {r["id"] for r in dashboard["__requires"]}
+
+
+def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> None:
+    reference = (
+        REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md"
+    ).read_text(encoding="utf-8")
+
+    assert "### Fuel price (latest) — gauge, id 20" in reference
+    assert "### Fuel price vs effective charging limit — timeseries, id 21" in reference
+    assert "Effective charging limit" in reference
