@@ -21,9 +21,8 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 HALF_HOUR = timedelta(minutes=30)
 
 # A product publishes rates only a day or two ahead, so a slot beyond them
-# repeats the pattern of the latest fully published local day, searched from
-# this many days past the as-of day and back through the lookback below.
-PUBLISHED_RATE_HORIZON_DAYS = 2
+# repeats the pattern of the latest fully published local day: searched back
+# from the end of the billing period to this many days before the as-of day.
 PATTERN_LOOKBACK_DAYS = 7
 
 
@@ -67,10 +66,12 @@ class _SlotRates:
         client: TimeOfUseSource,
         agreement_for_slot: Callable[[datetime], Agreement],
         as_of: datetime,
+        billing_period_end: date,
     ) -> None:
         self._client = client
         self._agreement_for_slot = agreement_for_slot
         self._as_of_day = local_day.to_local_date(as_of)
+        self._billing_period_end = billing_period_end
         self._published: dict[tuple[str, date], list[RateSegment]] = {}
         self._patterns: dict[str, tuple[date, list[RateSegment]]] = {}
 
@@ -114,9 +115,9 @@ class _SlotRates:
         return self._patterns[product_code]
 
     def _latest_full_day(self, product_code: str) -> tuple[date, list[RateSegment]]:
-        first = self._as_of_day + timedelta(days=PUBLISHED_RATE_HORIZON_DAYS)
-        for days_back in range(PUBLISHED_RATE_HORIZON_DAYS + PATTERN_LOOKBACK_DAYS + 1):
-            day = first - timedelta(days=days_back)
+        earliest = self._as_of_day - timedelta(days=PATTERN_LOOKBACK_DAYS)
+        for days_back in range((self._billing_period_end - earliest).days + 1):
+            day = self._billing_period_end - timedelta(days=days_back)
             day_start = local_day.start_of_local_day(day)
             day_end = local_day.start_of_local_day(day + timedelta(days=1))
             segments = self._segments(product_code, day)
@@ -150,8 +151,8 @@ class TimeOfUseProjection:
     ) -> None:
         self._client = client
         self._energy = energy
+        self._agreement_for_slot = agreement_for_slot
         self._as_of = as_of
-        self._slot_rates = _SlotRates(client, agreement_for_slot, as_of)
 
     def variable_cost(
         self,
@@ -161,15 +162,22 @@ class TimeOfUseProjection:
         real_days: list[DailyCostSummary],
     ) -> Decimal:
         shares = self._time_of_day_shares(usage_since, real_days)
+        slot_rates = _SlotRates(
+            self._client, self._agreement_for_slot, self._as_of, billing_period_end
+        )
         day = local_day.to_local_date(self._as_of)
         total = Decimal(0)
         while day <= billing_period_end:
-            total += self._day_cost(day, daily_kwh, shares)
+            total += self._day_cost(day, daily_kwh, shares, slot_rates)
             day += timedelta(days=1)
         return total
 
     def _day_cost(
-        self, day: date, daily_kwh: Decimal, shares: dict[time, Decimal]
+        self,
+        day: date,
+        daily_kwh: Decimal,
+        shares: dict[time, Decimal],
+        slot_rates: _SlotRates,
     ) -> Decimal:
         slots = _half_hour_starts(
             local_day.start_of_local_day(day),
@@ -186,7 +194,7 @@ class TimeOfUseProjection:
             (
                 fraction
                 * (daily_kwh * weight / total_weight)
-                * self._slot_rates.unit_rate(slot, day)
+                * slot_rates.unit_rate(slot, day)
                 for slot, weight in zip(slots, weights)
                 if (fraction := _remaining_fraction(slot, self._as_of)) > 0
             ),
@@ -218,9 +226,13 @@ class TimeOfUseProjection:
             local_day.start_of_local_day(max(days) + timedelta(days=1)),
         )
         local_zone = local_day.get_local_timezone()
+        # Averaged per clock time over its readings, so the autumn clock-change
+        # day's repeated hour (two readings per day) is not double-weighted.
         totals: dict[time, Decimal] = {}
+        counts: dict[time, int] = {}
         for instant, kwh in readings:
             local = instant.astimezone(local_zone)
             if local.date() in days:
                 totals[local.time()] = totals.get(local.time(), Decimal(0)) + kwh
-        return totals
+                counts[local.time()] = counts.get(local.time(), 0) + 1
+        return {clock: total / counts[clock] for clock, total in totals.items()}
