@@ -17,8 +17,8 @@
 ### Acceptance criteria
 
 - [x] Given a tariff code `E-1R-GO-VAR-22-10-14-C`, when the tariff type is determined, then it is `go`; Agile, Economy 7 and variable codes keep their types
-- [x] Given elapsed days with usage skewed to the cheap window, when the Cost Forecast refreshes, then the projection uses the effective rate, not the flat or time-weighted average
-- [x] Given no real elapsed day, when the Cost Forecast refreshes, then the projection uses today's time-weighted average rate
+- [x] Given elapsed days with usage skewed to the cheap window, when the Cost Forecast refreshes, then the projection uses the effective rate, not the flat or time-weighted average (superseded by the slot-by-slot projection in the last slice)
+- [x] Given no real elapsed day, when the Cost Forecast refreshes, then the projection uses today's time-weighted average rate (superseded by the slot-by-slot projection in the last slice)
 - [x] pre-commit (including pylint) passes
 
 ---

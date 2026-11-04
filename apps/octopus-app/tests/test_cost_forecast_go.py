@@ -127,9 +127,17 @@ def test_go_projection_prices_each_slot_with_the_usual_usage_at_that_time_of_day
     )
 
 
+@pytest.mark.parametrize(
+    ("as_of", "remaining_unit_pence"),
+    [
+        (datetime(2026, 7, 6, 12, 0, tzinfo=UTC), Decimal("950")),
+        # 13:15 local: the 13:00 half-hour (15p) is half elapsed.
+        (datetime(2026, 7, 6, 12, 15, tzinfo=UTC), Decimal("942.5")),
+    ],
+)
 @responses.activate
 def test_go_projection_spreads_usage_evenly_across_the_day_without_a_whole_day_yet(
-    mariadb_client: MariaDBClient,
+    mariadb_client: MariaDBClient, as_of: datetime, remaining_unit_pence: Decimal
 ) -> None:
     _mock_billing_period("2026-07-07", "2026-07-08")
     with mariadb_client.session_write_scope() as s:
@@ -151,7 +159,7 @@ def test_go_projection_spreads_usage_evenly_across_the_day_without_a_whole_day_y
     )
     # 13:00 local on 6 July: the only consumption is today's, which is
     # excluded as partial, so no real elapsed day exists to learn usage from.
-    retriever.refresh(as_of=datetime(2026, 7, 6, 12, 0, tzinfo=UTC))
+    retriever.refresh(as_of=as_of)
 
     with mariadb_client.session_read_scope() as session:
         row = session.query(model.cost_forecast).one()
@@ -161,8 +169,9 @@ def test_go_projection_spreads_usage_evenly_across_the_day_without_a_whole_day_y
     # Even usage: 0.5 kWh per half-hour. Rest of 6 July from 13:00 local is 22
     # peak slots (330p); 7 July repeats the latest fully published day's
     # pattern (3 peak, 10 cheap, 35 peak slots: 570p + 50p = 620p). Total
-    # 950p of unit charges plus one remaining day's 50p standing charge.
-    expected_remaining = (Decimal(950) + STANDING_CHARGE) / 100
+    # 950p of unit charges (less any elapsed part of the current half-hour)
+    # plus one remaining day's 50p standing charge.
+    expected_remaining = (remaining_unit_pence + STANDING_CHARGE) / 100
     assert row.projected_total_cost == pytest.approx(
         Decimal("7.70") + expected_remaining, abs=Decimal("0.01")
     )

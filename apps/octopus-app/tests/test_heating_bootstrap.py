@@ -3,7 +3,9 @@ import random
 
 import pytest
 
-from octopus_app.data.heating_bootstrap import bootstrap_threshold_upper
+from octopus_app.data.heating_bootstrap import (
+    bootstrap_threshold_upper,
+)
 from octopus_app.data.heating_model import THRESHOLDS
 
 PLANTED_THRESHOLD = 12.0
