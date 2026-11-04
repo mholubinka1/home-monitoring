@@ -188,9 +188,13 @@ the outage length.
      appear in `docker logs`)
    - the repo's `data/mariadb/memory.cnf` copied to `home-monitoring-db/config/`
      (mounted read-only into `/etc/mysql/conf.d/`; it shrinks the unused Aria and key
-     buffers). The compose file also caps the container at 512 MB with no swap, which
-     Docker only enforces if the Pi's kernel boots with `cgroup_enable=memory` in
-     `/boot/firmware/cmdline.txt`; without it the cap is silently ignored
+     buffers). On an existing deployment, copy it before applying the compose change,
+     or Docker creates a directory at the missing path. The compose file also caps the
+     container at 512 MB with no swap, which Docker only enforces if the Pi's kernel
+     boots with `cgroup_enable=memory` in `/boot/firmware/cmdline.txt`; without it the
+     cap is silently ignored. Check it is enforced with
+     `docker stats --no-stream home-monitoring-db`, which should show a limit of
+     `512MiB`, not `0B`
 2. **Create `config.yml`** from the app's `config.yml.template` (see Configuration above) and
    place it at the path you chose for the app's config bind mount.
 3. **Create `.env`** from `.env.template` in the repository root — the directory you'll

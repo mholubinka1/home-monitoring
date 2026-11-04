@@ -14,8 +14,11 @@
 # innodb_buffer_pool_size is deliberately left at its 128 MB default: it is mostly
 # empty today but is the cache the dashboards' queries actually use.
 #
-# Needs a container restart to take effect. See
-# .agent-docs/specs/chore-reduce-mariadb-memory.md for the full rationale.
+# Copy it to the host BEFORE applying a compose file that mounts it: Docker creates
+# a directory at a missing bind-mount source, and the buffers would silently stay at
+# 128 MB. The first deployment needs the container recreated (docker compose up -d),
+# because a restart does not pick up a new mount; later edits to this file only need
+# a restart. See .agent-docs/specs/chore-reduce-mariadb-memory.md for the rationale.
 
 [mysqld]
 aria_pagecache_buffer_size = 8M
