@@ -68,6 +68,8 @@ A full-width Stat panel at the top of the electricity dashboard showing the curr
 
 ## Agile rates keep being fetched after the Agile agreement ends
 
+**GitHub issue**: #727
+
 **Blocked by**: None
 
 **User stories**: 11
@@ -78,12 +80,14 @@ Skip comparison-rate fetching only for products that have an agreement that has 
 
 ### Acceptance criteria
 
-- [ ] Given an ended Agile agreement and a current Go agreement, when pricing refreshes, then the Agile product's rates are fetched as comparison rates
-- [ ] Given a current agreement's product, when pricing refreshes, then its rates are still fetched once, by the own-agreement sync
+- [x] Given an ended Agile agreement and a current Go agreement, when pricing refreshes, then the Agile product's rates are fetched as comparison rates
+- [x] Given a current agreement's product, when pricing refreshes, then its rates are still fetched once, by the own-agreement sync
 
 ---
 
 ## Dashboard prices each half-hour by the covering rate and agreement
+
+**GitHub issue**: #728
 
 **Blocked by**: None
 
@@ -95,14 +99,16 @@ Bound the dashboard's rate lookups by the chosen rate row's own validity, take a
 
 ### Acceptance criteria
 
-- [ ] A slot with no rate row covering it is dropped rather than priced at an older rate
-- [ ] On a tariff-change day the standing charge is the one in force at local midday
-- [ ] A future-dated agreement's product prices the slots it covers in the Cheapest Time Window
-- [ ] The JSON and the reference doc contain the same SQL
+- [x] A slot with no rate row covering it is dropped rather than priced at an older rate
+- [x] On a tariff-change day the standing charge is the one in force at local midday
+- [x] A future-dated agreement's product prices the slots it covers in the Cheapest Time Window
+- [x] The JSON and the reference doc contain the same SQL
 
 ---
 
 ## Cost Forecast prices each remaining half-hour for Go
+
+**GitHub issue**: #729
 
 **Blocked by**: None
 
@@ -114,10 +120,10 @@ Replace the Go effective-rate projection with slot-by-slot pricing: covering agr
 
 ### Acceptance criteria
 
-- [ ] Usage concentrated in the cheap window projects at the cheap rate for those slots
-- [ ] Even usage (no whole day under the agreement yet) projects at the time-weighted average
-- [ ] A future-dated agreement change inside the period is priced by the new agreement's rates from its start
-- [ ] A part-way switch day and previous-tariff days are excluded from the usage pattern
-- [ ] Fixed, variable, Agile and gas projections are unchanged
+- [x] Usage concentrated in the cheap window projects at the cheap rate for those slots
+- [x] Even usage (no whole day under the agreement yet) projects at the time-weighted average
+- [x] A future-dated agreement change inside the period is priced by the new agreement's rates from its start
+- [x] A part-way switch day and previous-tariff days are excluded from the usage pattern
+- [x] Fixed, variable, Agile and gas projections are unchanged
 
 ---
