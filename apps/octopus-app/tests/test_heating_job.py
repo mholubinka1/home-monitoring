@@ -157,6 +157,7 @@ def test_an_unusable_fit_stores_the_reason_and_writes_no_rows(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=60)
+    seed_forecast_means(mariadb_client, {TODAY: 6.0})
 
     HeatingModelJob(mariadb_client).refresh(now=NOW)
 
@@ -179,6 +180,11 @@ def test_a_later_unusable_refit_is_recorded_and_the_forecast_keeps_the_old_model
         session.query(model.daily_consumption_summary).filter(
             model.daily_consumption_summary.date < LAST_GAS_DAY - timedelta(days=40)
         ).delete()
+    second_run_day = TODAY + timedelta(days=8)
+    seed_forecast_means(
+        mariadb_client,
+        {second_run_day + timedelta(days=i): 6.0 for i in range(-1, 7)},
+    )
 
     job.refresh(now=NOW + timedelta(days=8))
 
@@ -186,8 +192,11 @@ def test_a_later_unusable_refit_is_recorded_and_the_forecast_keeps_the_old_model
     assert latest is not None
     assert latest.id != first.id
     assert not latest.model.usable
-    forecast_model_ids = {m for m, _ in mariadb_client.read_heating_forecast_days()}
-    assert forecast_model_ids <= {first.id}
+    forecast = mariadb_client.read_heating_forecast_days()
+    assert [row.date for _, row in forecast] == [
+        second_run_day + timedelta(days=i) for i in range(7)
+    ]
+    assert {model_id for model_id, _ in forecast} == {first.id}
 
 
 def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
@@ -380,6 +389,7 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
     seed_planted_history(
         mariadb_client, last_day=today - timedelta(days=1), days=HISTORY_DAYS
     )
+    seed_forecast_means(mariadb_client, {today: 6.0})
 
     run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
     run_initial_heating_model_sync(HeatingModelJob(mariadb_client))
@@ -388,7 +398,9 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
     assert stored is not None
     assert stored.model.usable
     assert _model_count(mariadb_client) == 1
-    assert {m for m, _ in mariadb_client.read_heating_forecast_days()} <= {stored.id}
+    forecast = mariadb_client.read_heating_forecast_days()
+    assert [row.date for _, row in forecast] == [today]
+    assert {model_id for model_id, _ in forecast} == {stored.id}
 
 
 def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
