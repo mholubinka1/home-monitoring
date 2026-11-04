@@ -73,7 +73,10 @@ class SessionBuilder:
         # Every model's schema="octopus" (see mariadb/model.py) is a fixed
         # translation-map key, not a database name -- this is what actually
         # makes settings.database retarget every query. See ADR-0025.
-        self.engine = create_engine(uri).execution_options(
+        # pool_pre_ping: a pooled connection the server has dropped (a restart,
+        # or the memory cap's OOM kill) is replaced on checkout instead of failing
+        # the first query after it.
+        self.engine = create_engine(uri, pool_pre_ping=True).execution_options(
             schema_translate_map={"octopus": settings.database}
         )
         self.session = sessionmaker(bind=self.engine)
