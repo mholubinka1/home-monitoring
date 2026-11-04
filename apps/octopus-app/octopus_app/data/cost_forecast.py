@@ -696,7 +696,12 @@ class CostForecastRetriever:
                 energy,
                 lambda slot: self._agreement_for_slot(energy, slot),
                 as_of,
-            ).variable_cost(agreement, billing_period.end, future_daily_kwh, real_days)
+            ).variable_cost(
+                self._usage_since(energy, agreement),
+                billing_period.end,
+                future_daily_kwh,
+                real_days,
+            )
         else:
             variable_cost = (
                 (remaining_hours / 24) * future_daily_kwh * current_rate.unit_rate
@@ -714,13 +719,33 @@ class CostForecastRetriever:
         ]
 
     def _agreement_for_slot(self, energy: Energy, slot: datetime) -> Agreement:
-        # The agreement covering the slot; past the end of the last one, that
-        # last agreement, since a contract is expected to renew.
+        # The agreement covering the slot. In a gap between agreements, or
+        # past the end of the last one, the latest agreement that had begun
+        # by then, since a contract is expected to renew; before the first
+        # ever began, the first.
         covering = self._agreement_covering(energy, slot)
         if covering is not None:
             return covering
         meter = next(m for m in self._client.meters if m.energy == energy)
-        return max(meter.agreements, key=lambda a: a.valid_from)
+        begun = [a for a in meter.agreements if a.valid_from <= slot]
+        if begun:
+            return max(begun, key=lambda a: a.valid_from)
+        return min(meter.agreements, key=lambda a: a.valid_from)
+
+    def _usage_since(self, energy: Energy, agreement: Agreement) -> datetime:
+        # Where the current tariff began: a contract renewed onto the same
+        # product carries on the same tariff, so its usage history counts.
+        meter = next(m for m in self._client.meters if m.energy == energy)
+        since = agreement.valid_from
+        for earlier in sorted(
+            meter.agreements, key=lambda a: a.valid_from, reverse=True
+        ):
+            if (
+                earlier.product_code == agreement.product_code
+                and earlier.valid_to == since
+            ):
+                since = earlier.valid_from
+        return since
 
     def _project_agile_variable_cost(
         self, billing_period_end: date, future_daily_kwh: Decimal, as_of: datetime

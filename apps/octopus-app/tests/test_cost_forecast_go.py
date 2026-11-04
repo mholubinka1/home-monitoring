@@ -130,7 +130,7 @@ def test_go_projection_prices_each_slot_with_the_usual_usage_at_that_time_of_day
 @pytest.mark.parametrize(
     ("as_of", "remaining_unit_pence"),
     [
-        (datetime(2026, 7, 6, 12, 0, tzinfo=UTC), Decimal("950")),
+        (datetime(2026, 7, 6, 12, 0, tzinfo=UTC), Decimal(950)),
         # 13:15 local: the 13:00 half-hour (15p) is half elapsed.
         (datetime(2026, 7, 6, 12, 15, tzinfo=UTC), Decimal("942.5")),
     ],
@@ -532,3 +532,163 @@ def test_go_pattern_beyond_published_rates_follows_the_local_clock_across_a_cloc
     assert row.projected_total_cost == pytest.approx(
         Decimal("1.46") + remaining_pence / 100, abs=Decimal("0.01")
     )
+
+
+FIXED_PRODUCT_CODE = "VAR-24-10-01"
+
+
+def _seed_flat_rate(s, product_code: str, unit_rate: str) -> None:
+    s.add(
+        model.product_rate(
+            id=f"{product_code}_{REGION}_202601010000",
+            product_code=product_code,
+            region=REGION,
+            valid_from=datetime(2026, 1, 1, tzinfo=UTC),
+            valid_to=None,
+            unit_rate=Decimal(unit_rate),
+            standing_charge=STANDING_CHARGE,
+        )
+    )
+
+
+def _seed_go_agreement_row(s, valid_to: datetime | None) -> None:
+    s.add(
+        model.agreement(
+            id="E20220101000000",
+            energy="E",
+            product_code=GO_PRODUCT_CODE,
+            tariff_code=GO_TARIFF_CODE,
+            valid_from=datetime(2022, 1, 1),
+            valid_to=valid_to,
+        )
+    )
+
+
+@responses.activate
+def test_go_usage_pattern_carries_across_a_renewal_onto_the_same_product(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    renewal = start_of_local_day(date(2026, 7, 7))
+    first_term = Agreement(
+        tariff_code=GO_TARIFF_CODE,
+        valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+        valid_to=renewal,
+    )
+    with mariadb_client.session_write_scope() as s:
+        _seed_go_agreement_row(s, renewal)
+        _seed_july_6_go_rates(s)
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+        for row in s.query(model.consumption).all():
+            if (
+                datetime(2026, 7, 6, 0, 30)
+                <= row.period_from
+                < datetime(2026, 7, 6, 5, 30)
+            ):
+                row.est_kwh = row.raw_value = Decimal("0.4")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=GO_TARIFF_CODE,
+                    valid_from=renewal,
+                    prior_agreements=[first_term],
+                )
+            ],
+        )
+    )
+    retriever.refresh(as_of=renewal)
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # The new term has no whole day yet, but 6 July's cheap-window-heavy
+    # pattern under the first term (same product) still shapes the usage:
+    # 154p + 50p standing for each of the 31 remaining days. An even spread
+    # would price the cheap-window usage at peak rates instead.
+    assert row.projected_total_cost == pytest.approx(
+        Decimal("2.04") + Decimal(31) * Decimal("2.04"), abs=Decimal("0.01")
+    )
+
+
+@responses.activate
+def test_a_gap_between_agreements_is_priced_by_the_one_that_had_begun(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    go_ends = start_of_local_day(date(2026, 7, 20))
+    fixed_begins = start_of_local_day(date(2026, 7, 22))
+    go_agreement = Agreement(
+        tariff_code=GO_TARIFF_CODE,
+        valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+        valid_to=go_ends,
+    )
+    with mariadb_client.session_write_scope() as s:
+        _seed_go_agreement_row(s, go_ends)
+        _seed_flat_rate(s, GO_PRODUCT_CODE, "20.00")
+        _seed_flat_rate(s, FIXED_PRODUCT_CODE, "30.00")
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{FIXED_PRODUCT_CODE}-{REGION}",
+                    valid_from=fixed_begins,
+                    prior_agreements=[go_agreement],
+                )
+            ],
+        )
+    )
+    retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        row = session.query(model.cost_forecast).one()
+
+    # 20-21 July fall between the agreements and stay on Go (20p): 15 days
+    # (7-21 July) at 20p, then 16 days at the fixed 30p:
+    # 4.8 kWh * (15*20 + 16*30) = 3744p, plus 31 days of standing charge
+    # (1550p) and the elapsed day (146p).
+    assert row.projected_total_cost == pytest.approx(
+        Decimal("1.46") + (Decimal(3744) + Decimal(1550)) / 100,
+        abs=Decimal("0.01"),
+    )
+
+
+@responses.activate
+def test_a_later_agreement_with_no_published_rates_fails_the_refresh_without_a_row(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_billing_period("2026-07-07", "2026-08-07")
+    changeover = start_of_local_day(date(2026, 7, 20))
+    go_agreement = Agreement(
+        tariff_code=GO_TARIFF_CODE,
+        valid_from=datetime(2022, 1, 1, tzinfo=UTC),
+        valid_to=changeover,
+    )
+    with mariadb_client.session_write_scope() as s:
+        _seed_go_agreement_row(s, changeover)
+        _seed_flat_rate(s, GO_PRODUCT_CODE, "20.00")
+        _seed_complete_day(s, date(2026, 7, 6), "0.1")
+
+    retriever = CostForecastRetriever(
+        _source(
+            mariadb_client,
+            [
+                _make_electricity_meter(
+                    tariff_code=f"E-1R-{FIXED_PRODUCT_CODE}-{REGION}",
+                    valid_from=changeover,
+                    prior_agreements=[go_agreement],
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="No fully published day found"):
+        retriever.refresh(as_of=start_of_local_day(date(2026, 7, 7)))
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.cost_forecast).count() == 0

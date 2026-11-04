@@ -155,12 +155,12 @@ class TimeOfUseProjection:
 
     def variable_cost(
         self,
-        agreement: Agreement,
+        usage_since: datetime,
         billing_period_end: date,
         daily_kwh: Decimal,
         real_days: list[DailyCostSummary],
     ) -> Decimal:
-        shares = self._time_of_day_shares(agreement, real_days)
+        shares = self._time_of_day_shares(usage_since, real_days)
         day = local_day.to_local_date(self._as_of)
         total = Decimal(0)
         while day <= billing_period_end:
@@ -194,21 +194,22 @@ class TimeOfUseProjection:
         )
 
     def _time_of_day_shares(
-        self, agreement: Agreement, real_days: list[DailyCostSummary]
+        self, usage_since: datetime, real_days: list[DailyCostSummary]
     ) -> dict[time, Decimal]:
-        # Usage by local time of day over the real elapsed days wholly under
-        # this agreement: days priced on a previous tariff would show that
-        # tariff's usage pattern, and a switch part-way through a day leaves
-        # that day half on the old tariff, so counting starts from the first
-        # day wholly on this one. Empty when there is no such day yet.
-        first_whole_day = local_day.to_local_date(agreement.valid_from)
-        if agreement.valid_from != local_day.start_of_local_day(first_whole_day):
+        # Usage by local time of day over the real elapsed days wholly on the
+        # current tariff (since usage_since): days priced on a previous tariff
+        # would show that tariff's usage pattern, and a switch part-way
+        # through a day leaves that day half on the old tariff, so counting
+        # starts from the first day wholly on this one. Empty when there is
+        # no such day yet.
+        first_whole_day = local_day.to_local_date(usage_since)
+        if usage_since != local_day.start_of_local_day(first_whole_day):
             first_whole_day += timedelta(days=1)
         days = {d.date for d in real_days if d.date >= first_whole_day}
         if not days:
             logger.info(
-                f"No whole elapsed day under {agreement.tariff_code} yet -- "
-                "projecting with even usage across the day."
+                f"No whole elapsed day since {usage_since.date()} on this tariff "
+                "yet -- projecting with even usage across the day."
             )
             return {}
         readings = self._client.read_half_hourly_consumption(
