@@ -14,7 +14,7 @@ class Energy(Enum):
 
 
 def as_energy_char(energy: Energy) -> str:
-    match (energy):
+    match energy:
         case Energy.electricity:
             return "E"
         case Energy.gas:
@@ -22,7 +22,7 @@ def as_energy_char(energy: Energy) -> str:
 
 
 def energy_from_char(char: str) -> Energy:
-    match (char):
+    match char:
         case "E":
             return Energy.electricity
         case "G":
@@ -94,9 +94,6 @@ class HeatingModelRecord:  # pylint: disable=too-many-instance-attributes
     baseload_measured_days: int | None
     baseload_interpolated_days: int | None
     baseload_held_days: int | None
-    noise_base: float | None
-    noise_per_degree_day: float | None
-    noise_floor: float | None
     thermostat_threshold: float | None
     heating_days: int | None
     non_heating_days: int | None
@@ -110,26 +107,6 @@ class StoredHeatingModel:
 
 
 @dataclass(frozen=True)
-class HeatingDayVerdictRecord:  # pylint: disable=too-many-instance-attributes
-    """One day's heating verdict as stored: gas against what the model expects."""
-
-    date: date
-    mean_temp: float | None
-    effective_temp: float | None
-    actual_gas: float
-    expected_gas: float
-    baseload: float
-    baseload_kind: str  # 'measured', 'interpolated' or 'held'
-    needed: bool
-    away: bool
-    expected_heating: float
-    normal_variation: float
-    possible: float
-    clear: float
-    margin: float
-
-
-@dataclass(frozen=True)
 class HeatingForecastRecord:
     """One future day's projected gas as stored."""
 
@@ -140,7 +117,7 @@ class HeatingForecastRecord:
 
 
 def get_raw_unit(energy: Energy) -> Unit:
-    match (energy):
+    match energy:
         case Energy.gas:
             return Unit.m3
         case Energy.electricity:

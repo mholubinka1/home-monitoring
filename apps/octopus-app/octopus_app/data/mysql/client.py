@@ -29,14 +29,12 @@ from common.config import MariaDBSettings
 from common.exceptions import MariaDBError
 from common.mariadb.client import MariaDBClientBase
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data.heating_weeks import WeekRow, WeekStatus
 from octopus_app.data.model import (
     Consumption,
     ConsumptionSummary,
     CostForecast,
     DailyCostSummary,
     Energy,
-    HeatingDayVerdictRecord,
     HeatingForecastRecord,
     HeatingModelRecord,
     StoredHeatingModel,
@@ -344,34 +342,6 @@ class MariaDBClient(MariaDBClientBase):
             logger.error(f"Failed to replace {description}: {e}")
             raise MariaDBError(e) from e
 
-    def replace_heating_day_verdicts(
-        self, model_id: int, rows: list[HeatingDayVerdictRecord]
-    ) -> None:
-        self._replace_all_rows(
-            model.heating_day_verdict,
-            [
-                model.heating_day_verdict(model_id=model_id, **_values_of(row))
-                for row in rows
-            ],
-            "heating day verdicts",
-        )
-
-    def read_heating_day_verdicts(
-        self, start_date: date, end_date: date
-    ) -> list[tuple[int, HeatingDayVerdictRecord]]:
-        hv = model.heating_day_verdict
-        with self.session_read_scope() as session:
-            stored = (
-                session.query(hv)
-                .filter(hv.date >= start_date, hv.date <= end_date)
-                .order_by(hv.date)
-                .all()
-            )
-            return [
-                (row.model_id, _record_of(HeatingDayVerdictRecord, row))
-                for row in stored
-            ]
-
     def replace_heating_forecast_days(
         self, model_id: int, rows: list[HeatingForecastRecord], computed_at: datetime
     ) -> None:
@@ -397,30 +367,6 @@ class MariaDBClient(MariaDBClientBase):
             return [
                 (row.model_id, _record_of(HeatingForecastRecord, row))
                 for row in session.query(hf).order_by(hf.date).all()
-            ]
-
-    def replace_heating_weeks(self, model_id: int, rows: list[WeekRow]) -> None:
-        self._replace_all_rows(
-            model.heating_week,
-            [
-                model.heating_week(
-                    model_id=model_id,
-                    **_values_of(row) | {"status": row.status.value},
-                )
-                for row in rows
-            ],
-            "heating weeks",
-        )
-
-    def read_heating_weeks(self) -> list[tuple[int, WeekRow]]:
-        hw = model.heating_week
-        with self.session_read_scope() as session:
-            return [
-                (
-                    row.model_id,
-                    _record_of(WeekRow, row, status=WeekStatus(row.status)),
-                )
-                for row in session.query(hw).order_by(hw.week_start).all()
             ]
 
     def read_current_product_rate(

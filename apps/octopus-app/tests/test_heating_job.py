@@ -13,10 +13,10 @@ from octopus_app.data.heating_model import (
     WEIGHT_MAX,
     UnusableReason,
 )
-from octopus_app.data.heating_weeks import WeekStatus
 from octopus_app.data.model import HeatingModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.mysql.model import SQLBase
 from octopus_app.main import run_initial_heating_model_sync
 
 from .heating_history_fixtures import (
@@ -88,12 +88,10 @@ def test_the_first_refresh_stores_a_usable_model_close_to_the_planted_one(
     assert stored.model.slope == pytest.approx(PLANTED_SLOPE, abs=0.5)
 
 
-def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model(
+def test_the_refresh_writes_the_forecast_tied_to_the_stored_model_and_keeps_no_verdicts_or_weeks(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _, gas = seed_planted_history(
-        mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
-    )
+    seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
     seed_forecast_means(
         mariadb_client, {TODAY + timedelta(days=i): 6.0 + i for i in range(7)}
     )
@@ -102,18 +100,6 @@ def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model
 
     stored = mariadb_client.read_latest_heating_model()
     assert stored is not None
-    verdicts = mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
-    assert {day.date for _, day in verdicts} == set(gas)
-    assert {model_id for model_id, _ in verdicts} == {stored.id}
-    for _, day in verdicts:
-        slices = (
-            day.baseload
-            + day.expected_heating
-            + day.normal_variation
-            + day.possible
-            + day.clear
-        )
-        assert slices == pytest.approx(day.actual_gas)
     forecast = mariadb_client.read_heating_forecast_days()
     assert [row.date for _, row in forecast] == [
         TODAY + timedelta(days=i) for i in range(7)
@@ -124,18 +110,17 @@ def test_the_refresh_writes_verdicts_forecast_and_weeks_tied_to_the_stored_model
             stored.model.baseload
             + stored.model.slope * max(0.0, stored.model.threshold - row.effective_temp)
         )
-    weeks = mariadb_client.read_heating_weeks()
-    assert weeks
-    assert {model_id for model_id, _ in weeks} == {stored.id}
-    assert {week.status for _, week in weeks} <= set(WeekStatus)
+    declared = {table.name for table in SQLBase.metadata.tables.values()}
+    assert not {"heating_day_verdict", "heating_week"} & declared
 
 
-def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rejudges(
+def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rewrites_the_forecast(
     mariadb_client: MariaDBClient,
 ) -> None:
     means, _ = seed_planted_history(
         mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS
     )
+    seed_forecast_means(mariadb_client, {TODAY: 6.0, TODAY + timedelta(days=1): 6.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     seed_weather_day(mariadb_client, TODAY, means[LAST_GAS_DAY])
@@ -144,10 +129,8 @@ def test_a_model_fitted_under_seven_days_ago_is_not_refitted_but_rejudges(
     job.refresh(now=NOW + timedelta(days=1))
 
     assert _model_count(mariadb_client) == 1
-    verdict_days = {
-        day.date for _, day in mariadb_client.read_heating_day_verdicts(TODAY, TODAY)
-    }
-    assert verdict_days == {TODAY}
+    forecast = mariadb_client.read_heating_forecast_days()
+    assert [row.date for _, row in forecast] == [TODAY + timedelta(days=1)]
 
 
 @pytest.mark.parametrize(
@@ -166,6 +149,9 @@ def test_the_model_is_refitted_once_it_is_seven_local_days_old(
     mariadb_client: MariaDBClient, age: timedelta, refits: bool
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
+    seed_forecast_means(
+        mariadb_client, {TODAY + timedelta(days=i): 6.0 for i in range(9)}
+    )
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
 
@@ -174,13 +160,7 @@ def test_the_model_is_refitted_once_it_is_seven_local_days_old(
     assert _model_count(mariadb_client) == (2 if refits else 1)
     latest = mariadb_client.read_latest_heating_model()
     assert latest is not None
-    verdict_models = {
-        model_id
-        for model_id, _ in mariadb_client.read_heating_day_verdicts(
-            date(2020, 1, 1), TODAY
-        )
-    }
-    assert verdict_models == {latest.id}
+    assert {m for m, _ in mariadb_client.read_heating_forecast_days()} == {latest.id}
 
 
 def test_an_unusable_fit_stores_the_reason_and_writes_no_rows(
@@ -195,12 +175,10 @@ def test_an_unusable_fit_stores_the_reason_and_writes_no_rows(
     assert not stored.model.usable
     assert stored.model.unusable_reason == UnusableReason.TOO_FEW_DAYS.value
     assert stored.model.label == "estimated"
-    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY) == []
     assert mariadb_client.read_heating_forecast_days() == []
-    assert mariadb_client.read_heating_weeks() == []
 
 
-def test_a_later_unusable_refit_is_recorded_and_the_day_is_rejudged_with_the_old_model(
+def test_a_later_unusable_refit_is_recorded_and_the_forecast_keeps_the_old_model(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -219,12 +197,6 @@ def test_a_later_unusable_refit_is_recorded_and_the_day_is_rejudged_with_the_old
     assert latest is not None
     assert latest.id != first.id
     assert not latest.model.usable
-    verdicts = mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
-    assert 0 < len(verdicts) <= 41  # re-judged on what gas is left
-    assert {model_id for model_id, _ in verdicts} == {first.id}
-    assert {model_id for model_id, _ in mariadb_client.read_heating_weeks()} == {
-        first.id
-    }
     forecast_model_ids = {m for m, _ in mariadb_client.read_heating_forecast_days()}
     assert forecast_model_ids <= {first.id}
 
@@ -240,6 +212,7 @@ def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
         session.query(model.daily_consumption_summary).filter(
             model.daily_consumption_summary.date < LAST_GAS_DAY - timedelta(days=100)
         ).delete()
+    seed_forecast_means(mariadb_client, {TODAY: 6.0, TODAY + timedelta(days=1): 6.0})
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     first = mariadb_client.read_latest_heating_model()
@@ -254,13 +227,10 @@ def test_a_first_fit_that_is_unusable_is_retried_the_next_day_with_more_data(
     assert latest is not None
     assert latest.model.usable
     assert _model_count(mariadb_client) == 2
-    verdict_models = {
-        m for m, _ in mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
-    }
-    assert verdict_models == {latest.id}
+    assert {m for m, _ in mariadb_client.read_heating_forecast_days()} == {latest.id}
 
 
-def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_raise(
+def test_a_stored_model_with_no_measurable_baseload_writes_no_forecast_and_does_not_raise(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -279,12 +249,11 @@ def test_a_stored_model_with_no_measurable_baseload_judges_nothing_and_does_not_
     job.refresh(now=NOW + timedelta(days=1))
 
     assert _model_count(mariadb_client) == 1
-    # The old forecast is not left standing; the past days' verdicts are kept.
+    # The old forecast is not left standing.
     assert mariadb_client.read_heating_forecast_days() == []
-    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
 
 
-def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
+def test_a_stored_model_whose_weight_is_at_the_cap_still_projects(
     mariadb_client: MariaDBClient,
 ) -> None:
     # The live fit lands on the 0.8 cap; the next day's run reads it back from
@@ -308,9 +277,6 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
             baseload_measured_days=1,
             baseload_interpolated_days=0,
             baseload_held_days=0,
-            noise_base=2.0,
-            noise_per_degree_day=0.1,
-            noise_floor=1.0,
             thermostat_threshold=None,
             heating_days=None,
             non_heating_days=None,
@@ -321,7 +287,6 @@ def test_a_stored_model_whose_weight_is_at_the_cap_still_judges_and_projects(
     HeatingModelJob(mariadb_client).refresh(now=NOW)  # the model is not stale
 
     assert _model_count(mariadb_client) == 1
-    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
     assert [row.date for _, row in mariadb_client.read_heating_forecast_days()] == [
         TODAY
     ]
@@ -334,9 +299,9 @@ def test_a_stored_usable_model_missing_a_number_names_it_when_it_fails(
     job = HeatingModelJob(mariadb_client)
     job.refresh(now=NOW)
     with mariadb_client.session_write_scope() as session:
-        session.query(model.heating_model).update({"noise_floor": None})
+        session.query(model.heating_model).update({"slope": None})
 
-    with pytest.raises(ValueError, match="noise floor"):
+    with pytest.raises(ValueError, match="slope"):
         job.refresh(now=NOW + timedelta(days=1))
 
 
@@ -362,25 +327,9 @@ def test_with_no_usable_gas_left_the_old_forecast_is_removed_and_nothing_raises(
     job.refresh(now=NOW + timedelta(days=1))
 
     assert mariadb_client.read_heating_forecast_days() == []
-    assert mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
 
 
-def test_history_older_than_the_rolling_windows_still_gets_verdicts_and_weeks(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Summaries are never pruned, so the history keeps growing: nothing is cut
-    # off at a fixed age (here, about 4.7 years of it).
-    _, gas = seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=1700)
-
-    HeatingModelJob(mariadb_client).refresh(now=NOW)
-
-    verdicts = mariadb_client.read_heating_day_verdicts(date(2000, 1, 1), TODAY)
-    assert min(day.date for _, day in verdicts) == min(gas)
-    weeks = mariadb_client.read_heating_weeks()
-    assert min(week.week_start for _, week in weeks) <= min(gas)
-
-
-def test_a_holiday_is_judged_away_and_does_not_pull_the_baseload_down(
+def test_a_holiday_does_not_pull_the_baseload_down(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -392,20 +341,6 @@ def test_a_holiday_is_judged_away_and_does_not_pull_the_baseload_down(
     stored = mariadb_client.read_latest_heating_model()
     assert stored is not None
     assert stored.model.baseload == pytest.approx(PLANTED_BASELOAD, abs=0.5)
-    holiday = [
-        day
-        for _, day in mariadb_client.read_heating_day_verdicts(
-            holiday_start, holiday_start + timedelta(days=13)
-        )
-    ]
-    assert len(holiday) == 14
-    assert all(day.away and not day.needed for day in holiday)
-    holiday_weeks = [
-        week
-        for _, week in mariadb_client.read_heating_weeks()
-        if week.week_start in (holiday_start, holiday_start + timedelta(days=7))
-    ]
-    assert [week.complete_days for week in holiday_weeks] == [0, 0]
 
 
 def test_only_forecast_days_with_a_mean_get_a_row_and_use_yesterdays_observed_mean(
@@ -469,9 +404,7 @@ def test_the_startup_sync_fits_the_first_model_only_when_there_is_none(
     assert stored is not None
     assert stored.model.usable
     assert _model_count(mariadb_client) == 1
-    verdicts = mariadb_client.read_heating_day_verdicts(date(2000, 1, 1), today)
-    assert {model_id for model_id, _ in verdicts} == {stored.id}
-    assert verdicts
+    assert {m for m, _ in mariadb_client.read_heating_forecast_days()} <= {stored.id}
 
 
 def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
@@ -492,7 +425,7 @@ def test_with_no_forecast_means_the_old_forecast_rows_are_removed(
 # The upper threshold sits a few 0.1 C steps above the fitted one, so this needs
 # the fit on the full grid.
 @pytest.mark.full_fit_grid
-def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(
+def test_the_upper_threshold_is_on_the_grid_is_on_the_grid(
     mariadb_client: MariaDBClient,
 ) -> None:
     seed_planted_history(mariadb_client, last_day=LAST_GAS_DAY, days=HISTORY_DAYS)
@@ -505,15 +438,6 @@ def test_the_upper_threshold_is_on_the_grid_and_borderline_days_are_needed(
     assert upper in THRESHOLDS
     assert upper >= threshold
     assert upper > threshold
-    borderline = [
-        day
-        for _, day in mariadb_client.read_heating_day_verdicts(date(2020, 1, 1), TODAY)
-        if day.effective_temp is not None
-        and threshold <= day.effective_temp < upper
-        and not day.away
-    ]
-    assert borderline
-    assert all(day.needed for day in borderline)
 
 
 def test_without_heating_status_history_the_model_is_only_estimated(
