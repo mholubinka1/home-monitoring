@@ -11,7 +11,7 @@ REFERENCE = REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md
 AGILE_PRICES_ID = 3
 CHEAPEST_WINDOW_ID = 13
 CURRENT_TARIFF_ID = 22
-AGILE_PRODUCT_PATTERN = "REGEXP '^AGILE-[0-9]'"
+AGILE_PRODUCT_PATTERN = "REGEXP '^AGILE-(FLEX-)?[0-9]'"
 
 
 def _dashboard() -> dict[str, Any]:
@@ -60,7 +60,7 @@ def test_agile_prices_reads_the_agile_product_not_the_accounts_product() -> None
 def test_cheapest_window_uses_the_agile_forecast_only_for_an_agile_product() -> None:
     sql = _sql(CHEAPEST_WINDOW_ID)
 
-    assert "current_agreement) REGEXP '^AGILE-[0-9]'" in sql
+    assert f"current_agreement) {AGILE_PRODUCT_PATTERN}" in sql
 
 
 def test_cheapest_window_expands_rates_to_half_hourly_slots() -> None:

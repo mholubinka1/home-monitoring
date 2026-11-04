@@ -121,7 +121,7 @@ Cost computed directly from real consumption × the real rates actually charged 
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period, built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
+A projection of total cost for the current billing period (for **Octopus Go**, future price is the effective rate paid per kWh rather than an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:
