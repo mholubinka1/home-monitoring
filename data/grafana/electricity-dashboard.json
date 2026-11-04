@@ -343,7 +343,7 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 5,
+        "w": 3,
         "x": 0,
         "y": 3
       },
@@ -462,7 +462,7 @@
       "gridPos": {
         "h": 7,
         "w": 4,
-        "x": 5,
+        "x": 3,
         "y": 3
       },
       "id": 2,
@@ -541,187 +541,6 @@
         }
       ],
       "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "type": "mysql",
-        "uid": "${DS_MYSQL}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "blue",
-            "mode": "fixed"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": -1,
-            "drawStyle": "line",
-            "fillOpacity": 52,
-            "gradientMode": "opacity",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "kwatth"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "currencyGBP"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "dark-red",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              },
-              {
-                "id": "min"
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 5,
-        "x": 9,
-        "y": 3
-      },
-      "id": 4,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "dataset": "home_monitoring",
-          "datasource": {
-            "type": "mysql",
-            "uid": "${DS_MYSQL}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT period_from AS time, est_kwh\r\nFROM consumption\r\nWHERE energy = 'E'\r\n  AND $__timeFilter(period_from)\r\nORDER BY period_from;\r\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        },
-        {
-          "dataset": "home_monitoring",
-          "datasource": {
-            "type": "mysql",
-            "uid": "${DS_MYSQL}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "hide": false,
-          "rawQuery": true,
-          "rawSql": "SELECT\r\n  c.period_from AS time,\r\n  ROUND(c.est_kwh * pr.unit_rate / 100, 4) AS cost_gbp\r\nFROM consumption c\r\nJOIN agreement a\r\n  ON a.energy = c.energy\r\n AND c.period_from >= a.valid_from\r\n AND c.period_from < COALESCE(a.valid_to, '9999-12-31 23:59:59')\r\nJOIN product_rate pr\r\n  ON pr.id = (\r\n    SELECT pr2.id FROM product_rate pr2\r\n    WHERE pr2.product_code = a.product_code\r\n      AND pr2.region = '${region}'\r\n      AND pr2.valid_from <= c.period_from\r\n      AND c.period_from < COALESCE(pr2.valid_to, '9999-12-31 23:59:59')\r\n    ORDER BY pr2.valid_from DESC\r\n    LIMIT 1\r\n  )\r\nWHERE c.energy = 'E'\r\n  AND $__timeFilter(c.period_from)\r\nORDER BY c.period_from;",
-          "refId": "B",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "timeFrom": "48h",
-      "title": "Latest Consumption",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -2058,15 +1877,15 @@
               },
               {
                 "color": "yellow",
-                "value": 140
+                "value": 120
               },
               {
                 "color": "orange",
-                "value": 155
+                "value": 140
               },
               {
                 "color": "red",
-                "value": 170
+                "value": 160
               }
             ]
           },
@@ -2075,10 +1894,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 10,
-        "x": 0,
-        "y": 34
+        "h": 4,
+        "w": 2,
+        "x": 7,
+        "y": 3
       },
       "id": 20,
       "options": {
@@ -2149,8 +1968,8 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 27,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -2158,7 +1977,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -2173,7 +1992,7 @@
               "mode": "off"
             }
           },
-          "decimals": 1,
+          "decimals": 0,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -2248,10 +2067,10 @@
         ]
       },
       "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 43
+        "h": 7,
+        "w": 5,
+        "x": 9,
+        "y": 3
       },
       "id": 21,
       "options": {
@@ -2298,12 +2117,12 @@
           }
         }
       ],
-      "timeFrom": "30d",
+      "timeFrom": "45d",
       "title": "Fuel price vs effective charging limit",
       "type": "timeseries"
     }
   ],
-  "refresh": "30m",
+  "refresh": "5m",
   "schemaVersion": 39,
   "tags": [],
   "templating": {
@@ -2416,7 +2235,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "pi-desktop: octopus-energy",
+  "title": "pi-desktop: electricity-monitoring",
   "uid": "afu5ghhf1e29sb",
   "version": 37,
   "weekStart": ""

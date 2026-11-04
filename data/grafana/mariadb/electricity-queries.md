@@ -15,7 +15,7 @@ Five Grafana dashboard variables are defined (`templating.list` in the JSON):
 
 Two built-in annotation markers are also defined (`annotations.list` in the JSON, alongside the default "Annotations & Alerts" query): a purple `+24h` line and a dark-purple `0h` ("now") line, both filtered to render on panel id 3 (Agile Prices) only.
 
-**Dashboard-level time range**: `from: now-3h`, `to: now+120h`, `refresh: 30m`. This is what actually gives the Agile Prices panel its forward lookahead — not a panel-level `timeFrom`/`timeShift` override (Grafana's per-panel relative-time override can only push the *start* earlier; it always hardcodes the end to literal "now", so it structurally cannot show forecast data past the current moment). Setting the dashboard's own default range to end at `now+120h` sidesteps that limitation entirely, since the ceiling only applies to panel-level overrides, not the dashboard's own top-level range. Any panel that needs a *different, fixed* window from this shared default carries its own `timeFrom`/`timeShift` (documented per panel below).
+**Dashboard-level time range**: `from: now-3h`, `to: now+120h`, `refresh: 5m`. This is what actually gives the Agile Prices panel its forward lookahead — not a panel-level `timeFrom`/`timeShift` override (Grafana's per-panel relative-time override can only push the *start* earlier; it always hardcodes the end to literal "now", so it structurally cannot show forecast data past the current moment). Setting the dashboard's own default range to end at `now+120h` sidesteps that limitation entirely, since the ceiling only applies to panel-level overrides, not the dashboard's own top-level range. Any panel that needs a *different, fixed* window from this shared default carries its own `timeFrom`/`timeShift` (documented per panel below).
 
 **Note on the lookahead figure**: this has moved twice since the dashboard's original 72-hour Agile Prices requirement — first to `+48h`, now to `+120h` (5 days), likely to match the Cheapest Time Window table's own 5-day forecast horizon. Each of these was a manual Grafana edit never reconciled back into this file until now — worth setting up a habit of re-exporting after any live dashboard change, rather than letting version drift accumulate (this sync jumped from `version: 19` to `version: 36`, 17 unreconciled edits). The Cheapest Time Window table's `5days` column still independently reaches 5 days out via `agile_forecast` regardless of this dashboard-level setting, since that panel is a Table with no time axis. (Its middle column was renamed `72hrs` → `3days` when the dashboard's own window was still 48h; see that panel below.)
 
@@ -54,7 +54,7 @@ JOIN product_rate pr
   )
 ```
 
-instead of the `valid_from`/`valid_to` range-predicate join. The subquery also requires the half-hour to fall before the chosen row's own `valid_to` (`AND c.period_from < COALESCE(pr2.valid_to, ...)`): with the row's validity unchecked, a half-hour whose rate has not been published (or was pruned) would silently be priced at an older rate. Now it finds no row, the join drops the half-hour, and the day's completeness guard excludes the day. The agreement join above it already bounds each half-hour by the agreement's `valid_from`/`valid_to`, so across a tariff change every half-hour is priced by the product of the agreement covering it. This doesn't apply to the `agreement` join (only 7 rows in production — a full scan there is cheap regardless), nor to Agile Prices (it queries `product_rate` directly by its own `valid_from`, no interval join against it). The Cheapest Time Window table uses the correlated-subquery form against its generated half-hour slots. Every panel joining `consumption` to `product_rate` now uses this form — `Yesterday's Cost (Electricity)` and `Latest Consumption` (query B) both previously used the slow range-predicate form and have since been fixed.
+instead of the `valid_from`/`valid_to` range-predicate join. The subquery also requires the half-hour to fall before the chosen row's own `valid_to` (`AND c.period_from < COALESCE(pr2.valid_to, ...)`): with the row's validity unchecked, a half-hour whose rate has not been published (or was pruned) would silently be priced at an older rate. Now it finds no row, the join drops the half-hour, and the day's completeness guard excludes the day. The agreement join above it already bounds each half-hour by the agreement's `valid_from`/`valid_to`, so across a tariff change every half-hour is priced by the product of the agreement covering it. This doesn't apply to the `agreement` join (only 7 rows in production — a full scan there is cheap regardless), nor to Agile Prices (it queries `product_rate` directly by its own `valid_from`, no interval join against it). The Cheapest Time Window table uses the correlated-subquery form against its generated half-hour slots. Every panel joining `consumption` to `product_rate` now uses this form — `Yesterday's Cost (Electricity)` previously used the slow range-predicate form and has since been fixed (as had the since-removed Latest Consumption panel's cost query).
 
 **Row 2 lookback windows are capped at the retention window (45 days), not 90 days or 12 weeks.** No pruning job actually deletes old `consumption` rows yet (see **Retention Window** in `.agent-docs/context.md`) — the real reason the table is short-lived is that `retention_days` (45) bounds the Startup Backfill's lookback, so the app never fetches more than 45 days of history from Octopus at once. Any query with a longer lookback than that silently returns less data than it appears to ask for, not an error. Panels below that read raw `consumption` are written with a 45-day window for this reason. Monthly Total Consumption and the Year-on-Year panel read `daily_consumption_summary` instead (exempt from this cap) since they only need daily kWh totals.
 
@@ -148,44 +148,6 @@ LIMIT 1;
 ---
 
 ## Row 2 — Electricity
-
-### Latest Consumption — timeseries, id 4
-
-Merges what earlier drafts of this dashboard had as two separate panels (Half-hourly Consumption and Half-hourly Cost) into one dual-axis chart. Query A (`est_kwh`, left axis, `kWh`) is a filled line (blue, high fill opacity) rather than a true bar-draw style. Query B (`cost_gbp`, right axis via a `byFrameRefID: B` override, `currencyGBP`, dark-red, zero fill — line only) overlays cost on a secondary axis. The `B` override's `min` is now explicitly reset (present with no value) so the right axis auto-scales rather than inheriting a fixed floor. `timeFrom: 48h` pins this panel to a fixed 48-hour window independent of the dashboard's shared `-3h`/`+120h` range, even though the queries also use `$__timeFilter` internally.
-
-```sql
--- Query A
-SELECT period_from AS time, est_kwh
-FROM consumption
-WHERE energy = 'E'
-  AND $__timeFilter(period_from)
-ORDER BY period_from;
-
--- Query B
-SELECT
-  c.period_from AS time,
-  ROUND(c.est_kwh * pr.unit_rate / 100, 4) AS cost_gbp
-FROM consumption c
-JOIN agreement a
-  ON a.energy = c.energy
- AND c.period_from >= a.valid_from
- AND c.period_from < COALESCE(a.valid_to, '9999-12-31 23:59:59')
-JOIN product_rate pr
-  ON pr.id = (
-    SELECT pr2.id FROM product_rate pr2
-    WHERE pr2.product_code = a.product_code
-      AND pr2.region = '${region}'
-      AND pr2.valid_from <= c.period_from
-      AND c.period_from < COALESCE(pr2.valid_to, '9999-12-31 23:59:59')
-    ORDER BY pr2.valid_from DESC
-    LIMIT 1
-  )
-WHERE c.energy = 'E'
-  AND $__timeFilter(c.period_from)
-ORDER BY c.period_from;
-```
-
-**Fixed**: Query B previously used the plain range-predicate join against `product_rate` — the same 88.9s-class pattern already fixed on Yesterday's Cost. Rewritten to the correlated-subquery form used everywhere else. **Confirmed regressed on live Grafana, not in this repo**: a fresh live export (`version: 36`, no record of why) showed a later manual edit in Grafana had reintroduced the range-predicate form on this panel. The repo's own committed `dashboard.json` (at the pre-sync `version: 19`) still had the correlated-subquery fix intact — the regression only ever reached the live dashboard, never git. This sync rewrote the panel back to the correlated-subquery form to match what was live at the time it was exported, which happens to be a no-op against the previously-committed file (nothing suggested the live revert was intentional, and the 88.9s measurement above still applies to this join shape).
 
 ### Agile Prices: Today/Tomorrow (Actual + Forecast) — timeseries, id 3
 
@@ -640,7 +602,7 @@ These panels come from the hypervolt-agile charging scheduler's own dashboard. T
 
 ### Fuel price (latest) — gauge, id 20
 
-The most recent recorded fuel price in pence per litre (`p/L`), as a gauge from 100 to 200 with threshold colours green, yellow from 140, orange from 155 and red from 170.
+The most recent recorded fuel price in pence per litre (`p/L`), as a gauge from 100 to 200 with threshold colours green, yellow from 120, orange from 140 and red from 160.
 
 ```sql
 SELECT fuel_price_pence_per_litre AS fuel_price_p_per_litre
@@ -651,7 +613,7 @@ ORDER BY recorded_at DESC LIMIT 1;
 
 ### Fuel price vs effective charging limit — timeseries, id 21
 
-Every recorded fuel price and effective charging limit over the last 30 days (`timeFrom: 30d`, not the dashboard's shared range), so the two can be compared as they move. The fuel price is in `p/L` and the limit is in pence per kWh including VAT.
+Every recorded fuel price and effective charging limit over the last 45 days (`timeFrom: 45d`, not the dashboard's shared range), so the two can be compared as they move. The fuel price is in `p/L` and the limit is in pence per kWh including VAT.
 
 ```sql
 SELECT recorded_at AS time,
@@ -670,6 +632,7 @@ ORDER BY recorded_at;
 
 - **Row 3 — Gas**: Gas Consumption and Gas Cost panels, plus the gas variants of Monthly Total Consumption and Year-on-Year Change. None appear in the current JSON export.
 - **Row 5 — Health**: Last Successful Run per Job and AgilePredict/Kraken Reachability. Neither appears in the current JSON export.
+- **Latest Consumption** (id 4: half-hourly kWh and cost on a dual axis, 48 hours): removed by hand in the live Grafana dashboard in November 2026, so it is absent from the export and from this file.
 - **Standing Charge vs Unit-Rate Cost Split** (stacked bar) and the old **Cheapest N-Hour Window Today/Tomorrow** table (superseded by the new Cheapest Time Window matrix above) — also absent.
 
-If gas monitoring and the health-check panels are meant to still be live, they may exist on a different dashboard than the one exported here (`data/grafana/electricity-dashboard.json`, titled **"pi-desktop: octopus-energy"**).
+If gas monitoring and the health-check panels are meant to still be live, they may exist on a different dashboard than the one exported here (`data/grafana/electricity-dashboard.json`, titled **"pi-desktop: electricity-monitoring"**).

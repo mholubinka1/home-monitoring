@@ -11,7 +11,7 @@ REFERENCE = REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md
 AGILE_PRICES_ID = 3
 CHEAPEST_WINDOW_ID = 13
 CURRENT_TARIFF_ID = 22
-RATE_PRICED_QUERIES = [(1, "A"), (4, "B"), (5, "A"), (8, "A"), (14, "A")]
+RATE_PRICED_QUERIES = [(1, "A"), (5, "A"), (8, "A"), (14, "A")]
 RATE_VALIDITY_BOUND = "c.period_from < COALESCE(pr2.valid_to"
 MIDDAY_STANDING_CHARGE = "= '12:00:00' THEN pr.standing_charge END"
 AGILE_PRODUCT_PATTERN = "REGEXP '^AGILE-(FLEX-)?[0-9]'"
