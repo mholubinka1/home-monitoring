@@ -11,6 +11,7 @@ REFERENCE = REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md
 AGILE_PRICES_ID = 3
 CHEAPEST_WINDOW_ID = 13
 CURRENT_TARIFF_ID = 22
+CURRENT_TARIFF_PRICES_ID = 23
 RATE_PRICED_QUERIES = [(1, "A"), (5, "A"), (8, "A"), (14, "A")]
 RATE_VALIDITY_BOUND = "c.period_from < COALESCE(pr2.valid_to"
 MIDDAY_STANDING_CHARGE = "= '12:00:00' THEN pr.standing_charge END"
@@ -77,11 +78,17 @@ def test_cheapest_window_expands_rates_to_half_hourly_slots() -> None:
 def test_reference_doc_carries_the_same_queries_as_the_dashboard() -> None:
     reference = REFERENCE.read_text(encoding="utf-8")
 
-    for panel_id in (AGILE_PRICES_ID, CHEAPEST_WINDOW_ID, CURRENT_TARIFF_ID):
+    for panel_id in (
+        AGILE_PRICES_ID,
+        CHEAPEST_WINDOW_ID,
+        CURRENT_TARIFF_ID,
+        CURRENT_TARIFF_PRICES_ID,
+    ):
         assert _sql(panel_id) in reference
     for panel_id, ref_id in RATE_PRICED_QUERIES:
         assert _sql(panel_id, ref_id) in reference, (panel_id, ref_id)
     assert "### Current Tariff — stat, id 22" in reference
+    assert "### Current Tariff Prices — timeseries, id 23" in reference
 
 
 def test_every_cost_query_requires_the_rate_row_to_still_cover_the_half_hour() -> None:
@@ -135,3 +142,91 @@ def test_cheapest_window_fills_unpublished_half_hours_from_the_tariff_projection
         "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)" in sql
     )
     assert "SELECT time, rate FROM projected_rates" in sql
+
+
+def _panel(panel_id: int) -> dict[str, Any]:
+    return next(p for p in _dashboard()["panels"] if p["id"] == panel_id)
+
+
+def test_current_tariff_prices_is_a_time_series_at_the_top_of_the_right_column() -> (
+    None
+):
+    panel = _panel(CURRENT_TARIFF_PRICES_ID)
+
+    assert panel["type"] == "timeseries"
+    assert panel["title"] == "Current Tariff Prices"
+    assert panel["gridPos"] == {"h": 9, "w": 10, "x": 14, "y": 3}
+    assert panel["fieldConfig"]["defaults"]["unit"] == "p/kwh"
+    thresholds = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    assert (
+        thresholds
+        == _panel(AGILE_PRICES_ID)["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    )
+
+
+def test_current_tariff_prices_take_published_then_projected_then_forecast_rates() -> (
+    None
+):
+    sql = _sql(CURRENT_TARIFF_PRICES_ID)
+
+    assert "slot_products" in sql
+    assert "sp.time < COALESCE(pr2.valid_to" in sql
+    assert "FROM tariff_projection tp" in sql
+    assert f"sp.product_code {AGILE_PRODUCT_PATTERN}" in sql
+    assert (
+        "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)" in sql
+    )
+    assert (
+        "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = f.period_from)" in sql
+    )
+    for column in ("published", "projected", "forecast"):
+        assert f"AS {column}" in sql
+    assert "$__timeFrom()" in sql and "$__timeTo()" in sql
+
+
+def test_projected_and_forecast_prices_are_dashed_and_every_line_steps() -> None:
+    panel = _panel(CURRENT_TARIFF_PRICES_ID)
+    defaults = panel["fieldConfig"]["defaults"]["custom"]
+    dashed = {
+        o["matcher"]["options"]
+        for o in panel["fieldConfig"]["overrides"]
+        if o["matcher"]["id"] == "byName"
+        and any(
+            p["id"] == "custom.lineStyle" and p["value"]["fill"] == "dash"
+            for p in o["properties"]
+        )
+    }
+
+    assert defaults["drawStyle"] == "line"
+    assert defaults["lineInterpolation"] == "stepAfter"
+    assert dashed == {"projected", "forecast"}
+
+
+def test_the_now_and_plus_24h_markers_show_on_both_price_charts() -> None:
+    markers = [
+        a for a in _dashboard()["annotations"]["list"] if a["name"] in ("+24h", "0h")
+    ]
+
+    assert len(markers) == 2
+    for marker in markers:
+        assert marker["filter"]["ids"] == [AGILE_PRICES_ID, CURRENT_TARIFF_PRICES_ID]
+
+
+def test_the_agile_prices_and_cheapest_window_sit_below_the_current_tariff_prices() -> (
+    None
+):
+    assert _panel(AGILE_PRICES_ID)["gridPos"]["y"] == 12
+    assert _panel(CHEAPEST_WINDOW_ID)["gridPos"]["y"] == 21
+
+
+def test_no_two_electricity_panels_overlap() -> None:
+    cells: set[tuple[int, int]] = set()
+    for panel in _dashboard()["panels"]:
+        grid = panel["gridPos"]
+        panel_cells = {
+            (x, y)
+            for x in range(grid["x"], grid["x"] + grid["w"])
+            for y in range(grid["y"], grid["y"] + grid["h"])
+        }
+        assert not cells & panel_cells, panel["title"]
+        cells |= panel_cells

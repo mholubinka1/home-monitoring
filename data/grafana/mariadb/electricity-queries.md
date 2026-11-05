@@ -13,13 +13,13 @@ Five Grafana dashboard variables are defined (`templating.list` in the JSON):
 
 **Query target database**: every panel and annotation target carries `"dataset": "home_monitoring"` (was `"octopus"` until the database rename, ADR-0022; the old `octopus` database has since been dropped, so the stale value made every panel return a 500, issue #584). The literal `octopus` in `schema="octopus"` in the app models is a different thing, a fixed placeholder (ADR-0025).
 
-Two built-in annotation markers are also defined (`annotations.list` in the JSON, alongside the default "Annotations & Alerts" query): a purple `+24h` line and a dark-purple `0h` ("now") line, both filtered to render on panel id 3 (Agile Prices) only.
+Two built-in annotation markers are also defined (`annotations.list` in the JSON, alongside the default "Annotations & Alerts" query): a purple `+24h` line and a dark-purple `0h` ("now") line, both filtered to render on panel ids 3 (Agile Prices) and 23 (Current Tariff Prices) only.
 
 **Dashboard-level time range**: `from: now-3h`, `to: now+120h`, `refresh: 5m`. This is what actually gives the Agile Prices panel its forward lookahead — not a panel-level `timeFrom`/`timeShift` override (Grafana's per-panel relative-time override can only push the *start* earlier; it always hardcodes the end to literal "now", so it structurally cannot show forecast data past the current moment). Setting the dashboard's own default range to end at `now+120h` sidesteps that limitation entirely, since the ceiling only applies to panel-level overrides, not the dashboard's own top-level range. Any panel that needs a *different, fixed* window from this shared default carries its own `timeFrom`/`timeShift` (documented per panel below).
 
 **Note on the lookahead figure**: this has moved twice since the dashboard's original 72-hour Agile Prices requirement — first to `+48h`, now to `+120h` (5 days), likely to match the Cheapest Time Window table's own 5-day forecast horizon. Each of these was a manual Grafana edit never reconciled back into this file until now — worth setting up a habit of re-exporting after any live dashboard change, rather than letting version drift accumulate (this sync jumped from `version: 19` to `version: 36`, 17 unreconciled edits). The Cheapest Time Window table's `5days` column still independently reaches 5 days out via `agile_forecast` regardless of this dashboard-level setting, since that panel is a Table with no time axis. (Its middle column was renamed `72hrs` → `3days` when the dashboard's own window was still 48h; see that panel below.)
 
-**Datasource portability fixed**: this export uses Grafana's "export for sharing externally" format — every panel references the datasource as `${DS_MYSQL}` (an `__inputs`-declared placeholder), not a hardcoded UID. Earlier exports hardcoded the literal datasource UID (`aftel9qlylts0e`), which would have broken on any Grafana instance where that UID didn't already exist (e.g. after a full rebuild where the MySQL datasource gets re-added with a new random UID, since it's not provisioned via YAML). Importing this JSON now prompts for a datasource mapping instead of silently failing. Dashboard `uid` is `afu5ghhf1e29sb`, `version: 37`.
+**Datasource portability fixed**: this export uses Grafana's "export for sharing externally" format — every panel references the datasource as `${DS_MYSQL}` (an `__inputs`-declared placeholder), not a hardcoded UID. Earlier exports hardcoded the literal datasource UID (`aftel9qlylts0e`), which would have broken on any Grafana instance where that UID didn't already exist (e.g. after a full rebuild where the MySQL datasource gets re-added with a new random UID, since it's not provisioned via YAML). Importing this JSON now prompts for a datasource mapping instead of silently failing. Dashboard `uid` is `afu5ghhf1e29sb`, `version: 38`.
 
 ## Schema assumed
 
@@ -150,9 +150,73 @@ LIMIT 1;
 
 ## Row 2 — Electricity
 
+### Current Tariff Prices — timeseries, id 23
+
+Top of the right-hand column, above Agile Prices. Half-hourly unit rates of the tariff covering each half-hour across the dashboard's whole range (`$__timeFrom()` to `$__timeTo()`, so now-3h to now+120h by default), priced the same way as the Cheapest Time Window below: the `slot_products` CTE gives each half-hour the product of the agreement covering it, and each takes the published `product_rate` first, then the **Tariff Projection** (`tariff_projection`, ADR-0032) on a non-Agile tariff, then `agile_forecast` on an Agile one. It returns three wide columns, `published`, `projected` and `forecast`, one non-null per row, so the field overrides can match fixed names: `projected` and `forecast` are drawn dashed, `published` solid. Lines step after each point (`stepAfter`), so a multi-hour Go window draws flat, and are coloured by the same price bands as Agile Prices (unit `p/kwh`). On Octopus Go this shows tonight's and the coming nights' cheap windows before Octopus publishes them. The dashboard-level `+24h` and `0h` markers also render on this panel, which marks the next 24 hours.
+
+```sql
+WITH RECURSIVE slots AS (
+  SELECT TIMESTAMP(DATE($__timeFrom()), SEC_TO_TIME(FLOOR(TIME_TO_SEC(TIME($__timeFrom())) / 1800) * 1800)) AS time
+  UNION ALL
+  SELECT time + INTERVAL 30 MINUTE FROM slots
+  WHERE time + INTERVAL 30 MINUTE < $__timeTo()
+),
+slot_products AS (
+  SELECT s.time, COALESCE(
+    (SELECT a.product_code FROM agreement a
+     WHERE a.energy = 'E'
+       AND a.valid_from <= s.time
+       AND s.time < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+     ORDER BY a.valid_from DESC LIMIT 1),
+    (SELECT a.product_code FROM agreement a
+     WHERE a.energy = 'E'
+       AND a.valid_from <= s.time
+       AND a.valid_from < COALESCE(a.valid_to, '9999-12-31 23:59:59')
+     ORDER BY a.valid_from DESC LIMIT 1)
+  ) AS product_code
+  FROM slots s
+),
+actual_rates AS (
+  SELECT sp.time, pr.unit_rate AS rate
+  FROM slot_products sp
+  JOIN product_rate pr
+    ON pr.id = (
+      SELECT pr2.id FROM product_rate pr2
+      WHERE pr2.product_code = sp.product_code
+        AND pr2.region = '${region}'
+        AND pr2.valid_from <= sp.time
+        AND sp.time < COALESCE(pr2.valid_to, '9999-12-31 23:59:59')
+      ORDER BY pr2.valid_from DESC
+      LIMIT 1
+    )
+),
+projected_rates AS (
+  SELECT tp.period_from AS time, tp.unit_rate AS rate
+  FROM tariff_projection tp
+  JOIN slot_products sp ON sp.time = tp.period_from
+  WHERE tp.product_code = sp.product_code
+    AND tp.region = '${region}'
+    AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)
+),
+forecast_rates AS (
+  SELECT f.period_from AS time, f.forecast_unit_rate AS rate
+  FROM agile_forecast f
+  JOIN slot_products sp ON sp.time = f.period_from
+  WHERE sp.product_code REGEXP '^AGILE-(FLEX-)?[0-9]'
+    AND f.region = '${region}'
+    AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = f.period_from)
+)
+SELECT time, rate AS published, NULL AS projected, NULL AS forecast FROM actual_rates
+UNION ALL
+SELECT time, NULL, rate, NULL FROM projected_rates
+UNION ALL
+SELECT time, NULL, NULL, rate FROM forecast_rates
+ORDER BY time;
+```
+
 ### Agile Prices: Today/Tomorrow (Actual + Forecast) — timeseries, id 3
 
-No panel-level time override — relies entirely on the dashboard's shared `now-3h` to `now+120h` range for its lookahead (see the dashboard-level time range note at the top of this file). Threshold *lines* (not fill) at the exact price bands used elsewhere on this dashboard: light-blue below 0p, green from 0p, yellow from 10p, semi-dark-orange from 20p, red from 25p — same bands as the Cheapest Time Window table's colour coding below (and reused as-is by the Daily Average Unit Price panel further down), applied here as reference lines rather than cell colours. Unit is `p/kwh` (see the field-formatting convention note above). The panel is always about Agile, whatever tariff the account is on: the `agile_product` CTE takes the account's current product when it is an Agile one, otherwise the newest Agile product in the `product` catalogue (matched strictly as `AGILE-<year>…`, so the retired `AGILE-FLEX-…` code, which sorts after it, is not picked; its comparison rates are synced for every available product). Not being on Agile therefore leaves the panel unchanged. The forecast branch excludes any half-hour `product_rate` already has a row for, preferring the actual rate over `agile_forecast` wherever both exist — same precedence rule as the Cheapest Time Window table below, applied here so the panel never plots two conflicting points for one timestamp (e.g. during an `agile_forecast` refresh outage, where stale forecast rows would otherwise linger alongside newly-published actual rates for the same slots). The dashboard-level `+24h` and `0h` annotation markers (see the annotations note at the top of this file) are filtered to render only on this panel.
+No panel-level time override — relies entirely on the dashboard's shared `now-3h` to `now+120h` range for its lookahead (see the dashboard-level time range note at the top of this file). Threshold *lines* (not fill) at the exact price bands used elsewhere on this dashboard: light-blue below 0p, green from 0p, yellow from 10p, semi-dark-orange from 20p, red from 25p — same bands as the Cheapest Time Window table's colour coding below (and reused as-is by the Daily Average Unit Price panel further down), applied here as reference lines rather than cell colours. Unit is `p/kwh` (see the field-formatting convention note above). The panel is always about Agile, whatever tariff the account is on: the `agile_product` CTE takes the account's current product when it is an Agile one, otherwise the newest Agile product in the `product` catalogue (matched strictly as `AGILE-<year>…`, so the retired `AGILE-FLEX-…` code, which sorts after it, is not picked; its comparison rates are synced for every available product). Not being on Agile therefore leaves the panel unchanged. The forecast branch excludes any half-hour `product_rate` already has a row for, preferring the actual rate over `agile_forecast` wherever both exist — same precedence rule as the Cheapest Time Window table below, applied here so the panel never plots two conflicting points for one timestamp (e.g. during an `agile_forecast` refresh outage, where stale forecast rows would otherwise linger alongside newly-published actual rates for the same slots). The dashboard-level `+24h` and `0h` annotation markers (see the annotations note at the top of this file) are filtered to render only on this panel and Current Tariff Prices.
 
 ```sql
 WITH agile_product AS (

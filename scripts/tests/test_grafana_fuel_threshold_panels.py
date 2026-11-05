@@ -101,7 +101,7 @@ def test_existing_panels_remain_and_gauge_is_required() -> None:
     assert "region" in {v["name"] for v in dashboard["templating"]["list"]}
     marker_annotations = [a for a in dashboard["annotations"]["list"] if "filter" in a]
     assert marker_annotations
-    assert all(a["filter"]["ids"] == [AGILE_PRICES_ID] for a in marker_annotations)
+    assert all(AGILE_PRICES_ID in a["filter"]["ids"] for a in marker_annotations)
 
 
 def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> None:

@@ -89,7 +89,8 @@
         "filter": {
           "exclude": false,
           "ids": [
-            3
+            3,
+            23
           ]
         },
         "iconColor": "purple",
@@ -129,7 +130,8 @@
         "filter": {
           "exclude": false,
           "ids": [
-            3
+            3,
+            23
           ]
         },
         "iconColor": "dark-purple",
@@ -561,6 +563,172 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "scheme",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "light-blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "semi-dark-orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          },
+          "unit": "p/kwh"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "projected"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "forecast"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 3
+      },
+      "hideTimeOverride": false,
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH RECURSIVE slots AS (\r\n  SELECT TIMESTAMP(DATE($__timeFrom()), SEC_TO_TIME(FLOOR(TIME_TO_SEC(TIME($__timeFrom())) / 1800) * 1800)) AS time\r\n  UNION ALL\r\n  SELECT time + INTERVAL 30 MINUTE FROM slots\r\n  WHERE time + INTERVAL 30 MINUTE < $__timeTo()\r\n),\r\nslot_products AS (\r\n  SELECT s.time, COALESCE(\r\n    (SELECT a.product_code FROM agreement a\r\n     WHERE a.energy = 'E'\r\n       AND a.valid_from <= s.time\r\n       AND s.time < COALESCE(a.valid_to, '9999-12-31 23:59:59')\r\n     ORDER BY a.valid_from DESC LIMIT 1),\r\n    (SELECT a.product_code FROM agreement a\r\n     WHERE a.energy = 'E'\r\n       AND a.valid_from <= s.time\r\n       AND a.valid_from < COALESCE(a.valid_to, '9999-12-31 23:59:59')\r\n     ORDER BY a.valid_from DESC LIMIT 1)\r\n  ) AS product_code\r\n  FROM slots s\r\n),\r\nactual_rates AS (\r\n  SELECT sp.time, pr.unit_rate AS rate\r\n  FROM slot_products sp\r\n  JOIN product_rate pr\r\n    ON pr.id = (\r\n      SELECT pr2.id FROM product_rate pr2\r\n      WHERE pr2.product_code = sp.product_code\r\n        AND pr2.region = '${region}'\r\n        AND pr2.valid_from <= sp.time\r\n        AND sp.time < COALESCE(pr2.valid_to, '9999-12-31 23:59:59')\r\n      ORDER BY pr2.valid_from DESC\r\n      LIMIT 1\r\n    )\r\n),\r\nprojected_rates AS (\r\n  SELECT tp.period_from AS time, tp.unit_rate AS rate\r\n  FROM tariff_projection tp\r\n  JOIN slot_products sp ON sp.time = tp.period_from\r\n  WHERE tp.product_code = sp.product_code\r\n    AND tp.region = '${region}'\r\n    AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)\r\n),\r\nforecast_rates AS (\r\n  SELECT f.period_from AS time, f.forecast_unit_rate AS rate\r\n  FROM agile_forecast f\r\n  JOIN slot_products sp ON sp.time = f.period_from\r\n  WHERE sp.product_code REGEXP '^AGILE-(FLEX-)?[0-9]'\r\n    AND f.region = '${region}'\r\n    AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = f.period_from)\r\n)\r\nSELECT time, rate AS published, NULL AS projected, NULL AS forecast FROM actual_rates\r\nUNION ALL\r\nSELECT time, NULL, rate, NULL FROM projected_rates\r\nUNION ALL\r\nSELECT time, NULL, NULL, rate FROM forecast_rates\r\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Current Tariff Prices",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "semi-dark-blue",
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "series",
+            "axisGridShow": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
             "drawStyle": "bars",
             "fillOpacity": 50,
             "gradientMode": "scheme",
@@ -679,7 +847,7 @@
         "h": 9,
         "w": 10,
         "x": 14,
-        "y": 3
+        "y": 12
       },
       "hideTimeOverride": false,
       "id": 3,
@@ -1053,7 +1221,7 @@
         "h": 6,
         "w": 10,
         "x": 14,
-        "y": 12
+        "y": 21
       },
       "id": 13,
       "options": {
@@ -1273,7 +1441,7 @@
         "h": 8,
         "w": 7,
         "x": 10,
-        "y": 18
+        "y": 27
       },
       "id": 9,
       "options": {
@@ -1423,7 +1591,7 @@
         "h": 8,
         "w": 7,
         "x": 17,
-        "y": 18
+        "y": 27
       },
       "id": 10,
       "options": {
@@ -1550,7 +1718,7 @@
         "h": 8,
         "w": 4,
         "x": 15,
-        "y": 26
+        "y": 35
       },
       "id": 8,
       "options": {
@@ -1674,7 +1842,7 @@
         "h": 8,
         "w": 5,
         "x": 19,
-        "y": 26
+        "y": 35
       },
       "id": 7,
       "options": {
@@ -1802,7 +1970,7 @@
         "h": 8,
         "w": 5,
         "x": 10,
-        "y": 26
+        "y": 35
       },
       "id": 14,
       "options": {
@@ -2237,6 +2405,6 @@
   "timezone": "browser",
   "title": "pi-desktop: electricity-monitoring",
   "uid": "afu5ghhf1e29sb",
-  "version": 37,
+  "version": 38,
   "weekStart": ""
 }
