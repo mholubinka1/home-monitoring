@@ -4,9 +4,21 @@ from decimal import Decimal
 
 import pytest
 import responses
+from tests.test_monitoring_client_cost_forecast_wiring import (
+    ACCOUNT_ENDPOINT,
+    ACCOUNT_RESPONSE,
+    GRID_SUPPLY_POINTS_ENDPOINT,
+    GRID_SUPPLY_POINTS_RESPONSE,
+)
 from tests.test_pricing_retrieval import PRODUCTS_ENDPOINT, _RealPricingSource
 
-from octopus_app.common.config import OctopusAPISettings
+from octopus_app.common.config import (
+    ApplicationSettings,
+    MariaDBSettings,
+    OctopusAPISettings,
+    RefreshSettings,
+)
+from octopus_app.data.base import MonitoringClient
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.octopus.api import OctopusEnergyAPIClient
@@ -332,3 +344,41 @@ def test_a_projection_that_cannot_be_stored_does_not_stop_the_rate_sync(
     assert "Tariff Projection" in caplog.text
     with mariadb_client.session_read_scope() as session:
         assert session.query(model.product_rate).count() == 3
+
+
+@responses.activate
+def test_the_real_monitoring_client_stores_the_projection_it_is_given(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The other tests reach the table through the test source adapter; this
+    # one goes through MonitoringClient's own delegation, as wired in main.py.
+    responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)
+    responses.add(
+        responses.GET,
+        GRID_SUPPLY_POINTS_ENDPOINT,
+        json=GRID_SUPPLY_POINTS_RESPONSE,
+        status=200,
+    )
+    client = MonitoringClient(
+        ApplicationSettings(
+            octopus=OctopusAPISettings(
+                account_number="A-1234ABCD", api_key="sk_live_test"
+            ),
+            # "main": must agree with the mariadb_client fixture -- ADR-0025.
+            mariadb=MariaDBSettings(
+                host="localhost",
+                port=3306,
+                database="main",
+                username="test",
+                password="test",
+            ),
+            data_refresh=RefreshSettings(refresh_interval_hours=4, retention_days=45),
+        )
+    )
+    slot = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+
+    client.persist_tariff_projection(
+        GO_PRODUCT_CODE, REGION, [(slot, Decimal("9.4"))], REFRESHED_AT
+    )
+
+    assert _projected_rates(mariadb_client) == {slot: Decimal("9.4")}

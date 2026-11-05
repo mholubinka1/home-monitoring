@@ -91,7 +91,7 @@ def test_reference_doc_carries_the_same_queries_as_the_dashboard() -> None:
         CURRENT_TARIFF_ID,
         CURRENT_TARIFF_PRICES_ID,
     ):
-        assert _sql(panel_id) in reference
+        assert f"```sql\n{_sql(panel_id)}\n```\n" in reference, panel_id
     for panel_id, ref_id in RATE_PRICED_QUERIES:
         assert _sql(panel_id, ref_id) in reference, (panel_id, ref_id)
     assert "### Current Tariff — stat, id 22" in reference

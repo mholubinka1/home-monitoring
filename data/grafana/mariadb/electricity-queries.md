@@ -472,7 +472,8 @@ SELECT
 FROM block_sizes b
 LEFT JOIN cheapest c ON c.window_size = b.window_size
 GROUP BY b.window_size
-ORDER BY FIELD(b.window_size, '1h', '2h', '3h', '4h');```
+ORDER BY FIELD(b.window_size, '1h', '2h', '3h', '4h');
+```
 
 ### Consumption Heatmap (Hour-by-Hour, Last 45 Days) — heatmap, id 12
 
