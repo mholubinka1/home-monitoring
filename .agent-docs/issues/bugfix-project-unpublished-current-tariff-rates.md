@@ -1,5 +1,7 @@
 # Issues: bugfix-project-unpublished-current-tariff-rates
 
+> Work complete — PR ready to merge.
+
 ## Share the per-slot rate rule between the Cost Forecast and a Tariff Projection
 
 **Blocked by**: None
@@ -12,8 +14,8 @@ Prefactor with no behaviour change. The Cost Forecast's per-slot unit-rate rule 
 
 ### Acceptance criteria
 
-- [ ] The rule lives in one public helper, and the Cost Forecast uses it.
-- [ ] Every existing Cost Forecast test, including the Go tests, passes unchanged.
+- [x] The rule lives in one public helper, and the Cost Forecast uses it.
+- [x] Every existing Cost Forecast test, including the Go tests, passes unchanged.
 
 ---
 
@@ -29,12 +31,12 @@ A new `tariff_projection` table, created by Schema Sync. At the end of each pric
 
 ### Acceptance criteria
 
-- [ ] Given Go rates published to 00:30 tomorrow (GMT), when the pricing refresh runs, then tomorrow's 00:30–05:30 local half-hours are projected at the off-peak rate and the rest at the peak rate, out to six days ahead.
-- [ ] Given published Go rates, when the pricing refresh runs, then no published half-hour has a projected row.
-- [ ] Given a projection across a clock change, when the pricing refresh runs, then the cheap half-hours stay at 00:30–05:30 local time.
-- [ ] Given the current agreement is Agile, when the pricing refresh runs, then nothing is projected.
-- [ ] Given no fully published day in the lookback, when the pricing refresh runs, then nothing is written, a warning names the product, and the rate sync still completes.
-- [ ] Given a projection from an earlier refresh, when the pricing refresh runs again, then only the new projection remains.
+- [x] Given Go rates published to 00:30 tomorrow (GMT), when the pricing refresh runs, then tomorrow's 00:30–05:30 local half-hours are projected at the off-peak rate and the rest at the peak rate, out to six days ahead.
+- [x] Given published Go rates, when the pricing refresh runs, then no published half-hour has a projected row.
+- [x] Given a projection across a clock change, when the pricing refresh runs, then the cheap half-hours stay at 00:30–05:30 local time.
+- [x] Given the current agreement is Agile, when the pricing refresh runs, then nothing is projected.
+- [x] Given no fully published day in the lookback, when the pricing refresh runs, then nothing is written, a warning names the product, and the rate sync still completes.
+- [x] Given a projection from an earlier refresh, when the pricing refresh runs again, then only the new projection remains.
 
 ---
 
@@ -50,9 +52,9 @@ The Cheapest Time Window query gains a projected-rates source. It is joined per 
 
 ### Acceptance criteria
 
-- [ ] Given a Go half-hour with no published rate, the Cheapest Time Window prices it from `tariff_projection`.
-- [ ] Given a half-hour with both a published and a projected rate, the published rate is used.
-- [ ] The reference doc carries the same query as the dashboard, and its schema list includes `tariff_projection`.
+- [x] Given a Go half-hour with no published rate, the Cheapest Time Window prices it from `tariff_projection`.
+- [x] Given a half-hour with both a published and a projected rate, the published rate is used.
+- [x] The reference doc carries the same query as the dashboard, and its schema list includes `tariff_projection`.
 
 ---
 
@@ -68,11 +70,11 @@ A new time-series panel, "Current Tariff Prices" (id 23), at the top of the righ
 
 ### Acceptance criteria
 
-- [ ] Panel 23 is a time series titled "Current Tariff Prices" at x 14, y 3, w 10, h 9, in `p/kwh` with the dashboard's price-band thresholds.
-- [ ] Its query returns the columns `published`, `projected` and `forecast`, with the precedence published, then projection, then Agile forecast.
-- [ ] `projected` and `forecast` are drawn dashed, and the lines step after each point.
-- [ ] The `+24h` and `0h` annotation filters include panel 23.
-- [ ] The Agile Prices panel and Cheapest Time Window move down by 9, and no panels overlap.
-- [ ] The reference doc carries panel 23's query, matching the dashboard.
+- [x] Panel 23 is a time series titled "Current Tariff Prices" at x 14, y 3, w 10, h 9, in `p/kwh` with the dashboard's price-band thresholds.
+- [x] Its query returns the columns `published`, `projected` and `forecast`, with the precedence published, then projection, then Agile forecast.
+- [x] `projected` and `forecast` are drawn dashed, and the lines step after each point.
+- [x] The `+24h` and `0h` annotation filters include panel 23.
+- [x] The Agile Prices panel and Cheapest Time Window move down by 9, and no panels overlap.
+- [x] The reference doc carries panel 23's query, matching the dashboard.
 
 ---
