@@ -122,3 +122,16 @@ def test_cheapest_window_only_offers_blocks_whose_every_half_hour_has_a_rate() -
         )
         assert f"time + INTERVAL {(slots - 1) * 30} MINUTE" in sql
         assert sql.count(f"FROM windows WHERE {name} IS NOT NULL") == 3
+
+
+def test_cheapest_window_fills_unpublished_half_hours_from_the_tariff_projection() -> (
+    None
+):
+    sql = _sql(CHEAPEST_WINDOW_ID)
+
+    assert "FROM tariff_projection tp" in sql
+    assert "tp.product_code = sp.product_code" in sql
+    assert (
+        "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)" in sql
+    )
+    assert "SELECT time, rate FROM projected_rates" in sql

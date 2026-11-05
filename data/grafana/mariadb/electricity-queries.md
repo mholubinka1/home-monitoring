@@ -31,12 +31,13 @@ product_rate              (existing) id, product_code, region, valid_from, valid
 job_run                   (existing) id, job_name, status, ran_at, error_message
 daily_consumption_summary (existing) energy, date PK(energy, date), total_kwh
 agile_forecast             (live) id, region, period_from, period_to, forecast_unit_rate, fetched_at
+tariff_projection          (live) id, product_code, region, period_from, period_to, unit_rate, projected_at
 cost_forecast               (live) id, billing_period_start, billing_period_end, actual_cost_to_date,
                                     projected_total_cost, computed_at, energy,
                                     rates_estimated, estimated_days
 ```
 
-`agile_forecast` caches the raw half-hourly AgilePredict response (real 14-day forecast only) for charting. `cost_forecast` is the billing-period-level summary the app computes hourly (actual cost so far + full-period projection, using tiled forecast data internally beyond day 14 — that tiling isn't persisted point-by-point, only the summary is).
+`agile_forecast` caches the raw half-hourly AgilePredict response (real 14-day forecast only) for charting. `tariff_projection` holds the **Tariff Projection**: octopus-app rewrites it on every pricing refresh with half-hourly rates for the current non-Agile electricity tariff, from the end of its published rates to six days ahead, each at the same local clock time on the latest fully published day (empty on Agile). `cost_forecast` is the billing-period-level summary the app computes hourly (actual cost so far + full-period projection, using tiled forecast data internally beyond day 14 — that tiling isn't persisted point-by-point, only the summary is).
 
 **Join convention — half-open windows only.** Any query joining `consumption` to `product_rate` or `agreement` on a `valid_from`/`valid_to` window must use a half-open range: `c.period_from >= valid_from AND c.period_from < COALESCE(valid_to, '9999-12-31 23:59:59')`. Never `BETWEEN valid_from AND COALESCE(valid_to, '9999-12-31 23:59:59')` (inclusive on both ends) — `consumption.period_from` sits on the exact same half-hourly grid as these windows, and adjacent windows are back-to-back (one row's `valid_to` equals the next row's `valid_from`), so an inclusive-both-ends join matches a consumption row against *two* rate rows instead of one, silently doubling every `SUM(est_kwh * unit_rate)` in the query. Confirmed live: before the fix, the Yesterday's Cost panel showed £6.01 — roughly double the £3.19 the corrected query returns for the same day (the official Octopus app showed £3.25 for that day; that residual gap turned out to be a second, distinct bug — see the local-time convention below and issue #434 for the join-doubling investigation).
 
@@ -263,7 +264,7 @@ ORDER BY FIELD(DAYNAME(d), 'Monday','Tuesday','Wednesday','Thursday','Friday','S
 
 **No panel title** — cleared intentionally (see the "remove a panel title" note in project history); identifiable only by its field override renaming `window_size` → "Cheapest Time Window", and by the heading below. Represented in `dashboard.json` as an explicit `"title": ""` rather than an omitted key, so the blank title round-trips reliably through Grafana's export/import rather than depending on unspecified default behaviour for a missing field.
 
-Follows the account's tariff, not Agile specifically: the `slots` CTE generates every half-hour for the next 5 days, `slot_products` gives each the product of the agreement covering it (by `valid_from`/`valid_to`; in a gap between agreements or past the last one, the latest agreement that had begun by then, since a contract is expected to renew; a future-dated tariff change is priced from its start) and each then takes whichever `product_rate` row of that product covers it, so a tariff publishing multi-hour windows (Octopus Go: a cheap 00:30–05:30 local-time window, one hour earlier in UTC during BST, and a peak rate for the rest of the day) is expanded to the same half-hourly series as Agile rates, keeping the `ROWS BETWEEN` window averages correct. `agile_forecast` fills a slot only where the product covering it is an Agile one; on any other tariff the `3days`/`5days` columns can only reach as far as rates are published. 4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so on Agile the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". A window is only offered when every one of its half-hours has a rate (the window functions check both the count and that the span is unbroken), so a series that stops at the last published rate never reports a partial block as a full one. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
+Follows the account's tariff, not Agile specifically: the `slots` CTE generates every half-hour for the next 5 days, `slot_products` gives each the product of the agreement covering it (by `valid_from`/`valid_to`; in a gap between agreements or past the last one, the latest agreement that had begun by then, since a contract is expected to renew; a future-dated tariff change is priced from its start) and each then takes whichever `product_rate` row of that product covers it, so a tariff publishing multi-hour windows (Octopus Go: a cheap 00:30–05:30 local-time window, one hour earlier in UTC during BST, and a peak rate for the rest of the day) is expanded to the same half-hourly series as Agile rates, keeping the `ROWS BETWEEN` window averages correct. `agile_forecast` fills a slot only where the product covering it is an Agile one; on any other tariff `tariff_projection` (the **Tariff Projection**, ADR-0032) fills every slot without a published rate, matched on the covering product, so on Octopus Go, which Octopus publishes only to the end of the current day, every column still sees the coming nights' cheap windows. Precedence is published `product_rate`, then `tariff_projection`, then `agile_forecast`. 4 rows (`1h`/`2h`/`3h`/`4h` block sizes) × 3 columns (`24hrs`/`3days`/`5days` lookahead horizons — the middle column was renamed from `72hrs` to `3days`, same underlying 3-day cutoff, just relabeled once the dashboard's own forward window settled at 48h rather than 72h), wide-format like the Heatmap below. `product_rate` only reliably covers ~1–2 days ahead (Octopus publishes Agile rates the evening before), so on Agile the 3-day/5-day columns fall back to `agile_forecast` for any half-hour beyond what's actually been published, preferring actual rates over forecast wherever both exist. A window only counts for a horizon if it fits entirely inside it. Colour-coding is baked into the cell text itself as an emoji (🔵/🟢/🟡/🟠/🔴) rather than via Grafana thresholds, since Table panels can't apply numeric threshold-based cell colouring to a field whose displayed value is a composed string (time + rate) — SQL-side colouring sidesteps that limitation entirely and is portable across Grafana versions. Bands: `<0` blue, `[0,10)` green, `[10,20)` yellow, `[20,25]` orange, `>25` red. Field override renames `window_size` → "Cheapest Time Window". A window is only offered when every one of its half-hours has a rate (the window functions check both the count and that the span is unbroken), so a series that stops at the last published rate never reports a partial block as a full one. Ties (identical average rate) are broken arbitrarily by whichever row MariaDB returns first from `ORDER BY ... LIMIT 1`.
 
 ```sql
 WITH RECURSIVE slots AS (
@@ -301,6 +302,14 @@ actual_rates AS (
       LIMIT 1
     )
 ),
+projected_rates AS (
+  SELECT tp.period_from AS time, tp.unit_rate AS rate
+  FROM tariff_projection tp
+  JOIN slot_products sp ON sp.time = tp.period_from
+  WHERE tp.product_code = sp.product_code
+    AND tp.region = '${region}'
+    AND NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)
+),
 forecast_rates AS (
   SELECT f.period_from AS time, f.forecast_unit_rate AS rate
   FROM agile_forecast f
@@ -313,6 +322,8 @@ forecast_rates AS (
 ),
 rates AS (
   SELECT time, rate FROM actual_rates
+  UNION ALL
+  SELECT time, rate FROM projected_rates
   UNION ALL
   SELECT time, rate FROM forecast_rates
 ),
