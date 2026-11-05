@@ -69,7 +69,7 @@ A new time-series panel, "Current Tariff Prices" (id 23), at the top of the righ
 ### Acceptance criteria
 
 - [ ] Panel 23 is a time series titled "Current Tariff Prices" at x 14, y 3, w 10, h 9, in `p/kwh` with the dashboard's price-band thresholds.
-- [ ] Its query returns series `published`, `projected` and `forecast`, with the precedence published, then projection, then Agile forecast.
+- [ ] Its query returns the columns `published`, `projected` and `forecast`, with the precedence published, then projection, then Agile forecast.
 - [ ] `projected` and `forecast` are drawn dashed, and the lines step after each point.
 - [ ] The `+24h` and `0h` annotation filters include panel 23.
 - [ ] The Agile Prices panel and Cheapest Time Window move down by 9, and no panels overlap.

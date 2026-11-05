@@ -46,8 +46,8 @@ A new **Current Tariff Prices** time-series panel shows those half-hourly prices
 - **Cheapest Time Window (panel 13)**: a `projected_rates` CTE joins `slot_products` to `tariff_projection` on product, region and slot start, excluding slots `actual_rates` already has. `rates` becomes the union of actual, projected and forecast rates. Everything else in the query is unchanged: horizons, colour bands, the full-block rule and the blank title.
 - **New panel "Current Tariff Prices" (id 23, timeseries)**:
   - Gets the same half-hourly per-slot pricing as the Cheapest Time Window: the `slots`, `slot_products` and source precedence logic, with slots generated from `$__timeFrom()` to `$__timeTo()`.
-  - Returns `time`, `rate_pence_per_kwh` and a `series` column with the values `published`, `projected` (Tariff Projection) and `forecast` (Agile forecast).
-  - Field overrides draw `projected` and `forecast` dashed. The step interpolation is `stepAfter`, so multi-hour Go windows draw flat.
+  - Returns wide columns `time`, `published`, `projected` (Tariff Projection) and `forecast` (Agile forecast), one non-null per row. These are fixed field names for the overrides to match; a long `series` column would leave Grafana to name the split fields.
+  - Drawn as lines, coloured by the price bands. Field overrides draw `projected` and `forecast` dashed. The step interpolation is `stepAfter`, so multi-hour Go windows draw flat.
   - Unit `p/kwh`, with the same threshold lines and price bands as the Agile Prices panel.
   - Grid position x 14, y 3, w 10, h 9. The Agile Prices and Cheapest Time Window panels move down by 9, and any overlapping panel below moves down to keep the grid free of overlaps.
 - **Annotations**: the `+24h` and `0h` markers' panel filter `ids` becomes `[3, 23]`.
