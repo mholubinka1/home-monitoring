@@ -202,7 +202,7 @@ def test_projected_cheap_half_hours_stay_at_local_off_peak_across_a_clock_change
 
 @responses.activate
 def test_nothing_is_projected_for_an_agile_agreement(
-    mariadb_client: MariaDBClient,
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     agile_tariff_code = "E-1R-AGILE-24-10-01-C"
     agile_meter = Electricity(
@@ -217,17 +217,44 @@ def test_nothing_is_projected_for_an_agile_agreement(
         ],
     )
     _mock_empty_catalogue()
-    for endpoint in ("standard-unit-rates", "standing-charges"):
-        responses.add(
-            responses.GET,
-            f"{PRODUCTS_ENDPOINT}AGILE-24-10-01/electricity-tariffs/"
-            f"{agile_tariff_code}/{endpoint}/",
-            json={"results": [], "next": None},
-            status=200,
-        )
+    # A fully published Agile day, so only the Agile rule -- not a missing
+    # pattern day -- keeps the later half-hours from being projected.
+    agile_tariff_endpoint = (
+        f"{PRODUCTS_ENDPOINT}AGILE-24-10-01/electricity-tariffs/{agile_tariff_code}"
+    )
+    today = datetime(2026, 11, 5, tzinfo=UTC)
+    responses.add(
+        responses.GET,
+        f"{agile_tariff_endpoint}/standard-unit-rates/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": 20.0,
+                    "valid_from": (today + timedelta(minutes=30 * i)).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    "valid_to": (today + timedelta(minutes=30 * (i + 1))).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                }
+                for i in range(48)
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{agile_tariff_endpoint}/standing-charges/",
+        json={"results": [], "next": None},
+        status=200,
+    )
     source = _make_source(mariadb_client, [agile_meter], region_code=REGION)
 
-    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+    with caplog.at_level(logging.WARNING):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert "No fully published day" not in caplog.text
 
     with mariadb_client.session_read_scope() as session:
         assert session.query(model.tariff_projection).count() == 0
