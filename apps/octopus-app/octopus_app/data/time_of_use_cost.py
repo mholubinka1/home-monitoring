@@ -1,6 +1,6 @@
 import logging.config
 from collections.abc import Callable
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
 from typing import Protocol
@@ -9,21 +9,12 @@ from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data.model import DailyCostSummary, Energy
 from octopus_app.data.octopus.model import Agreement, Rate
-from octopus_app.data.rate_segments import (
-    RateSegment,
-    day_segments,
-    segments_fully_cover_day,
-)
+from octopus_app.data.slot_rates import SlotRates
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 HALF_HOUR = timedelta(minutes=30)
-
-# A product publishes rates only a day or two ahead, so a slot beyond them
-# repeats the pattern of the latest fully published local day: searched back
-# from the end of the billing period to this many days before the as-of day.
-PATTERN_LOOKBACK_DAYS = 7
 
 
 class TimeOfUseSource(Protocol):
@@ -56,86 +47,6 @@ def _remaining_fraction(slot_start: datetime, as_of: datetime) -> Decimal:
     return Decimal((slot_end - as_of).seconds) / Decimal(HALF_HOUR.seconds)
 
 
-class _SlotRates:
-    """Unit rate of any half-hour: the rate its covering agreement's product
-    publishes for it, else the same local time of day on the latest fully
-    published day of that product."""
-
-    def __init__(
-        self,
-        client: TimeOfUseSource,
-        agreement_for_slot: Callable[[datetime], Agreement],
-        as_of: datetime,
-        billing_period_end: date,
-    ) -> None:
-        self._client = client
-        self._agreement_for_slot = agreement_for_slot
-        self._as_of_day = local_day.to_local_date(as_of)
-        self._billing_period_end = billing_period_end
-        self._published: dict[tuple[str, date], list[RateSegment]] = {}
-        self._patterns: dict[str, tuple[date, list[RateSegment]]] = {}
-
-    def unit_rate(self, slot_start: datetime, day: date) -> Decimal:
-        product_code = self._agreement_for_slot(slot_start).product_code
-        rate = self._rate_at(self._segments(product_code, day), slot_start)
-        if rate is not None:
-            return rate
-        pattern_day, pattern_segments = self._pattern(product_code)
-        local_zone = local_day.get_local_timezone()
-        # By wall-clock time, so a clock-change day on either side lines up
-        # (a repeated autumn hour maps to its first occurrence, and a local
-        # time skipped in spring resolves an hour later: only a rate change
-        # inside those hours could differ, and Go has none).
-        same_clock_time = datetime.combine(
-            pattern_day, slot_start.astimezone(local_zone).time(), tzinfo=local_zone
-        ).astimezone(UTC)
-        rate = self._rate_at(pattern_segments, same_clock_time)
-        if rate is None:
-            raise RuntimeError(
-                f"No product_rate found for {product_code} covering {slot_start} "
-                "-- cannot project remaining billing period cost."
-            )
-        return rate
-
-    def _segments(self, product_code: str, day: date) -> list[RateSegment]:
-        key = (product_code, day)
-        if key not in self._published:
-            self._published[key] = day_segments(
-                self._client.read_product_rates_for_local_day(
-                    product_code, self._client.region_code, day
-                ),
-                local_day.start_of_local_day(day),
-                local_day.start_of_local_day(day + timedelta(days=1)),
-            )
-        return self._published[key]
-
-    def _pattern(self, product_code: str) -> tuple[date, list[RateSegment]]:
-        if product_code not in self._patterns:
-            self._patterns[product_code] = self._latest_full_day(product_code)
-        return self._patterns[product_code]
-
-    def _latest_full_day(self, product_code: str) -> tuple[date, list[RateSegment]]:
-        earliest = self._as_of_day - timedelta(days=PATTERN_LOOKBACK_DAYS)
-        for days_back in range((self._billing_period_end - earliest).days + 1):
-            day = self._billing_period_end - timedelta(days=days_back)
-            day_start = local_day.start_of_local_day(day)
-            day_end = local_day.start_of_local_day(day + timedelta(days=1))
-            segments = self._segments(product_code, day)
-            if segments_fully_cover_day(segments, day_start, day_end):
-                return day, segments
-        raise RuntimeError(
-            f"No fully published day found for {product_code} -- cannot "
-            "project remaining billing period cost."
-        )
-
-    @staticmethod
-    def _rate_at(segments: list[RateSegment], instant: datetime) -> Decimal | None:
-        for start, end, rate in segments:
-            if start <= instant < end:
-                return rate.unit_rate
-        return None
-
-
 class TimeOfUseProjection:
     """Variable cost of the rest of a billing period on a time-of-use tariff
     (Octopus Go), priced one half-hour at a time: the rate of whichever
@@ -162,9 +73,7 @@ class TimeOfUseProjection:
         real_days: list[DailyCostSummary],
     ) -> Decimal:
         shares = self._time_of_day_shares(usage_since, real_days)
-        slot_rates = _SlotRates(
-            self._client, self._agreement_for_slot, self._as_of, billing_period_end
-        )
+        slot_rates = SlotRates(self._client, self._as_of, billing_period_end)
         day = local_day.to_local_date(self._as_of)
         total = Decimal(0)
         while day <= billing_period_end:
@@ -177,7 +86,7 @@ class TimeOfUseProjection:
         day: date,
         daily_kwh: Decimal,
         shares: dict[time, Decimal],
-        slot_rates: _SlotRates,
+        slot_rates: SlotRates,
     ) -> Decimal:
         slots = _half_hour_starts(
             local_day.start_of_local_day(day),
@@ -194,7 +103,9 @@ class TimeOfUseProjection:
             (
                 fraction
                 * (daily_kwh * weight / total_weight)
-                * slot_rates.unit_rate(slot, day)
+                * slot_rates.unit_rate(
+                    self._agreement_for_slot(slot).product_code, slot, day
+                )
                 for slot, weight in zip(slots, weights)
                 if (fraction := _remaining_fraction(slot, self._as_of)) > 0
             ),
