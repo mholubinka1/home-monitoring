@@ -382,3 +382,19 @@ def test_the_real_monitoring_client_stores_the_projection_it_is_given(
     )
 
     assert _projected_rates(mariadb_client) == {slot: Decimal("9.4")}
+
+
+@responses.activate
+def test_a_refresh_exactly_on_a_half_hour_projects_from_that_half_hour(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Published to 00:30 tomorrow: a refresh at exactly 00:30 starts the
+    # projection with the 00:30 half-hour itself, not the one after it.
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+    on_the_half_hour = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=on_the_half_hour)
+
+    assert min(_projected_rates(mariadb_client)) == on_the_half_hour
