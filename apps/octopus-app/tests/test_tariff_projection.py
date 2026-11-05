@@ -1,0 +1,427 @@
+import logging
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+
+import pytest
+import responses
+from tests.test_monitoring_client_cost_forecast_wiring import (
+    ACCOUNT_ENDPOINT,
+    ACCOUNT_RESPONSE,
+    GRID_SUPPLY_POINTS_ENDPOINT,
+    GRID_SUPPLY_POINTS_RESPONSE,
+)
+from tests.test_pricing_retrieval import PRODUCTS_ENDPOINT, _RealPricingSource
+
+from octopus_app.common.config import (
+    ApplicationSettings,
+    MariaDBSettings,
+    OctopusAPISettings,
+    RefreshSettings,
+)
+from octopus_app.data.base import MonitoringClient
+from octopus_app.data.mysql import model
+from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.octopus.api import OctopusEnergyAPIClient
+from octopus_app.data.octopus.model import Agreement, Electricity, Rate
+from octopus_app.data.pricing import PricingRetriever
+
+REGION = "C"
+RETENTION_DAYS = 45
+GO_PRODUCT_CODE = "GO-VAR-22-10-14"
+GO_TARIFF_CODE = f"E-1R-{GO_PRODUCT_CODE}-{REGION}"
+PEAK_RATE = 34.5297
+OFF_PEAK_RATE = 9.4
+REFRESHED_AT = datetime(2026, 11, 5, 9, 34, tzinfo=UTC)
+GO_STARTED_AT = datetime(2026, 11, 5, tzinfo=UTC)
+
+
+def _go_meter() -> Electricity:
+    return Electricity(
+        mpan="1234567890123",
+        serial_number="00A1234567",
+        agreements=[
+            Agreement(
+                tariff_code=GO_TARIFF_CODE, valid_from=GO_STARTED_AT, valid_to=None
+            )
+        ],
+    )
+
+
+def _mock_empty_catalogue() -> None:
+    responses.add(
+        responses.GET, PRODUCTS_ENDPOINT, json={"results": [], "next": None}, status=200
+    )
+
+
+def _mock_go_rates_published_to_tonight(today: date = date(2026, 11, 5)) -> None:
+    # Octopus publishes Go only to the end of the current day, whatever
+    # period_to is asked for: the live response on 2026-11-05. Written for a
+    # GMT day; the UTC instants are the same wall-clock times as on `today`.
+    midnight = datetime(today.year, today.month, today.day, tzinfo=UTC)
+
+    def at(days: int, hour: int, minute: int) -> str:
+        instant = midnight + timedelta(days=days, hours=hour, minutes=minute)
+        return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    responses.add(
+        responses.GET,
+        f"{PRODUCTS_ENDPOINT}{GO_PRODUCT_CODE}/electricity-tariffs/"
+        f"{GO_TARIFF_CODE}/standard-unit-rates/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": PEAK_RATE,
+                    "valid_from": at(0, 5, 30),
+                    "valid_to": at(1, 0, 30),
+                },
+                {
+                    "value_inc_vat": OFF_PEAK_RATE,
+                    "valid_from": at(0, 0, 30),
+                    "valid_to": at(0, 5, 30),
+                },
+                {
+                    "value_inc_vat": PEAK_RATE,
+                    "valid_from": at(-1, 5, 30),
+                    "valid_to": at(0, 0, 30),
+                },
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{PRODUCTS_ENDPOINT}{GO_PRODUCT_CODE}/electricity-tariffs/"
+        f"{GO_TARIFF_CODE}/standing-charges/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": 42.2934,
+                    "valid_from": "2026-04-01T00:00:00Z",
+                    "valid_to": None,
+                }
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+
+
+class _ProjectingPricingSource(_RealPricingSource):
+    """The real pricing source plus the reads and writes a Tariff Projection
+    needs, all backed by the same MariaDBClient."""
+
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]:
+        return self._mariadb.read_product_rates_for_local_day(product_code, region, day)
+
+    def persist_tariff_projection(
+        self,
+        product_code: str,
+        region: str,
+        slots: list[tuple[datetime, Decimal]],
+        projected_at: datetime,
+    ) -> None:
+        self._mariadb.write_tariff_projection(product_code, region, slots, projected_at)
+
+
+def _make_source(
+    mariadb_client: MariaDBClient, meters: list[Electricity], region_code: str
+) -> _ProjectingPricingSource:
+    octopus = OctopusEnergyAPIClient(
+        OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test")
+    )
+    return _ProjectingPricingSource(octopus, mariadb_client, list(meters), region_code)
+
+
+def _projected_rates(mariadb_client: MariaDBClient) -> dict[datetime, Decimal]:
+    tp = model.tariff_projection
+    with mariadb_client.session_read_scope() as session:
+        return {
+            row.period_from.replace(tzinfo=UTC): row.unit_rate
+            for row in session.query(tp).filter(
+                tp.product_code == GO_PRODUCT_CODE, tp.region == REGION
+            )
+        }
+
+
+@responses.activate
+def test_tonights_unpublished_go_cheap_window_is_projected_at_the_off_peak_rate(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    projected = _projected_rates(mariadb_client)
+    first_projected = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+    assert min(projected) == first_projected
+    cheap_window = [first_projected + timedelta(minutes=30 * i) for i in range(10)]
+    assert all(projected[slot] == Decimal("9.4") for slot in cheap_window)
+    assert projected[datetime(2026, 11, 6, 5, 30, tzinfo=UTC)] == Decimal("34.5297")
+    assert projected[datetime(2026, 11, 7, 0, 30, tzinfo=UTC)] == Decimal("9.4")
+    assert max(projected) == REFRESHED_AT.replace(minute=30) + timedelta(days=6)
+
+
+@responses.activate
+def test_published_half_hours_are_not_projected(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    published_until = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+    assert all(slot >= published_until for slot in _projected_rates(mariadb_client))
+
+
+@responses.activate
+def test_projected_cheap_half_hours_stay_at_local_off_peak_across_a_clock_change(
+    mariadb_client: MariaDBClient,
+) -> None:
+    as_of = datetime(2027, 3, 26, 9, 34, tzinfo=UTC)
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight(today=date(2027, 3, 26))
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=as_of)
+
+    projected = _projected_rates(mariadb_client)
+    # 00:30-05:30 BST on 2027-03-29, after the clocks went forward on the 28th.
+    cheap_start = datetime(2027, 3, 28, 23, 30, tzinfo=UTC)
+    cheap_window = [cheap_start + timedelta(minutes=30 * i) for i in range(10)]
+    assert all(projected[slot] == Decimal("9.4") for slot in cheap_window)
+    assert projected[cheap_start - timedelta(minutes=30)] == Decimal("34.5297")
+    assert projected[cheap_start + timedelta(hours=5)] == Decimal("34.5297")
+
+
+@responses.activate
+def test_nothing_is_projected_for_an_agile_agreement(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    agile_tariff_code = "E-1R-AGILE-24-10-01-C"
+    agile_meter = Electricity(
+        mpan="1234567890123",
+        serial_number="00A1234567",
+        agreements=[
+            Agreement(
+                tariff_code=agile_tariff_code,
+                valid_from=GO_STARTED_AT,
+                valid_to=None,
+            )
+        ],
+    )
+    _mock_empty_catalogue()
+    # A fully published Agile day, so only the Agile rule -- not a missing
+    # pattern day -- keeps the later half-hours from being projected.
+    agile_tariff_endpoint = (
+        f"{PRODUCTS_ENDPOINT}AGILE-24-10-01/electricity-tariffs/{agile_tariff_code}"
+    )
+    today = datetime(2026, 11, 5, tzinfo=UTC)
+    responses.add(
+        responses.GET,
+        f"{agile_tariff_endpoint}/standard-unit-rates/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": 20.0,
+                    "valid_from": (today + timedelta(minutes=30 * i)).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                    "valid_to": (today + timedelta(minutes=30 * (i + 1))).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    ),
+                }
+                for i in range(48)
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{agile_tariff_endpoint}/standing-charges/",
+        json={"results": [], "next": None},
+        status=200,
+    )
+    source = _make_source(mariadb_client, [agile_meter], region_code=REGION)
+
+    with caplog.at_level(logging.WARNING):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert "No fully published day" not in caplog.text
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.tariff_projection).count() == 0
+
+
+@responses.activate
+def test_a_product_without_a_fully_published_day_projects_nothing_but_still_syncs_rates(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    _mock_empty_catalogue()
+    responses.add(
+        responses.GET,
+        f"{PRODUCTS_ENDPOINT}{GO_PRODUCT_CODE}/electricity-tariffs/"
+        f"{GO_TARIFF_CODE}/standard-unit-rates/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": OFF_PEAK_RATE,
+                    "valid_from": "2026-11-05T00:30:00Z",
+                    "valid_to": "2026-11-05T05:30:00Z",
+                }
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{PRODUCTS_ENDPOINT}{GO_PRODUCT_CODE}/electricity-tariffs/"
+        f"{GO_TARIFF_CODE}/standing-charges/",
+        json={
+            "results": [
+                {
+                    "value_inc_vat": 42.2934,
+                    "valid_from": "2026-04-01T00:00:00Z",
+                    "valid_to": None,
+                }
+            ],
+            "next": None,
+        },
+        status=200,
+    )
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    with caplog.at_level(logging.WARNING):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert _projected_rates(mariadb_client) == {}
+    assert GO_PRODUCT_CODE in caplog.text
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.product_rate).count() == 1
+
+
+@responses.activate
+def test_a_new_projection_replaces_the_one_from_an_earlier_refresh(
+    mariadb_client: MariaDBClient,
+) -> None:
+    earlier_slot = datetime(2026, 11, 4, 0, 30, tzinfo=UTC)
+    mariadb_client.write_tariff_projection(
+        GO_PRODUCT_CODE, REGION, [(earlier_slot, Decimal(1))], REFRESHED_AT
+    )
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    projected = _projected_rates(mariadb_client)
+    assert earlier_slot not in projected
+    assert datetime(2026, 11, 6, 0, 30, tzinfo=UTC) in projected
+
+
+@responses.activate
+def test_no_electricity_agreement_in_force_empties_the_projection_and_says_so(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    mariadb_client.write_tariff_projection(
+        GO_PRODUCT_CODE,
+        REGION,
+        [(datetime(2026, 11, 6, 0, 30, tzinfo=UTC), Decimal(1))],
+        REFRESHED_AT,
+    )
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+    before_go_started = GO_STARTED_AT - timedelta(hours=1)
+
+    with caplog.at_level(logging.INFO):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=before_go_started)
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.tariff_projection).count() == 0
+    assert "No electricity agreement in force" in caplog.text
+
+
+@responses.activate
+def test_a_projection_that_cannot_be_stored_does_not_stop_the_rate_sync(
+    mariadb_client: MariaDBClient,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    def database_refuses_the_write(*_: object) -> None:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(source, "persist_tariff_projection", database_refuses_the_write)
+
+    with caplog.at_level(logging.WARNING):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert "Tariff Projection" in caplog.text
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.product_rate).count() == 3
+
+
+@responses.activate
+def test_the_real_monitoring_client_stores_the_projection_it_is_given(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # The other tests reach the table through the test source adapter; this
+    # one goes through MonitoringClient's own delegation, as wired in main.py.
+    responses.add(responses.GET, ACCOUNT_ENDPOINT, json=ACCOUNT_RESPONSE, status=200)
+    responses.add(
+        responses.GET,
+        GRID_SUPPLY_POINTS_ENDPOINT,
+        json=GRID_SUPPLY_POINTS_RESPONSE,
+        status=200,
+    )
+    client = MonitoringClient(
+        ApplicationSettings(
+            octopus=OctopusAPISettings(
+                account_number="A-1234ABCD", api_key="sk_live_test"
+            ),
+            # "main": must agree with the mariadb_client fixture -- ADR-0025.
+            mariadb=MariaDBSettings(
+                host="localhost",
+                port=3306,
+                database="main",
+                username="test",
+                password="test",
+            ),
+            data_refresh=RefreshSettings(refresh_interval_hours=4, retention_days=45),
+        )
+    )
+    slot = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+
+    client.persist_tariff_projection(
+        GO_PRODUCT_CODE, REGION, [(slot, Decimal("9.4"))], REFRESHED_AT
+    )
+
+    assert _projected_rates(mariadb_client) == {slot: Decimal("9.4")}
+
+
+@responses.activate
+def test_a_refresh_exactly_on_a_half_hour_projects_from_that_half_hour(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Published to 00:30 tomorrow: a refresh at exactly 00:30 starts the
+    # projection with the 00:30 half-hour itself, not the one after it.
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+    on_the_half_hour = datetime(2026, 11, 6, 0, 30, tzinfo=UTC)
+
+    PricingRetriever(source, RETENTION_DAYS).refresh(as_of=on_the_half_hour)
+
+    assert min(_projected_rates(mariadb_client)) == on_the_half_hour

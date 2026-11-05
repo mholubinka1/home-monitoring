@@ -14,12 +14,16 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
+from octopus_app.data.tariff_projection import (
+    TariffProjectionSource,
+    write_tariff_projection,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 
-class PricingSource(MeterSource, Protocol):
+class PricingSource(MeterSource, TariffProjectionSource, Protocol):
     region_code: str
 
     def persist_agreement(self, meter: Meter, agreements: list[Agreement]) -> None: ...
@@ -74,6 +78,25 @@ class PricingRetriever:
         self._sync_product_catalogue(products)
         self._sync_own_product_rates(window_start)
         self._sync_comparison_rates(products, window_start, as_of)
+        self._sync_tariff_projection(as_of)
+
+    def _sync_tariff_projection(self, as_of: datetime) -> None:
+        agreement = next(
+            (
+                agreement
+                for meter, agreement in self._meter_agreement_pairs()
+                if meter.energy == Energy.electricity
+                and agreement.valid_from <= as_of
+                and (agreement.valid_to is None or as_of < agreement.valid_to)
+            ),
+            None,
+        )
+        try:
+            write_tariff_projection(self._client, agreement, as_of)
+        except Exception:
+            logger.warning(
+                "Failed to write the Tariff Projection — skipping.", exc_info=True
+            )
 
     def _sync_agreements(self) -> None:
         for meter in self._client.meters:

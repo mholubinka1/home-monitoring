@@ -64,8 +64,8 @@ def test_query_b_is_named_effective_charging_limit() -> None:
 def test_fuel_gauge_and_chart_read_the_fuel_price_threshold() -> None:
     gauge, chart = _panel(20), _panel(21)
 
-    assert (gauge["type"], gauge["title"]) == ("gauge", "Fuel price (latest)")
-    assert chart["title"] == "Fuel price vs effective charging limit"
+    assert (gauge["type"], gauge["title"]) == ("gauge", "Local Petrol Price")
+    assert chart["title"] == "Petrol Price vs. Car Charging Price Threshold"
     defaults = gauge["fieldConfig"]["defaults"]
     assert (defaults["min"], defaults["max"]) == (100, 200)
     steps = defaults["thresholds"]["steps"]
@@ -101,7 +101,7 @@ def test_existing_panels_remain_and_gauge_is_required() -> None:
     assert "region" in {v["name"] for v in dashboard["templating"]["list"]}
     marker_annotations = [a for a in dashboard["annotations"]["list"] if "filter" in a]
     assert marker_annotations
-    assert all(a["filter"]["ids"] == [AGILE_PRICES_ID] for a in marker_annotations)
+    assert all(AGILE_PRICES_ID in a["filter"]["ids"] for a in marker_annotations)
 
 
 def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> None:
@@ -109,6 +109,9 @@ def test_reference_queries_document_the_fuel_panels_and_the_limit_query() -> Non
         REPO_ROOT / "data" / "grafana" / "mariadb" / "electricity-queries.md"
     ).read_text(encoding="utf-8")
 
-    assert "### Fuel price (latest) — gauge, id 20" in reference
-    assert "### Fuel price vs effective charging limit — timeseries, id 21" in reference
+    assert "### Local Petrol Price — gauge, id 20" in reference
+    assert (
+        "### Petrol Price vs. Car Charging Price Threshold — timeseries, id 21"
+        in reference
+    )
     assert "Query B draws the **Effective charging limit**" in reference

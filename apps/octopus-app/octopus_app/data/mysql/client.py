@@ -255,6 +255,32 @@ class MariaDBClient(MariaDBClientBase):
         ]
         self._write_all(records, "Agile forecast data")
 
+    def write_tariff_projection(
+        self,
+        product_code: str,
+        region: str,
+        slots: list[tuple[datetime, Decimal]],
+        projected_at: datetime,
+    ) -> None:
+        # Replaces every row: the projection is only ever for the product in
+        # force, so an empty list empties the table.
+        self._replace_all_rows(
+            model.tariff_projection,
+            [
+                model.tariff_projection(
+                    id=_rate_scoped_id(product_code, region, slot_start),
+                    product_code=product_code,
+                    region=region,
+                    period_from=slot_start,
+                    period_to=slot_start + timedelta(minutes=30),
+                    unit_rate=unit_rate,
+                    projected_at=projected_at,
+                )
+                for slot_start, unit_rate in slots
+            ],
+            "tariff projection",
+        )
+
     def write_cost_forecast(self, forecast: CostForecast) -> None:
         record = model.cost_forecast(
             billing_period_start=forecast.billing_period_start,

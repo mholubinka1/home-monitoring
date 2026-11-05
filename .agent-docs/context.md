@@ -157,8 +157,12 @@ The pair of Grafana panels (monthly total consumption over the trailing 12 month
 _Avoid_: annual comparison, YoY chart
 
 **Cheap Window**:
-The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates of the tariff covering each half-hour (the Agile forecast fills unpublished Agile half-hours), computed live at query time rather than stored.
+The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates of the tariff covering each half-hour (the Agile forecast fills unpublished Agile half-hours, the Tariff Projection fills those of any other tariff), computed live at query time rather than stored.
 _Avoid_: best time to use power, price dip
+
+**Tariff Projection**:
+Half-hourly unit rates for the current non-Agile electricity tariff beyond its last published rate, each taken from the same local clock time on the latest fully published day. Stored so the dashboard can show prices Octopus has not published yet (Octopus Go is published only to the end of the current day).
+_Avoid_: tariff forecast, estimated rates (that is a past-day cost term)
 
 **Day Completeness**:
 A local calendar day has 48 half-hourly `consumption` rows once Octopus's settlement lag has fully caught up — confirmed to take more than 24 hours in practice (a day can sit at 2/48 or 0/48 rows a full day after it ends) — except the two UK clock-change days each year, which are 46 (spring-forward) or 50 (fall-back) rows. Any query grouping by day must guard on the expected row count for that specific day for strictly past days before treating that day's total as final, to avoid presenting a lag-truncated day as a genuinely low-cost/low-usage one. The current, still-in-progress day is exempt from this guard — it's expected to be partial. See [ADR-0009](adr/0009-day-completeness-guard-standing-charge-fallback.md).

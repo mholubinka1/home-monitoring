@@ -115,6 +115,27 @@ class agile_forecast(SQLBase):
     fetched_at = Column(DateTime, nullable=False)
 
 
+class tariff_projection(SQLBase):
+    __tablename__ = "tariff_projection"
+    __table_args__: ClassVar[tuple[Index, dict[str, str]]] = (
+        Index(
+            "ix_tariff_projection_product_region_period_from",
+            "product_code",
+            "region",
+            "period_from",
+        ),
+        {"schema": "octopus"},
+    )
+
+    id = Column(String(100), primary_key=True)
+    product_code = Column(String(50), nullable=False)
+    region = Column(String(1), nullable=False)
+    period_from = Column(DateTime, nullable=False)
+    period_to = Column(DateTime, nullable=False)
+    unit_rate = Column(Numeric(9, 6), nullable=False)
+    projected_at = Column(DateTime, nullable=False)
+
+
 class cost_forecast(SQLBase):
     __tablename__ = "cost_forecast"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
