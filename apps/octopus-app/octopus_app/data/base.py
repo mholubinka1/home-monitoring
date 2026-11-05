@@ -153,6 +153,15 @@ class MonitoringClient:
     ) -> list[Rate]:
         return self.mariadb.read_product_rates_for_local_day(product_code, region, day)
 
+    def persist_tariff_projection(
+        self,
+        product_code: str,
+        region: str,
+        slots: list[tuple[datetime, Decimal]],
+        projected_at: datetime,
+    ) -> None:
+        self.mariadb.write_tariff_projection(product_code, region, slots, projected_at)
+
     def read_half_hourly_consumption(
         self, energy: Energy, period_from: datetime, period_to: datetime
     ) -> list[tuple[datetime, Decimal]]:

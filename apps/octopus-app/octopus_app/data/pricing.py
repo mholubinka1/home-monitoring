@@ -1,6 +1,7 @@
 import logging.config
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from logging import Logger, getLogger
 from typing import Protocol
 
@@ -14,6 +15,7 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
+from octopus_app.data.tariff_projection import write_tariff_projection
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -56,6 +58,18 @@ class PricingSource(MeterSource, Protocol):
         self, product_code: str, region: str
     ) -> str | None: ...
 
+    def read_product_rates_for_local_day(
+        self, product_code: str, region: str, day: date
+    ) -> list[Rate]: ...
+
+    def persist_tariff_projection(
+        self,
+        product_code: str,
+        region: str,
+        slots: list[tuple[datetime, Decimal]],
+        projected_at: datetime,
+    ) -> None: ...
+
 
 class PricingRetriever:
     _client: PricingSource
@@ -74,6 +88,25 @@ class PricingRetriever:
         self._sync_product_catalogue(products)
         self._sync_own_product_rates(window_start)
         self._sync_comparison_rates(products, window_start, as_of)
+        self._sync_tariff_projection(as_of)
+
+    def _sync_tariff_projection(self, as_of: datetime) -> None:
+        agreement = next(
+            (
+                agreement
+                for meter, agreement in self._meter_agreement_pairs()
+                if meter.energy == Energy.electricity
+                and agreement.valid_from <= as_of
+                and (agreement.valid_to is None or as_of < agreement.valid_to)
+            ),
+            None,
+        )
+        try:
+            write_tariff_projection(self._client, agreement, as_of)
+        except Exception:
+            logger.warning(
+                "Failed to write the Tariff Projection — skipping.", exc_info=True
+            )
 
     def _sync_agreements(self) -> None:
         for meter in self._client.meters:
