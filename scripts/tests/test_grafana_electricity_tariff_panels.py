@@ -271,3 +271,11 @@ def test_cheapest_window_reads_its_windows_once() -> None:
         in sql
     )
     assert "FROM block_sizes b\nLEFT JOIN cheapest c" in sql
+
+
+def test_current_tariff_prices_cover_at_most_the_last_seven_days_of_the_range() -> None:
+    # One slot per half-hour: a wide dashboard range would pass MariaDB's
+    # recursion limit and build the per-slot subqueries on a memory-capped Pi.
+    sql = _sql(CURRENT_TARIFF_PRICES_ID)
+
+    assert "GREATEST($__timeFrom(), $__timeTo() - INTERVAL 7 DAY)" in sql
