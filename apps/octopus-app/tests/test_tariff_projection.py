@@ -4,10 +4,12 @@ from decimal import Decimal
 
 import pytest
 import responses
-from tests.test_pricing_retrieval import PRODUCTS_ENDPOINT, _make_source
+from tests.test_pricing_retrieval import PRODUCTS_ENDPOINT, _RealPricingSource
 
+from octopus_app.common.config import OctopusAPISettings
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.octopus.api import OctopusEnergyAPIClient
 from octopus_app.data.octopus.model import Agreement, Electricity, Rate
 from octopus_app.data.pricing import PricingRetriever
 
@@ -93,16 +95,9 @@ def _mock_go_rates_published_to_tonight(today: date = date(2026, 11, 5)) -> None
     )
 
 
-class _ProjectingPricingSource:
+class _ProjectingPricingSource(_RealPricingSource):
     """The real pricing source plus the reads and writes a Tariff Projection
     needs, all backed by the same MariaDBClient."""
-
-    def __init__(self, mariadb_client: MariaDBClient, meter: Electricity) -> None:
-        self._source = _make_source(mariadb_client, [meter], region_code=REGION)
-        self._mariadb = mariadb_client
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._source, name)
 
     def read_product_rates_for_local_day(
         self, product_code: str, region: str, day: date
@@ -117,6 +112,15 @@ class _ProjectingPricingSource:
         projected_at: datetime,
     ) -> None:
         self._mariadb.write_tariff_projection(product_code, region, slots, projected_at)
+
+
+def _make_source(
+    mariadb_client: MariaDBClient, meters: list[Electricity], region_code: str
+) -> _ProjectingPricingSource:
+    octopus = OctopusEnergyAPIClient(
+        OctopusAPISettings(account_number="A-1234ABCD", api_key="sk_live_test")
+    )
+    return _ProjectingPricingSource(octopus, mariadb_client, list(meters), region_code)
 
 
 def _projected_rates(mariadb_client: MariaDBClient) -> dict[datetime, Decimal]:
@@ -136,7 +140,7 @@ def test_tonights_unpublished_go_cheap_window_is_projected_at_the_off_peak_rate(
 ) -> None:
     _mock_empty_catalogue()
     _mock_go_rates_published_to_tonight()
-    source = _ProjectingPricingSource(mariadb_client, _go_meter())
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
 
     PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
 
@@ -156,7 +160,7 @@ def test_published_half_hours_are_not_projected(
 ) -> None:
     _mock_empty_catalogue()
     _mock_go_rates_published_to_tonight()
-    source = _ProjectingPricingSource(mariadb_client, _go_meter())
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
 
     PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
 
@@ -171,7 +175,7 @@ def test_projected_cheap_half_hours_stay_at_local_off_peak_across_a_clock_change
     as_of = datetime(2027, 3, 26, 9, 34, tzinfo=UTC)
     _mock_empty_catalogue()
     _mock_go_rates_published_to_tonight(today=date(2027, 3, 26))
-    source = _ProjectingPricingSource(mariadb_client, _go_meter())
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
 
     PricingRetriever(source, RETENTION_DAYS).refresh(as_of=as_of)
 
@@ -209,7 +213,7 @@ def test_nothing_is_projected_for_an_agile_agreement(
             json={"results": [], "next": None},
             status=200,
         )
-    source = _ProjectingPricingSource(mariadb_client, agile_meter)
+    source = _make_source(mariadb_client, [agile_meter], region_code=REGION)
 
     PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
 
@@ -254,7 +258,7 @@ def test_a_product_without_a_fully_published_day_projects_nothing_but_still_sync
         },
         status=200,
     )
-    source = _ProjectingPricingSource(mariadb_client, _go_meter())
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
 
     with caplog.at_level(logging.WARNING):
         PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
@@ -275,7 +279,7 @@ def test_a_new_projection_replaces_the_one_from_an_earlier_refresh(
     )
     _mock_empty_catalogue()
     _mock_go_rates_published_to_tonight()
-    source = _ProjectingPricingSource(mariadb_client, _go_meter())
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
 
     PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
 
