@@ -16,6 +16,13 @@ RATE_PRICED_QUERIES = [(1, "A"), (5, "A"), (8, "A"), (14, "A")]
 RATE_VALIDITY_BOUND = "c.period_from < COALESCE(pr2.valid_to"
 MIDDAY_STANDING_CHARGE = "= '12:00:00' THEN pr.standing_charge END"
 AGILE_PRODUCT_PATTERN = "REGEXP '^AGILE-(FLEX-)?[0-9]'"
+# Probes the indexed product_rate table, not the actual_rates CTE: MariaDB
+# re-evaluates a CTE for every probe, which ran the Pi's database short of memory.
+PROJECTION_YIELDS_TO_PUBLISHED_RATE = (
+    "NOT EXISTS (\n"
+    "      SELECT 1 FROM product_rate pr3\n"
+    "      WHERE pr3.product_code = sp.product_code"
+)
 
 
 def _dashboard() -> dict[str, Any]:
@@ -128,7 +135,8 @@ def test_cheapest_window_only_offers_blocks_whose_every_half_hour_has_a_rate() -
             in sql
         )
         assert f"time + INTERVAL {(slots - 1) * 30} MINUTE" in sql
-        assert sql.count(f"FROM windows WHERE {name} IS NOT NULL") == 3
+        assert f"THEN w.{name}" in sql or f"ELSE w.{name}" in sql
+    assert "WHERE bl.avg_rate IS NOT NULL" in sql
 
 
 def test_cheapest_window_fills_unpublished_half_hours_from_the_tariff_projection() -> (
@@ -138,9 +146,7 @@ def test_cheapest_window_fills_unpublished_half_hours_from_the_tariff_projection
 
     assert "FROM tariff_projection tp" in sql
     assert "tp.product_code = sp.product_code" in sql
-    assert (
-        "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)" in sql
-    )
+    assert PROJECTION_YIELDS_TO_PUBLISHED_RATE in sql
     assert "SELECT time, rate FROM projected_rates" in sql
 
 
@@ -173,9 +179,7 @@ def test_current_tariff_prices_take_published_then_projected_then_forecast_rates
     assert "sp.time < COALESCE(pr2.valid_to" in sql
     assert "FROM tariff_projection tp" in sql
     assert f"sp.product_code {AGILE_PRODUCT_PATTERN}" in sql
-    assert (
-        "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = tp.period_from)" in sql
-    )
+    assert PROJECTION_YIELDS_TO_PUBLISHED_RATE in sql
     assert (
         "NOT EXISTS (SELECT 1 FROM actual_rates a WHERE a.time = f.period_from)" in sql
     )
@@ -230,3 +234,40 @@ def test_no_two_electricity_panels_overlap() -> None:
         }
         assert not cells & panel_cells, panel["title"]
         cells |= panel_cells
+
+
+def test_the_dashed_line_starts_on_the_last_published_half_hour_so_none_is_lost() -> (
+    None
+):
+    # With stepAfter a series' last point draws nothing, so the last published
+    # half-hour is drawn by the dashed series that continues from it. Found in
+    # one window pass: a per-row EXISTS over the CTEs re-runs them for every
+    # row and ran MariaDB out of memory on the Pi.
+    sql = _sql(CURRENT_TARIFF_PRICES_ID)
+
+    assert "LEAD(source) OVER (ORDER BY time) AS next_source" in sql
+    for column in ("projected", "forecast"):
+        assert (
+            f"CASE WHEN '{column}' IN (source, next_source) THEN rate END AS {column}"
+            in sql
+        )
+    assert "EXISTS (SELECT 1 FROM projected_rates" not in sql
+    assert "EXISTS (SELECT 1 FROM forecast_rates" not in sql
+
+
+def test_no_projected_slot_is_checked_against_the_actual_rates_cte() -> None:
+    for panel_id in (CHEAPEST_WINDOW_ID, CURRENT_TARIFF_PRICES_ID):
+        assert "WHERE a.time = tp.period_from" not in _sql(panel_id), panel_id
+
+
+def test_cheapest_window_reads_its_windows_once() -> None:
+    # Twelve scalar subqueries each re-evaluating the windows CTE took about
+    # 380 MiB of server memory once five days of Go rates were projected.
+    sql = _sql(CHEAPEST_WINDOW_ID)
+
+    assert sql.count("FROM windows") == 1
+    assert (
+        "ROW_NUMBER() OVER (PARTITION BY bl.window_size, h.horizon ORDER BY bl.avg_rate ASC)"
+        in sql
+    )
+    assert "FROM block_sizes b\nLEFT JOIN cheapest c" in sql
