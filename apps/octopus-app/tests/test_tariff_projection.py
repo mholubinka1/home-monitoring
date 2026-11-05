@@ -286,3 +286,49 @@ def test_a_new_projection_replaces_the_one_from_an_earlier_refresh(
     projected = _projected_rates(mariadb_client)
     assert earlier_slot not in projected
     assert datetime(2026, 11, 6, 0, 30, tzinfo=UTC) in projected
+
+
+@responses.activate
+def test_no_electricity_agreement_in_force_empties_the_projection_and_says_so(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    mariadb_client.write_tariff_projection(
+        GO_PRODUCT_CODE,
+        REGION,
+        [(datetime(2026, 11, 6, 0, 30, tzinfo=UTC), Decimal(1))],
+        REFRESHED_AT,
+    )
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+    before_go_started = GO_STARTED_AT - timedelta(hours=1)
+
+    with caplog.at_level(logging.INFO):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=before_go_started)
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.tariff_projection).count() == 0
+    assert "No electricity agreement in force" in caplog.text
+
+
+@responses.activate
+def test_a_projection_that_cannot_be_stored_does_not_stop_the_rate_sync(
+    mariadb_client: MariaDBClient,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_empty_catalogue()
+    _mock_go_rates_published_to_tonight()
+    source = _make_source(mariadb_client, [_go_meter()], region_code=REGION)
+
+    def database_refuses_the_write(*_: object) -> None:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(source, "persist_tariff_projection", database_refuses_the_write)
+
+    with caplog.at_level(logging.WARNING):
+        PricingRetriever(source, RETENTION_DAYS).refresh(as_of=REFRESHED_AT)
+
+    assert "Tariff Projection" in caplog.text
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.product_rate).count() == 3

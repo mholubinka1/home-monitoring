@@ -220,7 +220,6 @@ _Avoid_: household location (implies a user-entered setting)
 
 **Account Postcode**:
 The Octopus account's property postcode, written by octopus-app on startup to the one-row `account_postcode` table defined in `common` (so either app's Schema Sync creates it), and read by hive-app to derive the Weather Location. octopus-app is its only writer.
-_Avoid_: postcode (unqualified), home postcode, property address
 
 **Degree-day**:
 A measure of how much heating a day needed: how far that day's temperature was below a base temperature (a house needs no heating above it), summed over a period; gas divided by degree-days gives a weather-independent efficiency measure. The cost forecast's original regression used a fixed 15.5 C base on the daily maximum; the **Heating Model** instead uses a learned **Heating Threshold** on the **Effective Temperature**.
@@ -228,7 +227,6 @@ _Avoid_: HDD (unexplained)
 
 **Effective Temperature**:
 The temperature the **Heating Model** uses for a day: a blend of that Local Day's mean temperature and the previous day's, `(1 - w) * today + w * yesterday`, with `w` fitted from the data (thermal memory: a house is still cold from yesterday). Needs a **complete day** of weather ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
-_Avoid_: mean temperature, blended temperature, actual temperature
 
 **Heating Model**:
 The learned description of how the household's gas use depends on the weather: over a rolling 12 months, `gas = baseload + slope * max(0, threshold - effective temperature)`, refitted weekly by a daily octopus-app job that also projects 7 days ahead into two small tables (model and forecast day). The cost forecast and the gas dashboard read these tables; it replaces the cost forecast's fixed-threshold regression. Until 2026-11-04 it also judged every past day, built a weekly efficiency table and labelled itself against the thermostat; those parts were removed with the panels that showed them. See [ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md).
@@ -236,11 +234,9 @@ _Avoid_: regression (the older fixed-threshold method)
 
 **Baseload**:
 The gas used on a day with no heating (hot water and cooking). It moves: it is measured from warm days as a trailing 120-day moving average (at least 8 warm days), joined by a labelled straight line across winter gaps and held at the last measured value for the newest days (and at the first measured value for any days before it) ([ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)). **Away days** (gas below about a third of baseload, e.g. a holiday) are excluded from the fit.
-_Avoid_: base load, background gas, standby gas
 
 **Heating Threshold**:
 The effective temperature below which the **Heating Model** says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C the repo first assumed).
-_Avoid_: base temperature, balance point, heating temperature
 
 **Complete Gas Day**:
 A Local Day whose gas total is above zero and which has every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`; a day with an unknown count (before the API's first day, 2024-10-09) is usable unless its total is zero and is reported as unverified. Gas gaps are upstream (the Octopus API itself reports zero or no data for about 13% of days since 2024-10-09), so partial and missing days are excluded, never filled in. See the [gas gap investigation](research/heating-model-prototype.md).

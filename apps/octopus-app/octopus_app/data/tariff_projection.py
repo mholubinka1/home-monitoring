@@ -1,4 +1,3 @@
-import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from logging import Logger, getLogger
@@ -6,7 +5,7 @@ from typing import Protocol
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME
-from octopus_app.data.octopus.model import Agreement
+from octopus_app.data.octopus.model import Agreement, TariffType
 from octopus_app.data.slot_rates import (
     NoFullyPublishedDayError,
     SlotRates,
@@ -18,8 +17,6 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 # How far ahead of a refresh the projection reaches.
 PROJECTION_HORIZON_DAYS = 6
 SLOT_LENGTH = timedelta(minutes=30)
-# Agile publishes a rate for every slot it has, so it is never projected.
-AGILE_PRODUCT_CODE = re.compile(r"^AGILE-(FLEX-)?[0-9]")
 
 
 class TariffProjectionSource(SlotRateSource, Protocol):
@@ -37,18 +34,20 @@ def write_tariff_projection(
 ) -> None:
     """Replaces the stored projection with the unpublished half-hours of the
     electricity agreement in force; none for no agreement or an Agile one."""
-    product_code = agreement.product_code if agreement else None
     slots: list[tuple[datetime, Decimal]] = []
-    if product_code is not None and not AGILE_PRODUCT_CODE.match(product_code):
+    if agreement is None:
+        logger.info("No electricity agreement in force -- Tariff Projection is empty.")
+    # Agile publishes a rate for every slot it has, so it is never projected.
+    elif agreement.tariff_type != TariffType.agile:
         try:
-            slots = _unpublished_slots(client, product_code, as_of)
+            slots = _unpublished_slots(client, agreement.product_code, as_of)
         except NoFullyPublishedDayError:
             logger.warning(
-                f"No fully published day for {product_code} -- its Tariff "
-                "Projection is left empty."
+                f"No fully published day for {agreement.product_code} -- its "
+                "Tariff Projection is left empty."
             )
     client.persist_tariff_projection(
-        product_code or "", client.region_code, slots, as_of
+        agreement.product_code if agreement else "", client.region_code, slots, as_of
     )
 
 

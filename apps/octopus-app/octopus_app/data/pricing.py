@@ -1,7 +1,6 @@
 import logging.config
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from typing import Protocol
 
@@ -15,13 +14,16 @@ from octopus_app.data.octopus.model import (
     Product,
     Rate,
 )
-from octopus_app.data.tariff_projection import write_tariff_projection
+from octopus_app.data.tariff_projection import (
+    TariffProjectionSource,
+    write_tariff_projection,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 
-class PricingSource(MeterSource, Protocol):
+class PricingSource(MeterSource, TariffProjectionSource, Protocol):
     region_code: str
 
     def persist_agreement(self, meter: Meter, agreements: list[Agreement]) -> None: ...
@@ -57,18 +59,6 @@ class PricingSource(MeterSource, Protocol):
     def fetch_electricity_tariff_code(
         self, product_code: str, region: str
     ) -> str | None: ...
-
-    def read_product_rates_for_local_day(
-        self, product_code: str, region: str, day: date
-    ) -> list[Rate]: ...
-
-    def persist_tariff_projection(
-        self,
-        product_code: str,
-        region: str,
-        slots: list[tuple[datetime, Decimal]],
-        projected_at: datetime,
-    ) -> None: ...
 
 
 class PricingRetriever:
