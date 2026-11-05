@@ -16,7 +16,7 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # How far ahead of a refresh the projection reaches.
 PROJECTION_HORIZON_DAYS = 6
-SLOT_LENGTH = timedelta(minutes=30)
+HALF_HOUR = timedelta(minutes=30)
 
 
 class TariffProjectionSource(SlotRateSource, Protocol):
@@ -41,6 +41,10 @@ def write_tariff_projection(
     elif agreement.tariff_type != TariffType.agile:
         try:
             slots = _unpublished_slots(client, agreement.product_code, as_of)
+            logger.info(
+                f"Tariff Projection: {len(slots)} half-hour(s) projected for "
+                f"{agreement.product_code}."
+            )
         except NoFullyPublishedDayError:
             logger.warning(
                 f"No fully published day for {agreement.product_code} -- its "
@@ -64,11 +68,11 @@ def _unpublished_slots(
             slots.append(
                 (slot_start, rates.pattern_unit_rate(product_code, slot_start))
             )
-        slot_start += SLOT_LENGTH
+        slot_start += HALF_HOUR
     return slots
 
 
 def _next_half_hour(instant: datetime) -> datetime:
     instant = instant.astimezone(UTC)
     floor = instant.replace(minute=instant.minute // 30 * 30, second=0, microsecond=0)
-    return floor if floor == instant else floor + SLOT_LENGTH
+    return floor if floor == instant else floor + HALF_HOUR
