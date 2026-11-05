@@ -227,21 +227,31 @@ def test_no_two_electricity_panels_overlap() -> None:
         cells |= panel_cells
 
 
-def test_the_dashed_line_starts_on_the_last_published_half_hour_so_none_is_lost() -> (
-    None
-):
-    # With stepAfter a series' last point draws nothing, so the last published
-    # half-hour is drawn by the dashed series that continues from it. Found in
+def test_every_half_hour_of_the_timeline_is_a_row_so_a_gap_breaks_the_line() -> None:
+    # A half-hour with no rate must be an all-null row: dropped instead, its
+    # neighbours become adjacent points and the step crosses the gap at the
+    # earlier price.
+    sql = _sql(CURRENT_TARIFF_PRICES_ID)
+
+    assert "FROM slots s\n  LEFT JOIN sourced_rates r ON r.time = s.time" in sql
+    assert "SELECT time, rate, source FROM timeline\n" in sql
+
+
+def test_each_run_is_closed_by_its_own_row_at_its_last_second() -> None:
+    # With stepAfter a series' last point draws nothing, so each run of one
+    # source gets a closing row at start + 29:59 in its own column. On its own
+    # row, never a half-hour's, so a single unpriced half-hour or a single
+    # half-hour of another source still leaves a null between runs. Found in
     # one window pass: a per-row EXISTS over the CTEs re-runs them for every
     # row and ran MariaDB out of memory on the Pi.
     sql = _sql(CURRENT_TARIFF_PRICES_ID)
 
-    assert "LEAD(source) OVER (ORDER BY time) AS next_source" in sql
-    for column in ("projected", "forecast"):
-        assert (
-            f"CASE WHEN '{column}' IN (source, next_source) THEN rate END AS {column}"
-            in sql
-        )
+    assert "LEAD(r.source) OVER (ORDER BY s.time) AS next_source" in sql
+    assert "SELECT time + INTERVAL 1799 SECOND, rate, source FROM timeline" in sql
+    assert "WHERE source IS NOT NULL AND NOT (next_source <=> source)" in sql
+    for column in ("published", "projected", "forecast"):
+        assert f"CASE WHEN source = '{column}' THEN rate END AS {column}" in sql
+    assert "previous_rate" not in sql
     assert "EXISTS (SELECT 1 FROM projected_rates" not in sql
     assert "EXISTS (SELECT 1 FROM forecast_rates" not in sql
 

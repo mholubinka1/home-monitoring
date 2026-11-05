@@ -152,7 +152,7 @@ LIMIT 1;
 
 ### Current Tariff Prices — timeseries, id 23
 
-Top of the right-hand column, above Agile Prices. Half-hourly unit rates of the tariff covering each half-hour across the dashboard's range (`$__timeFrom()` to `$__timeTo()`, so now-3h to now+120h by default, capped to its last 7 days: one recursive row per half-hour, so a range like "Last 30 days" would pass MariaDB's recursion limit and build the per-slot subqueries on the memory-capped Pi), priced the same way as the Cheapest Time Window below: the `slot_products` CTE gives each half-hour the product of the agreement covering it, and each takes the published `product_rate` first, then the **Tariff Projection** (`tariff_projection`, ADR-0032) on a non-Agile tariff, then `agile_forecast` on an Agile one. It returns three wide columns, `published`, `projected` and `forecast`, one non-null per row, so the field overrides can match fixed names: `projected` and `forecast` are drawn dashed, `published` solid. The last published half-hour before a projected or forecast one also carries its rate in that dashed column (found with one `LEAD()` pass over the combined rates, not a per-row lookup): a step line draws nothing after its last point, so without it that half-hour would show as a gap. Lines step after each point (`stepAfter`), so a multi-hour Go window draws flat, and are coloured by the same price bands as Agile Prices (unit `p/kwh`). On Octopus Go this shows tonight's and the coming nights' cheap windows before Octopus publishes them. The dashboard-level `+24h` and `0h` markers also render on this panel, which marks the next 24 hours.
+Top of the right-hand column, above Agile Prices. Half-hourly unit rates of the tariff covering each half-hour across the dashboard's range (`$__timeFrom()` to `$__timeTo()`, so now-3h to now+120h by default, capped to its last 7 days: one recursive row per half-hour, so a range like "Last 30 days" would pass MariaDB's recursion limit and build the per-slot subqueries on the memory-capped Pi), priced the same way as the Cheapest Time Window below: the `slot_products` CTE gives each half-hour the product of the agreement covering it, and each takes the published `product_rate` first, then the **Tariff Projection** (`tariff_projection`, ADR-0032) on a non-Agile tariff, then `agile_forecast` on an Agile one. It returns three wide columns, `published`, `projected` and `forecast`, at most one non-null per row, so the field overrides can match fixed names: `projected` and `forecast` are drawn dashed, `published` solid. A step line draws nothing after its last point, so the edges are explicit. The rates are left-joined onto the `slots` timeline (`timeline`), so a half-hour with no rate is an all-null row and the line breaks there rather than stepping across the gap at the earlier price. Each run of one source is closed by an extra row at the last second of its final half-hour (start + 29:59) carrying that rate in its own column (`points`). A run ends when the next half-hour has another source or no rate, or the timeline ends, as one `LEAD()` pass finds (not a per-row lookup). Because a closing row never shares a timestamp with a half-hour, even a single unpriced half-hour, or a single half-hour of another source, leaves a null between runs. Lines step after each point (`stepAfter`), so a multi-hour Go window draws flat, and are coloured by the same price bands as Agile Prices (unit `p/kwh`). On Octopus Go this shows tonight's and the coming nights' cheap windows before Octopus publishes them. The dashboard-level `+24h` and `0h` markers also render on this panel, which marks the next 24 hours.
 
 ```sql
 WITH RECURSIVE slots AS (
@@ -219,15 +219,23 @@ sourced_rates AS (
   UNION ALL
   SELECT time, rate, 'forecast' FROM forecast_rates
 ),
-sequenced_rates AS (
-  SELECT time, rate, source, LEAD(source) OVER (ORDER BY time) AS next_source
-  FROM sourced_rates
+timeline AS (
+  SELECT s.time, r.rate, r.source,
+    LEAD(r.source) OVER (ORDER BY s.time) AS next_source
+  FROM slots s
+  LEFT JOIN sourced_rates r ON r.time = s.time
+),
+points AS (
+  SELECT time, rate, source FROM timeline
+  UNION ALL
+  SELECT time + INTERVAL 1799 SECOND, rate, source FROM timeline
+  WHERE source IS NOT NULL AND NOT (next_source <=> source)
 )
 SELECT time,
   CASE WHEN source = 'published' THEN rate END AS published,
-  CASE WHEN 'projected' IN (source, next_source) THEN rate END AS projected,
-  CASE WHEN 'forecast' IN (source, next_source) THEN rate END AS forecast
-FROM sequenced_rates
+  CASE WHEN source = 'projected' THEN rate END AS projected,
+  CASE WHEN source = 'forecast' THEN rate END AS forecast
+FROM points
 ORDER BY time;
 ```
 
