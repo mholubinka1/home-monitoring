@@ -51,15 +51,6 @@ def test_the_stat_panel_type_is_required() -> None:
     assert "stat" in {r["id"] for r in _dashboard()["__requires"]}
 
 
-def test_the_current_tariff_panel_is_the_top_banner() -> None:
-    panels = _dashboard()["panels"]
-    banner = next(p for p in panels if p["id"] == CURRENT_TARIFF_ID)["gridPos"]
-
-    assert banner["y"] == 0 and banner["w"] == 24
-    others = [p for p in panels if p["id"] != CURRENT_TARIFF_ID]
-    assert all(p["gridPos"]["y"] >= banner["h"] for p in others)
-
-
 def test_agile_prices_reads_the_agile_product_not_the_accounts_product() -> None:
     sql = _sql(AGILE_PRICES_ID)
 
@@ -161,7 +152,7 @@ def test_current_tariff_prices_is_a_time_series_at_the_top_of_the_right_column()
 
     assert panel["type"] == "timeseries"
     assert panel["title"] == "Current Tariff Prices"
-    assert panel["gridPos"] == {"h": 9, "w": 10, "x": 14, "y": 3}
+    assert panel["gridPos"] == {"h": 9, "w": 10, "x": 14, "y": 0}
     assert panel["fieldConfig"]["defaults"]["unit"] == "p/kwh"
     thresholds = panel["fieldConfig"]["defaults"]["thresholds"]["steps"]
     assert (
@@ -219,8 +210,8 @@ def test_the_now_and_plus_24h_markers_show_on_both_price_charts() -> None:
 def test_the_agile_prices_and_cheapest_window_sit_below_the_current_tariff_prices() -> (
     None
 ):
-    assert _panel(AGILE_PRICES_ID)["gridPos"]["y"] == 12
-    assert _panel(CHEAPEST_WINDOW_ID)["gridPos"]["y"] == 21
+    assert _panel(AGILE_PRICES_ID)["gridPos"]["y"] == 9
+    assert _panel(CHEAPEST_WINDOW_ID)["gridPos"]["y"] == 18
 
 
 def test_no_two_electricity_panels_overlap() -> None:
