@@ -40,7 +40,7 @@ Sunshine and solar radiation stay recorded and are never shown or used.
   - Waking-Hours Indoor Average: the mean `current_temp` of Heating Status polls whose London local time is between the Wake Up and Bedtime hours. A day is returned only if the poll count is at least 80% of the expected count (window hours x 30). The window is assumed to sit within one day (Bedtime later than Wake Up).
   - Forecast minimum and maximum for target dates from today (London) onward, from the stored forecast for each date (one row per source and date, overwritten by each fetch, so it is the latest fetch), leaving a date off a line when that forecast has no value for it, drawn dotted. The series are drawn dotted through per-series overrides, with the same colours as the observed lines.
 - **Variables:** two new Grafana text-box variables (like Comfort target), Wake Up (default 7) and Bedtime (default 23), whole hours. Their values enter the SQL under the existing escaping convention for text-box values.
-- **Panel text:** the panel title and description are updated to match (the band is no longer min, mean and max).
+- **Panel text:** the panel description is updated to match (the band is no longer min, mean and max). The title, "Daily Outdoor Temperature Band", stays: it never named the mean and the outdoor lines are still the panel's core.
 - **Panel 2 and panel 1:** unchanged.
 - **Docs:** `data/grafana/mariadb/gas-heating-queries.md` is updated for panel 5. The glossary gains Waking-Hours Indoor Average and notes that Weather Forecast now carries a nullable minimum (already done in the design session).
 - **Deploy order:** deploy hive-app first so `min_temp` exists and fills, then import the dashboard.
