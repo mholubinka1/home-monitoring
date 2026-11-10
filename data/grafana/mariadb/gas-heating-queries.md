@@ -21,6 +21,8 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 - `${boiler_kw}`: text box, default `12`. The boiler's gas input at full output, in kW, for the estimated boost cost; 12 kW was measured on the 6 October 2026 test evening. `0` (or anything that is not a number) shows minutes only.
 - `${comfort_target}`: text box, default `15` (C). A target at or above it counts as a comfort target; below it is the frost setting.
 - `${comfort_margin}`: text box, default `1.0` (C). How far under its target the room must be for a minute to count.
+- `${wake_up}`: text box, default `7`. The hour the waking window starts, in whole hours 0-23 (London time), for the indoor average on the Daily Outdoor Temperature Band.
+- `${bedtime}`: text box, default `23`. The hour the waking window ends (exclusive), in whole hours 0-23, after `${wake_up}`; otherwise the indoor line shows no data.
 - `${gas_billing_period_start}`, `${gas_billing_period_end}`, `${gas_rates_estimated_note}`: hidden, from the latest gas `cost_forecast` row; used only in the predictor's title.
 
 ## Schema assumed
@@ -413,7 +415,7 @@ ORDER BY time;
 
 ### Daily Outdoor Temperature Band (time series)
 
-Daily minimum, mean and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"). The same hourly outdoor readings and complete-day rule as the daily gas panel's query C. Hive-app still records sunshine and solar radiation, but no panel draws them. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
+Daily minimum and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), plus the indoor average over waking hours ("indoor (waking hours)"): the mean of the thermostat's `current_temp` over polls whose London hour is at or after `${wake_up}` and before `${bedtime}`. A day gets an indoor value only when it has at least 80% of the polls expected in that window (one every 2 minutes, so `(bedtime - wake_up) * 30`). Both hours must be whole numbers 0-23 with bedtime after wake up; anything else gives no indoor line. The outdoor part uses the same hourly outdoor readings and complete-day rule as the daily gas panel's query C. Hive-app still records sunshine and solar radiation, but no panel draws them. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
 
 ```sql
 WITH wx AS (
@@ -439,7 +441,6 @@ WITH wx AS (
 daily AS (
   SELECT
     DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,
-    AVG(temp) AS mean_temp,
     MIN(temp) AS min_temp,
     MAX(temp) AS max_temp
   FROM wx
@@ -449,15 +450,44 @@ daily AS (
     CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),
     CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   )
+),
+waking AS (
+  SELECT IF(b > w, w, NULL) AS wake_up, IF(b > w, b, NULL) AS bedtime
+  FROM (
+    SELECT
+      IF(${wake_up:sqlstring} REGEXP '^[0-9]{1,2}$' AND CAST(${wake_up:sqlstring} AS SIGNED) <= 23, CAST(${wake_up:sqlstring} AS SIGNED), NULL) AS w,
+      IF(${bedtime:sqlstring} REGEXP '^[0-9]{1,2}$' AND CAST(${bedtime:sqlstring} AS SIGNED) <= 23, CAST(${bedtime:sqlstring} AS SIGNED), NULL) AS b
+  ) r
+),
+indoor AS (
+  SELECT DATE(h.local_at) AS day, AVG(h.current_temp) AS indoor_avg
+  FROM (
+    SELECT CONVERT_TZ(polled_at, 'UTC', '${timezone}') AS local_at, current_temp
+    FROM heating_status
+    WHERE current_temp IS NOT NULL
+      AND polled_at >= $__timeFrom() - INTERVAL 2 DAY
+      AND polled_at <= $__timeTo() + INTERVAL 1 DAY
+  ) h
+  CROSS JOIN waking p
+  WHERE HOUR(h.local_at) >= p.wake_up AND HOUR(h.local_at) < p.bedtime
+  GROUP BY DATE(h.local_at), p.wake_up, p.bedtime
+  HAVING COUNT(*) >= 0.8 * (p.bedtime - p.wake_up) * 30
+),
+days AS (
+  SELECT day FROM daily
+  UNION
+  SELECT day FROM indoor
 )
-SELECT time, min_temp, mean_temp, max_temp
+SELECT time, min_temp, max_temp, indoor_avg
 FROM (
   SELECT
-    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,
-    ROUND(min_temp, 1) AS min_temp,
-    ROUND(mean_temp, 1) AS mean_temp,
-    ROUND(max_temp, 1) AS max_temp
-  FROM daily
+    CONVERT_TZ(CAST(days.day AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(daily.min_temp, 1) AS min_temp,
+    ROUND(daily.max_temp, 1) AS max_temp,
+    ROUND(indoor.indoor_avg, 1) AS indoor_avg
+  FROM days
+  LEFT JOIN daily ON daily.day = days.day
+  LEFT JOIN indoor ON indoor.day = days.day
 ) d
 WHERE $__timeFilter(time)
 ORDER BY time;

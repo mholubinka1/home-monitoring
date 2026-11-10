@@ -1079,7 +1079,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily minimum, mean and maximum outdoor temperature (shaded between minimum and maximum) for complete London days. Live readings are preferred over the archive.",
+      "description": "Daily minimum and maximum outdoor temperature (shaded between them) for complete London days, with the indoor average over waking hours: the average room temperature between the Wake Up and Bedtime hours (London time), drawn only for days with at least 80% of the expected thermostat polls in that window. Live outdoor readings are preferred over the archive.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1156,29 +1156,6 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "mean_temp"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "unit",
-                "value": "celsius"
-              },
-              {
-                "id": "displayName",
-                "value": "mean"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
               "options": "max_temp"
             },
             "properties": [
@@ -1204,6 +1181,29 @@
               {
                 "id": "custom.fillOpacity",
                 "value": 15
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "indoor_avg"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "displayName",
+                "value": "indoor (waking hours)"
               }
             ]
           }
@@ -1239,7 +1239,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH wx AS (\n  SELECT observed_at, temp\n  FROM (\n    SELECT\n      w.observed_at, w.temp,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    AVG(temp) AS mean_temp,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT time, min_temp, mean_temp, max_temp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(min_temp, 1) AS min_temp,\n    ROUND(mean_temp, 1) AS mean_temp,\n    ROUND(max_temp, 1) AS max_temp\n  FROM daily\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "rawSql": "WITH wx AS (\n  SELECT observed_at, temp\n  FROM (\n    SELECT\n      w.observed_at, w.temp,\n      ROW_NUMBER() OVER (\n        PARTITION BY w.observed_at\n        ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id\n      ) AS preference\n    FROM weather_observation w\n    WHERE w.temp IS NOT NULL\n      AND w.observed_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND w.observed_at <= $__timeTo() + INTERVAL 1 DAY\n      AND w.location = (\n        SELECT l.location FROM weather_observation l\n        ORDER BY l.observed_at DESC, l.id DESC LIMIT 1\n      )\n  ) ranked\n  WHERE preference = 1\n),\ndaily AS (\n  SELECT\n    DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}')) AS day,\n    MIN(temp) AS min_temp,\n    MAX(temp) AS max_temp\n  FROM wx\n  GROUP BY DATE(CONVERT_TZ(observed_at, 'UTC', '${timezone}'))\n  HAVING COUNT(*) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n),\nwaking AS (\n  SELECT IF(b > w, w, NULL) AS wake_up, IF(b > w, b, NULL) AS bedtime\n  FROM (\n    SELECT\n      IF(${wake_up:sqlstring} REGEXP '^[0-9]{1,2}$' AND CAST(${wake_up:sqlstring} AS SIGNED) <= 23, CAST(${wake_up:sqlstring} AS SIGNED), NULL) AS w,\n      IF(${bedtime:sqlstring} REGEXP '^[0-9]{1,2}$' AND CAST(${bedtime:sqlstring} AS SIGNED) <= 23, CAST(${bedtime:sqlstring} AS SIGNED), NULL) AS b\n  ) r\n),\nindoor AS (\n  SELECT DATE(h.local_at) AS day, AVG(h.current_temp) AS indoor_avg\n  FROM (\n    SELECT CONVERT_TZ(polled_at, 'UTC', '${timezone}') AS local_at, current_temp\n    FROM heating_status\n    WHERE current_temp IS NOT NULL\n      AND polled_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND polled_at <= $__timeTo() + INTERVAL 1 DAY\n  ) h\n  CROSS JOIN waking p\n  WHERE HOUR(h.local_at) >= p.wake_up AND HOUR(h.local_at) < p.bedtime\n  GROUP BY DATE(h.local_at), p.wake_up, p.bedtime\n  HAVING COUNT(*) >= 0.8 * (p.bedtime - p.wake_up) * 30\n),\ndays AS (\n  SELECT day FROM daily\n  UNION\n  SELECT day FROM indoor\n)\nSELECT time, min_temp, max_temp, indoor_avg\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(days.day AS DATETIME), '${timezone}', 'UTC') AS time,\n    ROUND(daily.min_temp, 1) AS min_temp,\n    ROUND(daily.max_temp, 1) AS max_temp,\n    ROUND(indoor.indoor_avg, 1) AS indoor_avg\n  FROM days\n  LEFT JOIN daily ON daily.day = days.day\n  LEFT JOIN indoor ON indoor.day = days.day\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1546,6 +1546,48 @@
           }
         ],
         "query": "1.0",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "7",
+          "value": "7"
+        },
+        "description": "The hour you get up, in whole hours 0-23 (London time). Digits only (no spaces or units); anything else shows no data.",
+        "hide": 0,
+        "label": "Wake Up",
+        "name": "wake_up",
+        "options": [
+          {
+            "selected": true,
+            "text": "7",
+            "value": "7"
+          }
+        ],
+        "query": "7",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "23",
+          "value": "23"
+        },
+        "description": "The hour you go to bed, in whole hours 0-23 (London time), after Wake Up. Digits only (no spaces or units); anything else shows no data.",
+        "hide": 0,
+        "label": "Bedtime",
+        "name": "bedtime",
+        "options": [
+          {
+            "selected": true,
+            "text": "23",
+            "value": "23"
+          }
+        ],
+        "query": "23",
         "skipUrlSync": false,
         "type": "textbox"
       },
