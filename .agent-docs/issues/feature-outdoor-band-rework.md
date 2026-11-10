@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-outdoor-band-rework
 
 ## Store the daily forecast minimum temperature
@@ -12,10 +14,10 @@ hive-app's daily forecast fetch also asks Open-Meteo for each day's minimum temp
 
 ### Acceptance criteria
 
-- [ ] Given a forecast response with minimums, when it is fetched and written, then each day's minimum is stored beside its maximum and mean
-- [ ] Given a forecast response with no minimum array, when it is written, then the minimums are stored as null and the maximum and mean are unaffected
-- [ ] Given a minimum array of a different length from the days, when the forecast is fetched, then it is rejected
-- [ ] Given an existing `weather_forecast` table without `min_temp`, when hive-app starts, then the column is added and existing rows keep their data with a null minimum
+- [x] Given a forecast response with minimums, when it is fetched and written, then each day's minimum is stored beside its maximum and mean
+- [x] Given a forecast response with no minimum array, when it is written, then the minimums are stored as null and the maximum and mean are unaffected
+- [x] Given a minimum array of a different length from the days, when the forecast is fetched, then it is rejected
+- [x] Given an existing `weather_forecast` table without `min_temp`, when hive-app starts, then the column is added and existing rows keep their data with a null minimum
 
 ---
 
@@ -31,12 +33,12 @@ The Daily Outdoor Temperature Band shows the observed daily outdoor minimum and 
 
 ### Acceptance criteria
 
-- [ ] Given the dashboard, when it loads, then Wake Up and Bedtime variables exist with defaults 7 and 23 and every variable used by a panel is defined
-- [ ] Given panel 5, when inspected, then it has observed minimum, maximum and indoor average series and no mean series
-- [ ] Given a day with exactly 80% of the expected polls in the window, when plotted, then the day is shown; given fewer, then it is a gap
-- [ ] Given panel 2, when inspected, then its outdoor mean line is unchanged
-- [ ] Given a throwaway copy of the data, when panel 5's SQL runs by hand, then the indoor average matches a hand-calculated day (never run on the live database)
-- [ ] Panel text and `gas-heating-queries.md` describe the new panel
+- [x] Given the dashboard, when it loads, then Wake Up and Bedtime variables exist with defaults 7 and 23 and every variable used by a panel is defined
+- [x] Given panel 5, when inspected, then it has observed minimum, maximum and indoor average series and no mean series
+- [x] Given a day with exactly 80% of the expected polls in the window, when plotted, then the day is shown; given fewer, then it is a gap
+- [x] Given panel 2, when inspected, then its outdoor mean line is unchanged
+- [x] Given a throwaway copy of the data, when panel 5's SQL runs by hand, then the indoor average matches a hand-calculated day (never run on the live database)
+- [x] Panel text and `gas-heating-queries.md` describe the new panel
 
 ---
 
@@ -52,11 +54,11 @@ Panel 5 adds the forecast minimum and maximum for today and the coming days as d
 
 ### Acceptance criteria
 
-- [ ] Given panel 5, when inspected, then forecast minimum and maximum series exist and are drawn dotted
-- [ ] Given forecasts fetched more than once for a day, when plotted, then the latest fetch is used
-- [ ] Given a forecast row with a null minimum, when plotted, then that day is absent from the minimum line but present on the maximum line
-- [ ] Given today's date, when plotted, then today and later days appear and earlier days do not
-- [ ] Given a throwaway copy of the data, when the forecast SQL runs by hand, then it returns the expected rows (never on the live database)
-- [ ] `gas-heating-queries.md` documents the forecast series
+- [x] Given panel 5, when inspected, then forecast minimum and maximum series exist and are drawn dotted
+- [x] Given forecasts fetched more than once for a day, when plotted, then the latest fetch is used
+- [x] Given a forecast row with a null minimum, when plotted, then that day is absent from the minimum line but present on the maximum line
+- [x] Given today's date, when plotted, then today and later days appear and earlier days do not
+- [x] Given a throwaway copy of the data, when the forecast SQL runs by hand, then it returns the expected rows (never on the live database)
+- [x] `gas-heating-queries.md` documents the forecast series
 
 ---
