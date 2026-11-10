@@ -415,7 +415,7 @@ ORDER BY time;
 
 ### Daily Outdoor Temperature Band (time series)
 
-Daily minimum and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), plus the indoor average over waking hours ("indoor (waking hours)"): the mean of the thermostat's `current_temp` over polls whose London hour is at or after `${wake_up}` and before `${bedtime}`. A day gets an indoor value only when it has at least 80% of the polls expected in that window (one every 2 minutes, so `(bedtime - wake_up) * 30`). Both hours must be whole numbers 0-23 with bedtime after wake up; anything else gives no indoor line. The outdoor part uses the same hourly outdoor readings and complete-day rule as the daily gas panel's query C. Hive-app still records sunshine and solar radiation, but no panel draws them. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines.
+Daily minimum and maximum outdoor temperature for complete London days, shaded between the minimum and maximum (the maximum fills down to the series displayed as "minimum"), plus the indoor average over waking hours ("indoor (waking hours)"): the mean of the thermostat's `current_temp` over polls whose London hour is at or after `${wake_up}` and before `${bedtime}`. A day gets an indoor value only when it has at least 80% of the polls expected in that window (one every 2 minutes, so `(bedtime - wake_up) * 30`). Both hours must be whole numbers 0-23 with bedtime after wake up; anything else gives no indoor line. The outdoor part uses the same hourly outdoor readings and complete-day rule as the daily gas panel's query C. Hive-app still records sunshine and solar radiation, but no panel draws them. The panel follows the dashboard time range (14 days by default), so widen the time picker to see the history, which starts where the weather backfill starts (24 July 2024; the first complete London day is 25 July). A missing day is a break in the lines. The dotted forecast minimum and maximum (queries B and C below) continue the lines from today onward.
 
 ```sql
 WITH wx AS (
@@ -488,6 +488,50 @@ FROM (
   FROM days
   LEFT JOIN daily ON daily.day = days.day
   LEFT JOIN indoor ON indoor.day = days.day
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+Two more queries on the same panel continue the minimum and maximum as dotted forecast lines (same colours as the observed lines, no shading), one point per forecast day from today (London) onward at London midnight like the observed days. Each takes, per `target_date`, the newest fetch that has a value for that column (`ORDER BY fetched_at DESC, id DESC`; the id is text, so never `MAX(id)`), so a day whose newest forecast has no minimum is absent from the minimum line only and still on the maximum line. Past days never appear. Daily points are one day apart, below the panel's 1.5-day `insertNulls` threshold, so consecutive forecast days join.
+
+Query B, `forecast_min` (displayed as "forecast minimum"):
+
+```sql
+SELECT time, forecast_min
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(f.min_temp, 1) AS forecast_min
+  FROM weather_forecast f
+  WHERE f.min_temp IS NOT NULL
+    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
+    AND f.id = (
+      SELECT f2.id FROM weather_forecast f2
+      WHERE f2.target_date = f.target_date AND f2.min_temp IS NOT NULL
+      ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1
+    )
+) d
+WHERE $__timeFilter(time)
+ORDER BY time;
+```
+
+Query C, `forecast_max` (displayed as "forecast maximum"):
+
+```sql
+SELECT time, forecast_max
+FROM (
+  SELECT
+    CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC') AS time,
+    ROUND(f.max_temp, 1) AS forecast_max
+  FROM weather_forecast f
+  WHERE f.max_temp IS NOT NULL
+    AND f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))
+    AND f.id = (
+      SELECT f2.id FROM weather_forecast f2
+      WHERE f2.target_date = f.target_date AND f2.max_temp IS NOT NULL
+      ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1
+    )
 ) d
 WHERE $__timeFilter(time)
 ORDER BY time;

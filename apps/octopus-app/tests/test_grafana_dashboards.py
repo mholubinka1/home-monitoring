@@ -436,7 +436,13 @@ def test_the_band_shows_temperatures_only() -> None:
     band = _panel(BAND)
     sql = band["targets"][0]["rawSql"]
 
-    assert set(_panel_overrides(BAND)) == {"min_temp", "max_temp", "indoor_avg"}
+    assert set(_panel_overrides(BAND)) == {
+        "min_temp",
+        "max_temp",
+        "indoor_avg",
+        "forecast_min",
+        "forecast_max",
+    }
     for unused in ("sunshine", "radiation", "mean"):
         assert unused not in sql, unused
         assert unused not in band["description"].lower(), unused
@@ -510,3 +516,68 @@ def test_the_daily_gas_panel_keeps_its_outdoor_mean_line() -> None:
 
     assert "outdoor_mean" in _panel_overrides(panel)
     assert "AVG(temp) AS mean_temp" in _query(panel, "C")
+
+
+def test_the_band_continues_its_minimum_and_maximum_as_dotted_forecast_lines() -> None:
+    overrides = _panel_overrides(BAND)
+
+    for forecast, observed in (
+        ("forecast_min", "min_temp"),
+        ("forecast_max", "max_temp"),
+    ):
+        assert overrides[forecast]["custom.lineStyle"]["fill"] == "dash", forecast
+        assert overrides[forecast]["color"] == overrides[observed]["color"], forecast
+
+
+@pytest.mark.parametrize(
+    ("ref_id", "column", "source"),
+    [("B", "forecast_min", "min_temp"), ("C", "forecast_max", "max_temp")],
+)
+def test_a_forecast_line_reads_the_newest_fetch_with_a_value_from_today_on(
+    ref_id: str, column: str, source: str
+) -> None:
+    # A day whose newest fetch lacks the value falls back to an older fetch that
+    # has it, so a null minimum drops the day from the minimum line only.
+    sql = _query(BAND, ref_id)
+
+    assert f"AS {column}" in sql
+    assert "FROM weather_forecast f" in sql
+    assert f"f.{source} IS NOT NULL" in sql
+    assert f"f2.{source} IS NOT NULL" in sql
+    assert "f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP()" in sql
+    assert "ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1" in sql
+    assert "MAX(f2.id)" not in sql
+    assert f"ROUND(f.{source}, 1)" in sql
+    assert "WHERE $__timeFilter(time)" in sql
+
+
+@pytest.mark.parametrize("ref_id", ["B", "C"])
+def test_forecast_points_sit_at_london_midnight_like_the_observed_days(
+    ref_id: str,
+) -> None:
+    sql = _query(BAND, ref_id)
+
+    assert "CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC')" in sql
+    assert "INTERVAL 12 HOUR" not in sql
+
+
+def test_the_forecast_lines_are_dotted_unfilled_and_named() -> None:
+    overrides = _panel_overrides(BAND)
+
+    for forecast, name in (
+        ("forecast_min", "forecast minimum"),
+        ("forecast_max", "forecast maximum"),
+    ):
+        assert overrides[forecast]["unit"] == "celsius", forecast
+        assert overrides[forecast]["displayName"] == name, forecast
+        assert "custom.fillBelowTo" not in overrides[forecast], forecast
+        assert "custom.fillOpacity" not in overrides[forecast], forecast
+
+
+def test_the_band_describes_its_dotted_forecast_without_sunshine_or_radiation() -> None:
+    band = _panel(BAND)
+    text = json.dumps(band).lower()
+
+    assert "forecast" in band["description"].lower()
+    for unused in ("sunshine", "radiation"):
+        assert unused not in text, unused
