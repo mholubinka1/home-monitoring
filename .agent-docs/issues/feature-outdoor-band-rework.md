@@ -1,4 +1,4 @@
-> Work complete — PR ready to merge.
+> Work complete — PR ready to merge. The two "SQL runs by hand" criteria stay unticked: no database was available while building, so they are for the user to check on a throwaway copy.
 
 # Issues: feature-outdoor-band-rework
 
@@ -37,7 +37,7 @@ The Daily Outdoor Temperature Band shows the observed daily outdoor minimum and 
 - [x] Given panel 5, when inspected, then it has observed minimum, maximum and indoor average series and no mean series
 - [x] Given a day with exactly 80% of the expected polls in the window, when plotted, then the day is shown; given fewer, then it is a gap
 - [x] Given panel 2, when inspected, then its outdoor mean line is unchanged
-- [x] Given a throwaway copy of the data, when panel 5's SQL runs by hand, then the indoor average matches a hand-calculated day (never run on the live database)
+- [ ] Given a throwaway copy of the data, when panel 5's SQL runs by hand, then the indoor average matches a hand-calculated day (never run on the live database)
 - [x] Panel text and `gas-heating-queries.md` describe the new panel
 
 ---
@@ -58,7 +58,7 @@ Panel 5 adds the forecast minimum and maximum for today and the coming days as d
 - [x] Given forecasts fetched more than once for a day, when plotted, then the latest fetch is used
 - [x] Given a forecast row with a null minimum, when plotted, then that day is absent from the minimum line but present on the maximum line
 - [x] Given today's date, when plotted, then today and later days appear and earlier days do not
-- [x] Given a throwaway copy of the data, when the forecast SQL runs by hand, then it returns the expected rows (never on the live database)
+- [ ] Given a throwaway copy of the data, when the forecast SQL runs by hand, then it returns the expected rows (never on the live database)
 - [x] `gas-heating-queries.md` documents the forecast series
 
 ---
