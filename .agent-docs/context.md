@@ -242,6 +242,16 @@ The gas used on a day with no heating (hot water and cooking). It moves: it is m
 **Heating Threshold**:
 The effective temperature below which the **Heating Model** says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C the repo first assumed).
 
+**Heating Hour**:
+One UTC hour of heating, stored as a `heating_hour` row: the minutes the heating was on, the heating kWh and its cost at the gas unit rate (no standing charge), and whether the kWh is measured or estimated. See [ADR-0033](adr/0033-hourly-heating-cost-learns-a-hot-water-baseline-and-the-boilers-effective-kw.md).
+_Avoid_: boost cost (boost is only one way heating comes on)
+
+**Hot-Water Baseline**:
+The typical gas used in an hour of day with no heating on (hot water and cooking), learned from the last 28 days and subtracted from measured gas in heating hours.
+
+**Effective Boiler kW**:
+The gas the boiler actually draws per hour of heating-on time, learned from measured heating hours (about 12 kW on the 2026-10-06 test), used to estimate hours with no measured gas yet.
+
 **Complete Gas Day**:
 A Local Day whose gas total is above zero and which has every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`; a day with an unknown count (before the API's first day, 2024-10-09) is usable unless its total is zero and is reported as unverified. Gas gaps are upstream (the Octopus API itself reports zero or no data for about 13% of days since 2024-10-09), so partial and missing days are excluded, never filled in. See the [gas gap investigation](research/heating-model-prototype.md).
 _Avoid_: zero day (a stored zero means missing data, not zero use)
