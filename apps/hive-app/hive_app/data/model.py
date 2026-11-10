@@ -38,6 +38,7 @@ class WeatherForecastDay:
     max_temp: float
     fetched_at: datetime
     mean_temp: float | None = None
+    min_temp: float | None = None
 
 
 @dataclass

@@ -151,6 +151,7 @@ class MariaDBClient(MariaDBClientBase):
                 target_date=day.target_date,
                 max_temp=day.max_temp,  # type: ignore[misc]
                 mean_temp=day.mean_temp,  # type: ignore[misc]
+                min_temp=day.min_temp,  # type: ignore[misc]
                 fetched_at=day.fetched_at,
             )
             for day in forecast
