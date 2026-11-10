@@ -38,8 +38,8 @@ Sunshine and solar radiation stay recorded and are never shown or used.
 - **Panel 5 query and series:**
   - Observed daily outdoor minimum and maximum, keeping the existing complete-London-day rule and the live-over-archive preference. The mean series is removed from this panel.
   - Waking-Hours Indoor Average: the mean `current_temp` of Heating Status polls whose London local time is between the Wake Up and Bedtime hours. A day is returned only if the poll count is at least 80% of the expected count (window hours x 30). The window is assumed to sit within one day (Bedtime later than Wake Up).
-  - Forecast minimum and maximum for target dates from today (London) onward, from the latest fetch for each date that has the value, drawn dotted. The series are drawn dotted through per-series overrides, with the same colours as the observed lines.
-- **Variables:** two new Grafana custom variables, Wake Up (default 7) and Bedtime (default 23), whole hours. Their values enter the SQL under the existing escaping convention for text-box values.
+  - Forecast minimum and maximum for target dates from today (London) onward, from the stored forecast for each date (one row per source and date, overwritten by each fetch, so it is the latest fetch), leaving a date off a line when that forecast has no value for it, drawn dotted. The series are drawn dotted through per-series overrides, with the same colours as the observed lines.
+- **Variables:** two new Grafana text-box variables (like Comfort target), Wake Up (default 7) and Bedtime (default 23), whole hours. Their values enter the SQL under the existing escaping convention for text-box values.
 - **Panel text:** the panel title and description are updated to match (the band is no longer min, mean and max).
 - **Panel 2 and panel 1:** unchanged.
 - **Docs:** `data/grafana/mariadb/gas-heating-queries.md` is updated for panel 5. The glossary gains Waking-Hours Indoor Average and notes that Weather Forecast now carries a nullable minimum (already done in the design session).

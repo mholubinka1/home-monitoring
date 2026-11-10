@@ -493,7 +493,7 @@ WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-Two more queries on the same panel continue the minimum and maximum as dotted forecast lines (same colours as the observed lines, no shading), one point per forecast day from today (London) onward at London midnight like the observed days. Each takes, per `target_date`, the newest fetch that has a value for that column (`ORDER BY fetched_at DESC, id DESC`; the id is text, so never `MAX(id)`), so a day whose newest forecast has no minimum is absent from the minimum line only and still on the maximum line. Past days never appear. Daily points are one day apart, below the panel's 1.5-day `insertNulls` threshold, so consecutive forecast days join.
+Two more queries on the same panel continue the minimum and maximum as dotted forecast lines (same colours as the observed lines, no shading), one point per forecast day from today (London) onward at London midnight like the observed days. hive-app stores one row per source and date, overwritten by each fetch, so each query reads that row; if a second source ever wrote the same date, the newest fetch wins (`ORDER BY fetched_at DESC, id DESC`; the id is text, so never `MAX(id)`). A day whose forecast has no minimum is absent from the minimum line only and still on the maximum line. Past days never appear. Daily points are one day apart, below the panel's 1.5-day `insertNulls` threshold, so consecutive forecast days join.
 
 Query B, `forecast_min` (displayed as "forecast minimum"):
 

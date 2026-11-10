@@ -536,8 +536,9 @@ def test_the_band_continues_its_minimum_and_maximum_as_dotted_forecast_lines() -
 def test_a_forecast_line_reads_the_newest_fetch_with_a_value_from_today_on(
     ref_id: str, column: str, source: str
 ) -> None:
-    # A day whose newest fetch lacks the value falls back to an older fetch that
-    # has it, so a null minimum drops the day from the minimum line only.
+    # hive-app keeps one forecast row per source and date, so a day whose
+    # forecast lacks the value drops out of that line only (a null minimum
+    # leaves the maximum line intact).
     sql = _query(BAND, ref_id)
 
     assert f"AS {column}" in sql
