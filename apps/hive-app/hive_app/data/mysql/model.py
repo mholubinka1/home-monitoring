@@ -77,6 +77,7 @@ class weather_forecast(SQLBase):
     target_date = Column(Date, nullable=False)
     max_temp = Column(Float)
     mean_temp = Column(Float)
+    min_temp = Column(Float)
     fetched_at = Column(DateTime, nullable=False)
 
 

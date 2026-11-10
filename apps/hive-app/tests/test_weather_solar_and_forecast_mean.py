@@ -101,7 +101,10 @@ def test_each_forecast_days_mean_temperature_is_stored_alongside_the_maximum(
 
     mariadb_client.write_weather_forecast(OpenMeteoClient(LONDON).get_forecast())
 
-    assert "temperature_2m_max%2Ctemperature_2m_mean" in responses.calls[0].request.url
+    assert (
+        "temperature_2m_max%2Ctemperature_2m_min%2Ctemperature_2m_mean"
+        in responses.calls[0].request.url
+    )
     with mariadb_client.session_read_scope() as session:
         stored = (
             session.query(model.weather_forecast)

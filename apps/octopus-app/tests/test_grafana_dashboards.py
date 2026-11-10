@@ -218,7 +218,15 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
     # between hand-written quotes.
     sql = " ".join(t["rawSql"] for p in _gas_panels() for t in p["targets"])
 
-    for name in ("boiler_kw", "comfort_target", "comfort_margin", "gas_unit", "region"):
+    for name in (
+        "boiler_kw",
+        "comfort_target",
+        "comfort_margin",
+        "gas_unit",
+        "region",
+        "wake_up",
+        "bedtime",
+    ):
         assert f"'${{{name}}}'" not in sql, name
         assert f"${{{name}:sqlstring}}" in sql, name
 
@@ -428,8 +436,14 @@ def test_the_band_shows_temperatures_only() -> None:
     band = _panel(BAND)
     sql = band["targets"][0]["rawSql"]
 
-    assert set(_panel_overrides(BAND)) == {"min_temp", "mean_temp", "max_temp"}
-    for unused in ("sunshine", "radiation"):
+    assert set(_panel_overrides(BAND)) == {
+        "min_temp",
+        "max_temp",
+        "indoor_avg",
+        "forecast_min",
+        "forecast_max",
+    }
+    for unused in ("sunshine", "radiation", "mean"):
         assert unused not in sql, unused
         assert unused not in band["description"].lower(), unused
 
@@ -448,3 +462,123 @@ def test_the_panels_tile_the_grid_without_gaps_or_overlaps() -> None:
 
     bottom = max(row for row, _ in cells) + 1
     assert len(cells) == bottom * GRID_COLUMNS
+
+
+def test_the_waking_window_variables_default_to_seven_and_twenty_three() -> None:
+    variables = {
+        v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
+    }
+
+    assert variables["wake_up"]["label"] == "Wake Up"
+    assert variables["wake_up"]["query"] == "7"
+    assert variables["bedtime"]["label"] == "Bedtime"
+    assert variables["bedtime"]["query"] == "23"
+
+
+def test_the_band_draws_the_indoor_average_in_its_own_colour() -> None:
+    overrides = _panel_overrides(BAND)
+
+    assert overrides["indoor_avg"]["unit"] == "celsius"
+    assert overrides["indoor_avg"]["displayName"] == "indoor (waking hours)"
+    colours = {
+        name: overrides[name]["color"]["fixedColor"]
+        for name in ("min_temp", "max_temp", "indoor_avg")
+    }
+    assert len(set(colours.values())) == 3
+    custom = _panel(BAND)["fieldConfig"]["defaults"]["custom"]
+    assert custom["spanNulls"] is False
+    assert custom["insertNulls"] == 129600000
+
+
+def test_the_waking_window_must_be_whole_hours_in_order_or_the_indoor_line_is_empty() -> (
+    None
+):
+    sql = _query(BAND, "A")
+
+    for name in ("wake_up", "bedtime"):
+        assert f"${{{name}:sqlstring}} REGEXP '^[0-9]{{1,2}}$'" in sql, name
+        assert f"CAST(${{{name}:sqlstring}} AS SIGNED)" in sql, name
+    assert "<= 23" in sql
+    assert "b > w" in sql  # bedtime not after wake up gives NULL, so no rows
+
+
+def test_a_day_needs_eighty_percent_of_its_waking_polls_for_an_indoor_average() -> None:
+    sql = _query(BAND, "A")
+
+    assert "HAVING COUNT(*) >= 0.8 * (p.bedtime - p.wake_up) * 30" in sql
+    assert "CONVERT_TZ(polled_at, 'UTC', '${timezone}')" in sql
+    assert "HOUR(h.local_at) >= p.wake_up AND HOUR(h.local_at) < p.bedtime" in sql
+    assert "polled_at >= $__timeFrom() - INTERVAL 2 DAY" in sql
+
+
+def test_the_daily_gas_panel_keeps_its_outdoor_mean_line() -> None:
+    panel = "Daily Gas and Outdoor Temperature (${gas_unit})"
+
+    assert "outdoor_mean" in _panel_overrides(panel)
+    assert "AVG(temp) AS mean_temp" in _query(panel, "C")
+
+
+def test_the_band_continues_its_minimum_and_maximum_as_dotted_forecast_lines() -> None:
+    overrides = _panel_overrides(BAND)
+
+    for forecast, observed in (
+        ("forecast_min", "min_temp"),
+        ("forecast_max", "max_temp"),
+    ):
+        assert overrides[forecast]["custom.lineStyle"]["fill"] == "dash", forecast
+        assert overrides[forecast]["color"] == overrides[observed]["color"], forecast
+
+
+@pytest.mark.parametrize(
+    ("ref_id", "column", "source"),
+    [("B", "forecast_min", "min_temp"), ("C", "forecast_max", "max_temp")],
+)
+def test_a_forecast_line_reads_the_newest_fetch_with_a_value_from_today_on(
+    ref_id: str, column: str, source: str
+) -> None:
+    # hive-app keeps one forecast row per source and date, so a day whose
+    # forecast lacks the value drops out of that line only (a null minimum
+    # leaves the maximum line intact).
+    sql = _query(BAND, ref_id)
+
+    assert f"AS {column}" in sql
+    assert "FROM weather_forecast f" in sql
+    assert f"f.{source} IS NOT NULL" in sql
+    assert f"f2.{source} IS NOT NULL" in sql
+    assert "f.target_date >= DATE(CONVERT_TZ(UTC_TIMESTAMP()" in sql
+    assert "ORDER BY f2.fetched_at DESC, f2.id DESC LIMIT 1" in sql
+    assert "MAX(f2.id)" not in sql
+    assert f"ROUND(f.{source}, 1)" in sql
+    assert "WHERE $__timeFilter(time)" in sql
+
+
+@pytest.mark.parametrize("ref_id", ["B", "C"])
+def test_forecast_points_sit_at_london_midnight_like_the_observed_days(
+    ref_id: str,
+) -> None:
+    sql = _query(BAND, ref_id)
+
+    assert "CONVERT_TZ(CAST(f.target_date AS DATETIME), '${timezone}', 'UTC')" in sql
+    assert "INTERVAL 12 HOUR" not in sql
+
+
+def test_the_forecast_lines_are_dotted_unfilled_and_named() -> None:
+    overrides = _panel_overrides(BAND)
+
+    for forecast, name in (
+        ("forecast_min", "forecast minimum"),
+        ("forecast_max", "forecast maximum"),
+    ):
+        assert overrides[forecast]["unit"] == "celsius", forecast
+        assert overrides[forecast]["displayName"] == name, forecast
+        assert "custom.fillBelowTo" not in overrides[forecast], forecast
+        assert "custom.fillOpacity" not in overrides[forecast], forecast
+
+
+def test_the_band_describes_its_dotted_forecast_without_sunshine_or_radiation() -> None:
+    band = _panel(BAND)
+    text = json.dumps(band).lower()
+
+    assert "forecast" in band["description"].lower()
+    for unused in ("sunshine", "radiation"):
+        assert unused not in text, unused

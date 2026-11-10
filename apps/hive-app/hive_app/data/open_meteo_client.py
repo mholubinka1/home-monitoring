@@ -32,7 +32,7 @@ ARCHIVE_SOURCE = "open-meteo-archive"
 # so an hour missed by an earlier run -- the daily restart, an outage -- is
 # filled by the next one.
 LOOKBACK_HOURS = 24
-DAILY_FIELDS = "temperature_2m_max,temperature_2m_mean"
+DAILY_FIELDS = "temperature_2m_max,temperature_2m_min,temperature_2m_mean"
 
 
 def _values_or_nulls(
@@ -66,6 +66,7 @@ class OpenMeteoHourly(BaseModel):
 class OpenMeteoDaily(BaseModel):
     time: list[date]
     temperature_2m_max: list[FiniteFloat]
+    temperature_2m_min: list[FiniteFloat | None] | None = None
     temperature_2m_mean: list[FiniteFloat | None] | None = None
 
 
@@ -200,15 +201,19 @@ class OpenMeteoClient:
         parsed = OpenMeteoForecastResponse.model_validate(payload)
         daily = parsed.daily
 
+        min_temps = _values_or_nulls(daily.temperature_2m_min, len(daily.time))
         mean_temps = _values_or_nulls(daily.temperature_2m_mean, len(daily.time))
 
-        if len(daily.time) != len(daily.temperature_2m_max) or len(daily.time) != len(
-            mean_temps
+        if (
+            len(daily.time) != len(daily.temperature_2m_max)
+            or len(daily.time) != len(min_temps)
+            or len(daily.time) != len(mean_temps)
         ):
             raise ValueError(
                 "Open-Meteo forecast response has mismatched array lengths: "
                 f"{len(daily.time)} time entries vs "
                 f"{len(daily.temperature_2m_max)} temperature_2m_max entries vs "
+                f"{len(min_temps)} temperature_2m_min entries vs "
                 f"{len(mean_temps)} temperature_2m_mean entries."
             )
 
@@ -220,8 +225,9 @@ class OpenMeteoClient:
                 max_temp=max_temp,
                 fetched_at=fetched_at,
                 mean_temp=mean_temp,
+                min_temp=min_temp,
             )
-            for target_date, max_temp, mean_temp in zip(
-                daily.time, daily.temperature_2m_max, mean_temps
+            for target_date, max_temp, mean_temp, min_temp in zip(
+                daily.time, daily.temperature_2m_max, mean_temps, min_temps
             )
         ]
