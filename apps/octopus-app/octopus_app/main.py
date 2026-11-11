@@ -23,6 +23,7 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.heating_hour_job import HeatingHourJob
 from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
@@ -36,6 +37,7 @@ CONSUMPTION_BACKFILL_JOB = "consumption_backfill"
 PRICING_REFRESH_JOB = "pricing_refresh"
 CONSUMPTION_SUMMARY_JOB = "update_consumption_summary"
 HEATING_MODEL_JOB = "heating_model_refresh"
+HEATING_HOUR_JOB = "heating_hour_refresh"
 PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
@@ -334,6 +336,20 @@ def register_agile_forecast_refresh_job(
     )
 
 
+def register_heating_hour_job(
+    scheduler: Scheduler,
+    heating_hour: HeatingHourJob,
+    mariadb: MariaDBClient,
+) -> Job:
+    return _schedule_refresh_job(
+        scheduler,
+        lambda s: s.every(1).hours,
+        HEATING_HOUR_JOB,
+        heating_hour.refresh,
+        mariadb,
+    )
+
+
 def run_pending_safely(scheduler: Scheduler) -> None:
     try:
         scheduler.run_pending()
@@ -405,6 +421,11 @@ def main() -> None:
         default_scheduler, agile_forecast, client.mariadb
     )
     register_cost_forecast_refresh_job(default_scheduler, cost_forecast, client.mariadb)
+    register_heating_hour_job(
+        default_scheduler,
+        HeatingHourJob(client.mariadb, client.region_code),
+        client.mariadb,
+    )
 
     while True:
         run_pending_safely(default_scheduler)

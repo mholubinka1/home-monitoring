@@ -195,3 +195,19 @@ class heating_forecast_day(SQLBase):
     effective_temp = Column(_DOUBLE, nullable=False)
     expected_gas = Column(_DOUBLE, nullable=False)
     computed_at = Column(DateTime, nullable=False)
+
+
+class heating_hour(SQLBase):
+    __tablename__ = "heating_hour"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per completed UTC hour, recomputed each run.
+    hour_start = Column(DateTime, primary_key=True)
+    poll_count = Column(Integer, nullable=False)
+    on_minutes = Column(Integer, nullable=False)
+    measured_kwh = Column(_DOUBLE)
+    heating_kwh = Column(_DOUBLE)
+    source = Column(String(20), nullable=False)
+    unit_rate = Column(_DOUBLE)  # pence per kWh
+    cost_gbp = Column(_DOUBLE)
+    computed_at = Column(DateTime, nullable=False)

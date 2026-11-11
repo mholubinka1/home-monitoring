@@ -16,6 +16,7 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
+from octopus_app.data.heating_hour_job import HeatingHourJob
 from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql import model
@@ -28,6 +29,7 @@ from octopus_app.main import (
     register_agile_forecast_refresh_job,
     register_cost_forecast_refresh_job,
     register_daily_consumption_job,
+    register_heating_hour_job,
     register_jobs,
     register_pricing_job,
     run_backfill_at_startup,
@@ -912,3 +914,46 @@ def test_run_initial_heating_model_sync_does_not_propagate_a_startup_failure() -
     heating.refresh.side_effect = RuntimeError("fit exploded")
 
     run_initial_heating_model_sync(heating)
+
+
+def test_heating_hour_job_is_registered_hourly(
+    mariadb_client: MariaDBClient,
+) -> None:
+    job = register_heating_hour_job(
+        Scheduler(), Mock(spec=HeatingHourJob), mariadb_client
+    )
+
+    assert job.interval == 1
+    assert job.unit == "hours"
+
+
+def test_a_successful_heating_hour_run_is_recorded_as_a_successful_job_run(
+    mariadb_client: MariaDBClient,
+) -> None:
+    job = register_heating_hour_job(
+        Scheduler(), Mock(spec=HeatingHourJob), mariadb_client
+    )
+    job.run().join()
+
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).all()
+
+    assert [(r.job_name, r.status) for r in runs] == [
+        ("heating_hour_refresh", "success")
+    ]
+
+
+def test_a_failing_heating_hour_run_retries_and_is_recorded_as_failed(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
+    heating_hour = Mock(spec=HeatingHourJob)
+    heating_hour.refresh.side_effect = RuntimeError("db down")
+    job = register_heating_hour_job(Scheduler(), heating_hour, mariadb_client)
+    job.run().join()
+
+    with mariadb_client.session_read_scope() as session:
+        runs = session.query(model.job_run).all()
+
+    assert len(runs) > 1
+    assert all(run.status == "failure" for run in runs)

@@ -7,6 +7,8 @@ from logging import Logger, getLogger
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -33,6 +35,7 @@ from octopus_app.data.model import (
     DailyCostSummary,
     Energy,
     HeatingForecastRecord,
+    HeatingHourRecord,
     HeatingModelRecord,
     StoredHeatingModel,
     as_energy_char,
@@ -95,6 +98,23 @@ weather_forecast_table = Table(
     Column("max_temp", Float),
     Column("mean_temp", Float),
     Column("fetched_at", DateTime, nullable=False),
+    schema="octopus",
+)
+
+# hive-app's heating_status, read the same way (see the comment above).
+heating_status_table = Table(
+    "heating_status",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("polled_at", DateTime, nullable=False),
+    Column("current_temp", Float),
+    Column("target_temp", Float),
+    Column("mode", String(20)),
+    Column("state", String(20)),
+    Column("boost_active", Boolean),
+    Column("boost_ends_at", DateTime),
+    Column("schedule", JSON),
+    Column("working", Boolean),
     schema="octopus",
 )
 
@@ -658,6 +678,61 @@ class MariaDBClient(MariaDBClientBase):
             if all(stamp in by_hour for stamp in stamps):
                 means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
         return means
+
+    def read_heating_polls(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, str | None, bool | None]]:
+        """Thermostat polls in [start, end) (naive UTC), oldest first. hive-app's
+        table, so a missing one reads as no polls."""
+        hs = heating_status_table
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(hs.c.polled_at, hs.c.state, hs.c.boost_active)
+                    .filter(hs.c.polled_at >= start, hs.c.polled_at < end)
+                    .order_by(hs.c.polled_at)
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return []
+        return [(row.polled_at, row.state, row.boost_active) for row in rows]
+
+    def read_gas_unit_rate(self, region: str, as_of: datetime) -> float | None:
+        """Pence per kWh of the gas rate on the agreement in force at as_of."""
+        ag = model.agreement
+        pr = model.product_rate
+        with self.session_read_scope() as session:
+            row = (
+                session.query(pr.unit_rate)
+                .join(ag, ag.product_code == pr.product_code)
+                .filter(
+                    ag.energy == "G",
+                    ag.valid_from <= as_of,
+                    or_(ag.valid_to.is_(None), as_of < ag.valid_to),
+                    pr.region == region,
+                    pr.valid_from <= as_of,
+                )
+                .order_by(pr.valid_from.desc())
+                .first()
+            )
+        return None if row is None else float(row.unit_rate)
+
+    def replace_heating_hours(
+        self, start: datetime, end: datetime, rows: list[HeatingHourRecord]
+    ) -> None:
+        """Replaces every heating_hour row in [start, end) (naive UTC) with rows."""
+        hh = model.heating_hour
+        try:
+            with self.session_write_scope() as session:
+                session.query(hh).filter(
+                    hh.hour_start >= start, hh.hour_start < end
+                ).delete(synchronize_session=False)
+                session.add_all(hh(**_values_of(row)) for row in rows)
+        except Exception as e:
+            logger.error(f"Failed to replace heating hours: {e}")
+            raise MariaDBError(e) from e
 
     def read_weather_forecast_mean_temps(
         self, start_date: date, end_date: date
