@@ -159,7 +159,6 @@ def test_the_agreed_defaults_are_set() -> None:
         v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
     }
 
-    assert variables["boiler_kw"]["query"] == "12"
     assert variables["comfort_target"]["query"] == "15"
     assert variables["comfort_margin"]["query"] == "1.0"
     assert variables["gas_unit"]["query"] == "kWh,pounds"
@@ -188,29 +187,39 @@ def test_the_predictor_reads_the_gas_row_of_the_cost_forecast() -> None:
     assert "WHERE energy = 'G'" in predictor["targets"][0]["rawSql"]
 
 
-def test_boost_cost_is_minutes_over_sixty_times_kw_times_the_unit_rate() -> None:
-    boost = next(p for p in _gas_panels() if p["title"].startswith("Boost Minutes"))
-    sql = boost["targets"][0]["rawSql"]
+HEATING_COST = "Heating Cost per Hour"
 
-    assert "boost_minutes / 60 *" in sql
-    assert "COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes" in sql
-    assert "/ 100, 4)" in sql
-    overrides = {
-        o["matcher"]["options"]: {p["id"]: p["value"] for p in o["properties"]}
-        for o in boost["fieldConfig"]["overrides"]
+
+def test_heating_cost_is_read_from_the_hourly_table_in_pounds() -> None:
+    sql = _panel(HEATING_COST)["targets"][0]["rawSql"]
+
+    assert "FROM heating_hour" in sql
+    assert "AS measured_cost_gbp" in sql
+    assert "AS estimated_cost_gbp" in sql
+    assert "$__timeFilter(h.hour_start)" in sql
+
+
+def test_measured_and_estimated_heating_cost_are_stacked_bars() -> None:
+    panel = _panel(HEATING_COST)
+    custom = panel["fieldConfig"]["defaults"]["custom"]
+
+    assert custom["drawStyle"] == "bars"
+    assert custom["stacking"]["mode"] == "normal"
+    assert set(_panel_overrides(HEATING_COST)) == {
+        "measured_cost_gbp",
+        "estimated_cost_gbp",
     }
-    assert (
-        "estimated; assumes full output" in overrides["extra_cost_gbp"]["displayName"]
-    )
 
 
-def test_a_boiler_input_that_is_zero_or_not_a_number_shows_minutes_only() -> None:
-    boost = next(p for p in _gas_panels() if p["title"].startswith("Boost Minutes"))
-    sql = boost["targets"][0]["rawSql"]
+def test_the_boost_panel_and_the_typed_boiler_rating_are_gone() -> None:
+    dashboard = _load(GAS_HEATING_DASHBOARD)
+    variables = {v["name"] for v in dashboard["templating"]["list"]}
+    text = json.dumps(dashboard["panels"])
 
-    assert "REGEXP '^[0-9]+([.][0-9]+)?$'" in sql
-    assert ") > 0," in sql
-    assert "      NULL\n    ) AS extra_cost_gbp" in sql
+    assert not any(p["title"].startswith("Boost Minutes") for p in _panels(dashboard))
+    assert "boiler_kw" not in variables
+    assert "boiler_kw" not in text
+    assert "boost_active" not in text
 
 
 def test_text_box_values_enter_the_sql_escaped() -> None:
@@ -219,7 +228,6 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
     sql = " ".join(t["rawSql"] for p in _gas_panels() for t in p["targets"])
 
     for name in (
-        "boiler_kw",
         "comfort_target",
         "comfort_margin",
         "gas_unit",
@@ -280,9 +288,10 @@ def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
 
 
 def test_minutes_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
-    overrides = _panel_overrides("Boost Minutes and Estimated Extra Gas Cost")
+    title = next(p["title"] for p in _gas_panels() if "Minutes Below" in p["title"])
+    overrides = _panel_overrides(title)
 
-    assert overrides["boost_minutes"]["unit"].startswith("suffix: ")
+    assert overrides["minutes_below_target"]["unit"].startswith("suffix: ")
 
 
 def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:

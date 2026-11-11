@@ -79,11 +79,24 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 ## 9. Reading the dashboard panels
 
-The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
+The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The heating-cost-per-hour chart is separate from the model (section 10). The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
 
 - **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
-## 10. Glossary and further reading
+## 10. What the heating costs, hour by hour
+
+The model above works in whole days. A separate hourly record answers a different question: how much did the heating cost in each hour, however it came on (schedule, manual raise or boost)?
+
+- **When the heating is on.** Every two minutes the thermostat reports whether it is calling for heat. An hour with 12 such readings has the heating on for 24 minutes. An hour with too few readings (Hive was down) is left out, never counted as zero.
+- **Gas that has arrived.** Octopus's half-hourly gas arrives about a day and a half late. For an hour it has covered, the heating's gas is the meter reading less a typical amount for hot water and cooking at that time of day. The household's boiler is a combi, so one burner does both jobs and the meter cannot tell them apart. The typical amount is learned from hours in the last 28 days when the heating was off.
+- **Gas that has not.** Until the meter catches up, the hour is estimated: minutes on times the boiler's usual draw in kW. That draw is learned from hours that have both readings (it was about 12 kW on the first test evening, and is relearned from then on).
+- **The price.** The gas unit rate in force at the start of the hour. The standing charge is not included, because the heating does not cause it.
+
+Example: the heating is on for 24 minutes in an hour, the meter says 4.5 kWh, and 0.3 kWh is typical for hot water at that hour. Heating is 4.2 kWh; at 6 p per kWh that is 25.2 p, drawn as a measured bar. Before the meter arrives the same hour might be drawn as an estimated 4.8 kWh (24/60 of an hour at 12 kW), 28.8 p, in a lighter colour.
+
+What this cannot tell you: the thermostat's "on" is demand, not proof the burner was firing the whole time, and the hot-water amount is a typical figure, not a measurement. Both are labelled as estimates.
+
+## 11. Glossary and further reading
 
 **Away day.** A day with gas under about a third of the baseload, treated as a holiday and left out.
 
