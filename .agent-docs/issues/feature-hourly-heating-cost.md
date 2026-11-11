@@ -76,10 +76,11 @@ When `heating_hour` is empty, the first run fills it chronologically from the ea
 
 ### Acceptance criteria
 
-- [ ] Given an empty `heating_hour` table and polls over several days, when the job runs, then rows exist for every complete hour from the earliest poll.
-- [ ] Given that backfill, then each day's baseline and kW come only from earlier days' rows.
-- [ ] Given polls older than the retained gas window, then those hours are `estimated`.
-- [ ] Given a populated table, when the job runs, then rows older than the last 4 London days are not recomputed.
+- [x] Given an empty `heating_hour` table and polls over several days, when the job runs, then rows exist for every complete hour from the earliest poll.
+- [x] Given that backfill, then each day's baseline and kW come only from earlier days' rows.
+- [x] Given polls older than the retained gas window, then those hours are `estimated`.
+- [x] Given a populated table, when the job runs, then rows older than the last 4 London days are not recomputed.
+- [x] Given the job stopped for more than 4 days, when it runs again, then the missed days are backfilled from the day after its newest stored hour.
 
 ---
 

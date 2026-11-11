@@ -699,6 +699,28 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             return []
         return [(row.polled_at, row.state, row.boost_active) for row in rows]
 
+    def read_first_heating_poll(self) -> datetime | None:
+        """The earliest thermostat poll (naive UTC), or None when there is none or
+        hive-app's table is missing."""
+        hs = heating_status_table
+        try:
+            with self.session_read_scope() as session:
+                return session.query(func.min(hs.c.polled_at)).scalar()
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return None
+
+    def read_latest_heating_hour(self) -> datetime | None:
+        """The newest stored heating_hour start (naive UTC), if any."""
+        with self.session_read_scope() as session:
+            row = (
+                session.query(model.heating_hour.hour_start)
+                .order_by(model.heating_hour.hour_start.desc())
+                .first()
+            )
+        return None if row is None else row[0]
+
     def read_gas_unit_rate(self, region: str, as_of: datetime) -> float | None:
         """Pence per kWh of the gas rate on the agreement in force at as_of."""
         ag = model.agreement

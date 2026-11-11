@@ -465,3 +465,98 @@ def test_on_a_25_hour_day_each_utc_hour_has_one_row_and_baselines_follow_london_
     rows = [r for r in _heating_hours(mariadb_client) if r.hour_start.day == 25]
     assert [r.hour_start.hour for r in rows] == [0, 1]
     assert [r.heating_kwh for r in rows] == [pytest.approx(4.2)] * 2
+
+
+def test_the_first_run_on_an_empty_table_fills_every_hour_back_to_the_first_poll(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given an empty heating_hour table and a heating hour on each of ten days
+    _seed_gas_rate(mariadb_client)
+    for back in range(10, 0, -1):
+        _seed_polls(mariadb_client, HOUR - timedelta(days=back), on=12)
+
+    # When the hourly job runs for the first time
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then every one of those hours has a row, not only those of the last few days
+    hours = [row.hour_start for row in _heating_hours(mariadb_client)]
+    assert hours == [HOUR - timedelta(days=back) for back in range(10, 0, -1)]
+
+
+def test_each_backfilled_day_learns_only_from_the_days_before_it(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a heating hour on each of ten days; the five middle days are metered
+    # at 6 kW (2.4 kWh in 24 minutes), the first and the last four have no gas
+    _seed_gas_rate(mariadb_client)
+    for back in range(10, 0, -1):
+        hour = HOUR - timedelta(days=back)
+        _seed_polls(mariadb_client, hour, on=12)
+        if 5 <= back <= 9:
+            _seed_gas(mariadb_client, hour, 2.4)
+
+    # When the hourly job runs for the first time
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the first day, with nothing measured before it, is estimated at the
+    # 12 kW default, and a later day at the 6 kW learned from the days before it
+    rows = {row.hour_start: row for row in _heating_hours(mariadb_client)}
+    assert rows[HOUR - timedelta(days=10)].heating_kwh == pytest.approx(0.4 * 12)
+    assert rows[HOUR - timedelta(days=4)].heating_kwh == pytest.approx(0.4 * 6)
+
+
+def test_a_backfilled_hour_older_than_the_retained_gas_is_estimated(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a heating hour from 60 days ago and no gas data any more
+    _seed_gas_rate(mariadb_client)
+    old = HOUR - timedelta(days=60)
+    _seed_polls(mariadb_client, old, on=12)
+
+    # When the hourly job runs for the first time
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the old hour is an estimate
+    [row] = _heating_hours(mariadb_client)
+    assert (row.hour_start, row.source) == (old, "estimated")
+
+
+def test_a_run_on_a_populated_table_recomputes_only_the_last_four_london_days(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a populated table with an old row that has been altered
+    _seed_gas_rate(mariadb_client)
+    old = HOUR - timedelta(days=10)
+    _seed_polls(mariadb_client, old, on=12)
+    _seed_polls(mariadb_client, HOUR, on=12)
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+    stamp = datetime(2000, 1, 1)
+    with mariadb_client.session_write_scope() as session:
+        session.query(model.heating_hour).filter(
+            model.heating_hour.hour_start == old
+        ).update({"heating_kwh": 99.0, "computed_at": stamp})
+
+    # When the hourly job runs again
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the old row is untouched
+    row = _heating_hours(mariadb_client)[0]
+    assert (row.hour_start, row.heating_kwh, row.computed_at) == (old, 99.0, stamp)
+
+
+def test_a_run_after_a_long_stop_fills_the_days_the_job_missed(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a job that stopped ten days ago, leaving only its early rows
+    _seed_gas_rate(mariadb_client)
+    for back in range(10, 0, -1):
+        _seed_polls(mariadb_client, HOUR - timedelta(days=back), on=12)
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW - timedelta(days=9))
+    assert len(_heating_hours(mariadb_client)) == 2
+
+    # When the job runs again
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then every hour since the stop has its row
+    hours = [row.hour_start for row in _heating_hours(mariadb_client)]
+    assert hours == [HOUR - timedelta(days=back) for back in range(10, 0, -1)]

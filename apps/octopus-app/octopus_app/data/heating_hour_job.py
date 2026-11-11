@@ -1,6 +1,6 @@
 """Recomputes the recent completed hours of heating and what each cost."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from common import local_day
 from octopus_app.data import heating_hours
@@ -18,15 +18,44 @@ class HeatingHourJob:
 
     def refresh(self, now: datetime | None = None) -> None:
         """Rewrites every hour that has ended in the last few local days. An hour
-        without enough polls gets no row, and loses any row it had."""
+        without enough polls gets no row, and loses any row it had. When the newest
+        stored hour is older than those days (an empty table, or a stop), it first
+        backfills a local day at a time from there."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
-        first_day = local_day.to_local_date(now) - timedelta(
-            days=RECOMPUTE_LOCAL_DAYS - 1
-        )
-        start = local_day.start_of_local_day(first_day).astimezone(UTC)
-        start = start.replace(tzinfo=None)
         end = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+        today = local_day.to_local_date(now)
+        window_first_day = today - timedelta(days=RECOMPUTE_LOCAL_DAYS - 1)
+        resume_from = self._resume_day()
+        if resume_from is None or resume_from >= window_first_day:
+            self._recompute(now, self._day_start(window_first_day), end)
+            return
+        # Each day learns only from the rows the days before it have written.
+        day = resume_from
+        while day <= today:
+            day_end = min(self._day_start(day + timedelta(days=1)), end)
+            self._recompute(now, self._day_start(day), day_end)
+            day += timedelta(days=1)
 
+    def _resume_day(self) -> date | None:
+        """The local day a backfill starts from: the first poll's day on an empty
+        table, otherwise the day after the newest stored hour's (so a job that stopped, or
+        died part-way through a backfill, carries on). None with no polls."""
+        latest = self._mariadb.read_latest_heating_hour()
+        if latest is not None:
+            # A day is written in one go, so the newest stored hour's day is done.
+            return local_day.to_local_date(latest.replace(tzinfo=UTC)) + timedelta(
+                days=1
+            )
+        first_poll = self._mariadb.read_first_heating_poll()
+        if first_poll is None:
+            return None
+        return local_day.to_local_date(first_poll.replace(tzinfo=UTC))
+
+    @staticmethod
+    def _day_start(day: date) -> datetime:
+        return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
+
+    def _recompute(self, now: datetime, start: datetime, end: datetime) -> None:
         on_hours = heating_hours.heating_on_minutes(
             self._mariadb.read_heating_polls(start, end)
         )
