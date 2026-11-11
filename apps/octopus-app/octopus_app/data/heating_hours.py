@@ -15,6 +15,8 @@ ESTIMATED = "estimated"
 MEASURED = "measured"
 MIN_BASELINE_HOURS = 5  # zero-on hours of one hour of day before it has its own
 BASELINE_DAYS = 28
+MIN_BOILER_KW_HOURS = 5  # measured hours before the boiler kW is learned
+MIN_BOILER_KW_ON_MINUTES = 20
 
 Poll = tuple[datetime, str | None, bool | None]
 
@@ -36,12 +38,25 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
     }
 
 
+def learned_boiler_kw(measured_hours: Iterable[tuple[int, float]]) -> float:
+    """The kW the boiler drew while on, from measured (on minutes, heating kWh)
+    hours with at least 20 minutes on; the default under 5 such hours."""
+    usable = [
+        (on_minutes, kwh)
+        for on_minutes, kwh in measured_hours
+        if on_minutes >= MIN_BOILER_KW_ON_MINUTES
+    ]
+    if len(usable) < MIN_BOILER_KW_HOURS:
+        return DEFAULT_BOILER_KW
+    return sum(kwh for _, kwh in usable) / sum(m / 60 for m, _ in usable)
+
+
 def estimated_cost(
-    on_minutes: int, unit_rate: float | None
+    on_minutes: int, unit_rate: float | None, boiler_kw: float = DEFAULT_BOILER_KW
 ) -> tuple[float, float | None]:
-    """The estimated kWh for the minutes on, and its cost in pounds (None
-    without a rate in pence per kWh)."""
-    kwh = on_minutes / 60 * DEFAULT_BOILER_KW
+    """The estimated kWh for the minutes on at the boiler's kW, and its cost in
+    pounds (None without a rate in pence per kWh)."""
+    kwh = on_minutes / 60 * boiler_kw
     return kwh, None if unit_rate is None else kwh * unit_rate / 100
 
 

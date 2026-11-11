@@ -14,6 +14,7 @@ class HeatingHourJob:
     def __init__(self, mariadb: MariaDBClient, region_code: str) -> None:
         self._mariadb = mariadb
         self._region_code = region_code
+        self._computed_at = datetime.now(UTC).replace(tzinfo=None)
 
     def refresh(self, now: datetime | None = None) -> None:
         """Rewrites every hour that has ended in the last few local days. An hour
@@ -31,11 +32,19 @@ class HeatingHourJob:
         )
         gas = self._measured_gas(start, end)
         baselines = self._baselines(start, end, on_hours, gas)
-        computed_at = now.replace(tzinfo=None)
-        rows = [
-            self._record(hour, polls_on, gas.get(hour), baselines, computed_at)
+        self._computed_at = now.replace(tzinfo=None)
+        measured = [
+            self._record(hour, polls_on, gas[hour], baselines)
             for hour, polls_on in sorted(on_hours.items())
+            if hour in gas
         ]
+        boiler_kw = self._boiler_kw(start, end, measured)
+        estimated = [
+            self._record(hour, polls_on, None, baselines, boiler_kw)
+            for hour, polls_on in sorted(on_hours.items())
+            if hour not in gas
+        ]
+        rows = sorted(measured + estimated, key=lambda row: row.hour_start)
         self._mariadb.replace_heating_hours(start, end, rows)
 
     def _record(
@@ -44,13 +53,13 @@ class HeatingHourJob:
         polls_on: tuple[int, int],
         measured: float | None,
         baselines: dict[int, float],
-        computed_at: datetime,
+        boiler_kw: float = heating_hours.DEFAULT_BOILER_KW,
     ) -> HeatingHourRecord:
         poll_count, on_minutes = polls_on
         unit_rate = self._mariadb.read_gas_unit_rate(self._region_code, hour)
         if measured is None:
             source = heating_hours.ESTIMATED
-            kwh, cost = heating_hours.estimated_cost(on_minutes, unit_rate)
+            kwh, cost = heating_hours.estimated_cost(on_minutes, unit_rate, boiler_kw)
         else:
             source = heating_hours.MEASURED
             kwh = (
@@ -70,7 +79,21 @@ class HeatingHourJob:
             source=source,
             unit_rate=unit_rate,
             cost_gbp=cost,
-            computed_at=computed_at,
+            computed_at=self._computed_at,
+        )
+
+    def _boiler_kw(
+        self, start: datetime, end: datetime, measured: list[HeatingHourRecord]
+    ) -> float:
+        """The boiler kW learned from the measured hours stored in the 28 days
+        before the recompute window plus those of the window itself."""
+        earlier = self._mariadb.read_heating_hours(
+            end - timedelta(days=heating_hours.BASELINE_DAYS), start
+        )
+        return heating_hours.learned_boiler_kw(
+            (row.on_minutes, row.heating_kwh or 0.0)
+            for row in earlier + measured
+            if row.source == heating_hours.MEASURED
         )
 
     def _measured_gas(self, start: datetime, end: datetime) -> dict[datetime, float]:

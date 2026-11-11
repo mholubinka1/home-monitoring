@@ -56,11 +56,11 @@ Replace the fixed 12 kW with the effective boiler kW learned from the household'
 
 ### Acceptance criteria
 
-- [ ] Given at least 5 measured hours with 20 or more on-minutes totalling 150 kWh over 14 on-hours, when an estimated hour with 24 on-minutes is written, then its heating kWh is `24/60 x 150/14`.
-- [ ] Given fewer than 5 such hours, then estimates use 12 kW.
-- [ ] Given measured hours older than 28 days, then they do not affect the learned kW.
-- [ ] Given a rate change part-way through the window, then each hour is priced at the rate in force at its own start.
-- [ ] Given a 25-hour clock-change day, then each UTC hour has exactly one row and the baseline is keyed by London hour of day.
+- [x] Given at least 5 measured hours with 20 or more on-minutes totalling 150 kWh over 14 on-hours, when an estimated hour with 24 on-minutes is written, then its heating kWh is `24/60 x 150/14`.
+- [x] Given fewer than 5 such hours, then estimates use 12 kW.
+- [x] Given measured hours older than 28 days, then they do not affect the learned kW.
+- [x] Given a rate change part-way through the window, then each hour is priced at the rate in force at its own start.
+- [x] Given a 25-hour clock-change day, then each UTC hour has exactly one row and the baseline is keyed by London hour of day.
 
 ---
 
