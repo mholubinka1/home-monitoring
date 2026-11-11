@@ -12,13 +12,13 @@ The tracer through every layer: a new `heating_hour` table, a hand-mirrored read
 
 ### Acceptance criteria
 
-- [ ] Given 12 ON polls in a completed hour and no gas data, when the job runs, then one `heating_hour` row exists with 24 on-minutes, source `estimated`, heating kWh of `24/60 x 12`, and cost at the rate in force at that hour.
-- [ ] Given an hour whose polls are all `boost_active=1`, when the job runs, then those polls count as heating on.
-- [ ] Given an hour with fewer than 24 polls, when the job runs, then no row is written (and an existing row for it is removed).
-- [ ] Given the current, unfinished hour, when the job runs, then no row is written for it.
-- [ ] Given no gas rate in force, then the row is kept with a NULL rate and cost.
-- [ ] Given hive-app's `heating_status` table does not exist, when the job runs, then nothing is written and nothing raises.
-- [ ] Given the job is registered, then it runs every hour with retry-with-backoff and a recorded `job_run`.
+- [x] Given 12 ON polls in a completed hour and no gas data, when the job runs, then one `heating_hour` row exists with 24 on-minutes, source `estimated`, heating kWh of `24/60 x 12`, and cost at the rate in force at that hour.
+- [x] Given an hour whose polls are all `boost_active=1`, when the job runs, then those polls count as heating on.
+- [x] Given an hour with fewer than 24 polls, when the job runs, then no row is written (and an existing row for it is removed).
+- [x] Given the current, unfinished hour, when the job runs, then no row is written for it.
+- [x] Given no gas rate in force, then the row is kept with a NULL rate and cost.
+- [x] Given hive-app's `heating_status` table does not exist, when the job runs, then nothing is written and nothing raises.
+- [x] Given the job is registered, then it runs every hour with retry-with-backoff and a recorded `job_run`.
 
 ---
 
@@ -34,13 +34,13 @@ Use metered half-hourly gas where it exists. A heating hour with both half-hours
 
 ### Acceptance criteria
 
-- [ ] Given a heating hour with both half-hours metered at 4.5 kWh and a learned baseline of 0.3 kWh for its hour of day, when the job runs, then the row is `measured` with heating kWh 4.2 and the cost follows from it.
-- [ ] Given an hour with zero on-minutes and metered gas, then its row has 0 heating kWh and its metered kWh feeds that hour of day's baseline.
-- [ ] Given fewer than 5 zero-on hours for an hour of day, then the median over all hours of day is used; with none at all the baseline is 0.
-- [ ] Given a heating hour first written as estimated, when its gas arrives and the job runs again, then the row becomes `measured`.
-- [ ] Given a London day whose metered readings are all zero, then its hours are not taken as measured zero use.
-- [ ] Given a measured row older than the 45-day raw retention, when raw consumption is pruned and the job runs, then the row is unchanged.
-- [ ] Given a measured heating kWh would go below zero after the baseline, then it is 0, and it never exceeds the metered kWh.
+- [x] Given a heating hour with both half-hours metered at 4.5 kWh and a learned baseline of 0.3 kWh for its hour of day, when the job runs, then the row is `measured` with heating kWh 4.2 and the cost follows from it.
+- [x] Given an hour with zero on-minutes and metered gas, then its row has 0 heating kWh and its metered kWh feeds that hour of day's baseline.
+- [x] Given fewer than 5 zero-on hours for an hour of day, then the median over all hours of day is used; with none at all the baseline is 0.
+- [x] Given a heating hour first written as estimated, when its gas arrives and the job runs again, then the row becomes `measured`.
+- [x] Given a London day whose metered readings are all zero, then its hours are not taken as measured zero use.
+- [x] Given a measured row older than the 45-day raw retention, when raw consumption is pruned and the job runs, then the row is unchanged.
+- [x] Given a measured heating kWh would go below zero after the baseline, then it is 0, and it never exceeds the metered kWh.
 
 ---
 

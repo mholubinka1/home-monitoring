@@ -196,7 +196,7 @@ def _record_of[R: "DataclassInstance"](
     return record_type(**(values | overrides))
 
 
-class MariaDBClient(MariaDBClientBase):
+class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-methods
     def __init__(self, settings: MariaDBSettings) -> None:
         super().__init__(settings, declarative_base=SQLBase, logger=logger)
 
@@ -718,6 +718,25 @@ class MariaDBClient(MariaDBClientBase):
                 .first()
             )
         return None if row is None else float(row.unit_rate)
+
+    def read_heating_hours(
+        self, start: datetime, end: datetime
+    ) -> list[HeatingHourRecord]:
+        """The stored heating_hour rows in [start, end) (naive UTC)."""
+        hh = model.heating_hour
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(hh)
+                .filter(hh.hour_start >= start, hh.hour_start < end)
+                .order_by(hh.hour_start)
+                .all()
+            )
+            return [
+                HeatingHourRecord(
+                    **{f.name: getattr(row, f.name) for f in fields(HeatingHourRecord)}
+                )
+                for row in rows
+            ]
 
     def replace_heating_hours(
         self, start: datetime, end: datetime, rows: list[HeatingHourRecord]
