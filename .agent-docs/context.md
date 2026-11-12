@@ -252,6 +252,19 @@ The typical gas used in an hour of day with no heating on (hot water and cooking
 **Effective Boiler kW**:
 The gas the boiler actually draws per hour of heating-on time, learned from measured heating hours (about 12 kW on the 2026-10-06 test), used to estimate hours with no measured gas yet.
 
+**Comfort Temperature**:
+The room temperature below which the household usually reaches for boost: the median room temperature at the **Boost Starts** of the 90 days before a Local Day. It is learned, not the thermostat target and not the temperature a boost asks for. See [ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md).
+_Avoid_: comfort target, target temperature (the thermostat's setting)
+
+**Boost Start**:
+The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading. Its room temperature is the evidence the **Comfort Temperature** is learned from.
+
+**Counted Hour**:
+A London clock hour in which the heating was on at least once in the 90 days before a Local Day. Only minutes in counted hours can count as below comfort, so nights nobody heats are left out.
+
+**Comfort Day**:
+One Local Day's stored comfort figures: its **Comfort Temperature**, its **Counted Hours** and the minutes the room was below comfort in them. A finished day is settled once and never restated.
+
 **Complete Gas Day**:
 A Local Day whose gas total is above zero and which has every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`; a day with an unknown count (before the API's first day, 2024-10-09) is usable unless its total is zero and is reported as unverified. Gas gaps are upstream (the Octopus API itself reports zero or no data for about 13% of days since 2024-10-09), so partial and missing days are excluded, never filled in. See the [gas gap investigation](research/heating-model-prototype.md).
 _Avoid_: zero day (a stored zero means missing data, not zero use)
@@ -261,7 +274,7 @@ The extension of octopus-app's `cost_forecast` (previously implicitly electricit
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 
 **Gas Heating Dashboard**:
-The second Grafana dashboard ("pi-desktop: gas-heating-monitoring", `data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard, which it never changes. Every panel is a chart (no tables; the billing-period predictor is a bar gauge), in London time. Its import steps and panels are in the queries document. After the 2026-11-02 review it has six panels (temperatures, daily gas with the **Heating Model**'s expected-gas bars, heating cost per hour from the **Heating Hour** table, minutes below target, the outdoor temperature band and the billing-period predictor); the heatmap, the monthly year-on-year change and the model's own charts were removed as not supporting a decision.
+The second Grafana dashboard ("pi-desktop: gas-heating-monitoring", `data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard, which it never changes. Every panel is a chart (no tables; the billing-period predictor is a bar gauge), in London time. Its import steps and panels are in the queries document. After the 2026-11-02 review it has six panels (temperatures, daily gas with the **Heating Model**'s expected-gas bars, heating cost per hour from the **Heating Hour** table, minutes below comfort from the **Comfort Day** table, the outdoor temperature band and the billing-period predictor); the heatmap, the monthly year-on-year change and the model's own charts were removed as not supporting a decision.
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
 **Presence-Based Heating Control**:
