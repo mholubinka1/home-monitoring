@@ -643,3 +643,31 @@ def test_a_run_after_a_stop_part_way_through_a_day_fills_the_rest_of_that_day(
     hours = [row.hour_start for row in _heating_hours(mariadb_client)]
     assert hours[:3] == [stop_day + timedelta(hours=h) for h in range(3)]
     assert len(hours) == 3 + 8
+
+
+def test_a_zero_gas_tail_of_a_day_resumed_part_way_is_still_metered(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a job that stopped after storing the 19:00 hour of a London day that
+    # used 0.5 kWh in each of its 18:00 and 19:00 hours and nothing after
+    _seed_gas_rate(mariadb_client)
+    stop_day = HOUR - timedelta(days=9)
+    for hours in range(4):
+        _seed_polls(mariadb_client, stop_day + timedelta(hours=hours), on=0)
+        _seed_gas(mariadb_client, stop_day + timedelta(hours=hours), 0.5 * (hours < 2))
+    HeatingHourJob(mariadb_client, REGION).refresh(
+        stop_day.replace(hour=20, minute=30, tzinfo=UTC)
+    )
+    for back in range(8, 0, -1):
+        _seed_polls(mariadb_client, HOUR - timedelta(days=back), on=12)
+
+    # When the job runs again
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the 20:00 and 21:00 hours are metered at zero, not mistaken for missing gas
+    tail = _heating_hours(mariadb_client)[2:4]
+    assert [r.hour_start for r in tail] == [
+        stop_day + timedelta(hours=2),
+        stop_day + timedelta(hours=3),
+    ]
+    assert [(r.source, r.measured_kwh) for r in tail] == [("measured", 0.0)] * 2

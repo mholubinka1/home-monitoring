@@ -130,8 +130,12 @@ class HeatingHourJob:
         )
 
     def _measured_gas(self, start: datetime, end: datetime) -> dict[datetime, float]:
+        """The metered gas of the hours in [start, end). Read from the start of
+        `start`'s local day, so a run that resumes part-way through a day judges
+        "the day's gas totals above zero" on the whole day, not on its tail."""
+        day_start = self._day_start(local_day.to_local_date(start.replace(tzinfo=UTC)))
         readings = self._mariadb.read_half_hourly_consumption(
-            Energy.gas, start.replace(tzinfo=UTC), end.replace(tzinfo=UTC)
+            Energy.gas, day_start.replace(tzinfo=UTC), end.replace(tzinfo=UTC)
         )
         return heating_hours.measured_gas(
             (period_from, float(kwh)) for period_from, kwh in readings
