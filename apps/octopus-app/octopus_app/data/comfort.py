@@ -5,6 +5,9 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta
 from statistics import median
 
+from common import local_day
+from octopus_app.data.heating_hours import POLL_MINUTES
+
 LEARNING_DAYS = 90
 MIN_BOOST_STARTS = 5
 BOOST_GAP = timedelta(minutes=10)
@@ -36,3 +39,25 @@ def comfort_temperature(
     if len(start_temps) < MIN_BOOST_STARTS:
         return carried
     return median(start_temps)
+
+
+def counted_hours(heating_on_hours: Iterable[datetime]) -> list[int]:
+    """The local hours of day, ascending, of the hours (naive UTC starts) in which
+    the heating was on."""
+    return sorted({local_day.to_local_hour(hour) for hour in heating_on_hours})
+
+
+def minutes_below(
+    polls: Iterable[tuple[datetime, float | None]],
+    comfort_temp: float,
+    hours: Iterable[int],
+) -> int:
+    """The minutes of the (time, room temperature) polls in which the room was
+    below the comfort temperature during a counted hour."""
+    counted = set(hours)
+    return POLL_MINUTES * sum(
+        room is not None
+        and room < comfort_temp
+        and local_day.to_local_hour(polled_at) in counted
+        for polled_at, room in polls
+    )

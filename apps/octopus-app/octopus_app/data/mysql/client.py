@@ -726,6 +726,19 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         )
         return [(row.polled_at, row.current_temp) for row in rows]
 
+    def read_room_temperatures(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float | None]]:
+        """The (time, room temperature) of the thermostat polls in [start, end)
+        (naive UTC), oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.current_temp,
+            where=(hs.c.polled_at >= start, hs.c.polled_at < end),
+        )
+        return [(row.polled_at, row.current_temp) for row in rows]
+
     def read_first_heating_poll(self) -> datetime | None:
         """The earliest thermostat poll (naive UTC), or None when there is none or
         hive-app's table is missing."""
@@ -798,19 +811,45 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             logger.error(f"Failed to replace heating hours: {e}")
             raise MariaDBError(e) from e
 
-    def replace_comfort_days(
-        self, first: date, last: date, rows: list[ComfortDayRecord]
-    ) -> None:
-        """Replaces every comfort_day row from first to last (inclusive) with rows."""
+    def read_heating_on_hours(self, start: datetime, end: datetime) -> list[datetime]:
+        """The starts (naive UTC) of the stored heating_hour rows in [start, end)
+        in which the heating was on."""
+        hh = model.heating_hour
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(hh.hour_start)
+                .filter(hh.hour_start >= start, hh.hour_start < end, hh.on_minutes > 0)
+                .order_by(hh.hour_start)
+                .all()
+            )
+        return [row[0] for row in rows]
+
+    def read_latest_comfort_day(self) -> date | None:
+        """The newest stored comfort_day date, if any."""
+        with self.session_read_scope() as session:
+            return session.query(func.max(model.comfort_day.date)).scalar()
+
+    def read_latest_comfort_temperature(self, before: date) -> float | None:
+        """The comfort temperature of the newest comfort_day before a date that
+        has one."""
         cd = model.comfort_day
+        with self.session_read_scope() as session:
+            row = (
+                session.query(cd.comfort_temp)
+                .filter(cd.date < before, cd.comfort_temp.isnot(None))
+                .order_by(cd.date.desc())
+                .first()
+            )
+        return None if row is None or row[0] is None else float(row[0])
+
+    def write_comfort_days(self, rows: list[ComfortDayRecord]) -> None:
+        """Writes each comfort_day row over any stored row for its date."""
         try:
             with self.session_write_scope() as session:
-                session.query(cd).filter(cd.date >= first, cd.date <= last).delete(
-                    synchronize_session=False
-                )
-                session.add_all(cd(**_values_of(row)) for row in rows)
+                for row in rows:
+                    session.merge(model.comfort_day(**_values_of(row)))
         except Exception as e:
-            logger.error(f"Failed to replace comfort days: {e}")
+            logger.error(f"Failed to write comfort days: {e}")
             raise MariaDBError(e) from e
 
     def read_weather_forecast_mean_temps(
