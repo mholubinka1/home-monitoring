@@ -40,7 +40,8 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
 
 def learned_boiler_kw(measured_hours: Iterable[tuple[int, float]]) -> float:
     """The kW the boiler drew while on, from measured (on minutes, heating kWh)
-    hours with at least 20 minutes on; the default under 5 such hours."""
+    hours with at least 20 minutes on; the default under 5 such hours, or when
+    they come to no gas at all (a baseline above what was metered)."""
     usable = [
         (on_minutes, kwh)
         for on_minutes, kwh in measured_hours
@@ -48,7 +49,8 @@ def learned_boiler_kw(measured_hours: Iterable[tuple[int, float]]) -> float:
     ]
     if len(usable) < MIN_BOILER_KW_HOURS:
         return DEFAULT_BOILER_KW
-    return sum(kwh for _, kwh in usable) / sum(m / 60 for m, _ in usable)
+    learned = sum(kwh for _, kwh in usable) / sum(m / 60 for m, _ in usable)
+    return learned if learned > 0 else DEFAULT_BOILER_KW
 
 
 def estimated_cost(

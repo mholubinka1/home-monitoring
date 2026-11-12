@@ -100,6 +100,6 @@ Replace panel 3 with "Heating Cost per Hour": stacked bars in pounds with a soli
 - [x] Given the queries document, then it describes `heating_hour`, the new panel's query and its checked result, and no longer mentions `boiler_kw` or the Boost Minutes panel.
 - [x] Given `docs/heating-model.md`, then it explains hourly heating cost, the hot-water split and the learned kW in plain language.
 - [x] Given `.agent-docs/context.md`, then its gas dashboard entry names the new panel 3.
-- [x] Given the panel query, when it is run read-only on a throwaway copy of the database, then it returns the expected measured and estimated hourly rows without exceeding the Pi's memory limit.
+- [ ] Given the panel query, when it is run read-only on a throwaway copy of the database, then it returns the expected measured and estimated hourly rows without exceeding the Pi's memory limit.
 
 ---

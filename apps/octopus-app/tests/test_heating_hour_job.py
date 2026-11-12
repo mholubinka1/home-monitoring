@@ -560,3 +560,61 @@ def test_a_run_after_a_long_stop_fills_the_days_the_job_missed(
     # Then every hour since the stop has its row
     hours = [row.hour_start for row in _heating_hours(mariadb_client)]
     assert hours == [HOUR - timedelta(days=back) for back in range(10, 0, -1)]
+
+
+def test_an_hour_after_the_last_gas_rate_ended_has_no_rate_or_cost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the only gas rate ended on 1 November with no rate after it
+    _seed_gas_rate(mariadb_client)
+    with mariadb_client.session_write_scope() as session:
+        session.query(model.product_rate).update({"valid_to": datetime(2026, 11, 1)})
+    _seed_polls(mariadb_client, HOUR, on=12)
+
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the 2 November hour is not priced at the expired rate
+    [row] = _heating_hours(mariadb_client)
+    assert row.unit_rate is None
+    assert row.cost_gbp is None
+
+
+def test_a_metered_hour_with_no_gas_rate_in_force_keeps_its_gas_and_has_no_cost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _seed_polls(mariadb_client, HOUR, on=12)
+    _seed_gas(mariadb_client, HOUR, 4.5)
+
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    [row] = _heating_hours(mariadb_client)
+    assert row.source == "measured"
+    assert row.heating_kwh == pytest.approx(4.5)
+    assert row.cost_gbp is None
+
+
+def test_a_learned_boiler_kw_of_zero_falls_back_to_the_default(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a heating-off 12:00 hour that used 0.5 kWh on five earlier days, and
+    # 18:00 heating hours on the same days that metered only 0.4 kWh, less than
+    # that hot-water baseline, so their heating works out at zero
+    _seed_gas_rate(mariadb_client)
+    for back in range(5, 0, -1):
+        quiet = HOUR.replace(hour=12) - timedelta(days=back)
+        _seed_polls(mariadb_client, quiet, on=0)
+        _seed_gas(mariadb_client, quiet, 0.5)
+        busy = HOUR - timedelta(days=back)
+        _seed_polls(mariadb_client, busy, on=20)
+        _seed_gas(mariadb_client, busy, 0.4)
+        HeatingHourJob(mariadb_client, REGION).refresh(
+            busy.replace(hour=23, tzinfo=UTC)
+        )
+    _seed_polls(mariadb_client, HOUR, on=12)
+
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the unmetered hour is estimated at the 12 kW default, not at zero
+    row = _heating_hours(mariadb_client)[-1]
+    assert row.source == "estimated"
+    assert row.heating_kwh == pytest.approx(24 / 60 * 12)

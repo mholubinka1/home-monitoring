@@ -60,14 +60,17 @@ class HeatingHourJob:
             self._mariadb.read_heating_polls(start, end)
         )
         gas = self._measured_gas(start, end)
-        baselines = self._baselines(start, end, on_hours, gas)
+        earlier = self._mariadb.read_heating_hours(
+            end - timedelta(days=heating_hours.BASELINE_DAYS), start
+        )
+        baselines = self._baselines(earlier, on_hours, gas)
         self._computed_at = now.replace(tzinfo=None)
         measured = [
             self._record(hour, polls_on, gas[hour], baselines)
             for hour, polls_on in sorted(on_hours.items())
             if hour in gas
         ]
-        boiler_kw = self._boiler_kw(start, end, measured)
+        boiler_kw = self._boiler_kw(earlier, measured)
         estimated = [
             self._record(hour, polls_on, None, baselines, boiler_kw)
             for hour, polls_on in sorted(on_hours.items())
@@ -111,14 +114,12 @@ class HeatingHourJob:
             computed_at=self._computed_at,
         )
 
+    @staticmethod
     def _boiler_kw(
-        self, start: datetime, end: datetime, measured: list[HeatingHourRecord]
+        earlier: list[HeatingHourRecord], measured: list[HeatingHourRecord]
     ) -> float:
         """The boiler kW learned from the measured hours stored in the 28 days
-        before the recompute window plus those of the window itself."""
-        earlier = self._mariadb.read_heating_hours(
-            end - timedelta(days=heating_hours.BASELINE_DAYS), start
-        )
+        before the recompute window (`earlier`) plus those of the window itself."""
         return heating_hours.learned_boiler_kw(
             (row.on_minutes, row.heating_kwh or 0.0)
             for row in earlier + measured
@@ -133,18 +134,14 @@ class HeatingHourJob:
             (period_from, float(kwh)) for period_from, kwh in readings
         )
 
+    @staticmethod
     def _baselines(
-        self,
-        start: datetime,
-        end: datetime,
+        earlier: list[HeatingHourRecord],
         on_hours: dict[datetime, tuple[int, int]],
         gas: dict[datetime, float],
     ) -> dict[int, float]:
         """Hot-water baselines from the heating-off hours stored in the 28 days
-        before the recompute window plus those of the window itself."""
-        earlier = self._mariadb.read_heating_hours(
-            end - timedelta(days=heating_hours.BASELINE_DAYS), start
-        )
+        before the recompute window (`earlier`) plus those of the window itself."""
         return heating_hours.hot_water_baselines(
             [
                 (row.hour_start, row.measured_kwh)

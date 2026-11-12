@@ -735,6 +735,7 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                     or_(ag.valid_to.is_(None), as_of < ag.valid_to),
                     pr.region == region,
                     pr.valid_from <= as_of,
+                    or_(pr.valid_to.is_(None), as_of < pr.valid_to),
                 )
                 .order_by(pr.valid_from.desc())
                 .first()
