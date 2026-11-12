@@ -762,7 +762,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Minutes per day the thermostat reported a boost (readings x the 2-minute poll interval). The cost series is minutes / 60 x the boiler's gas input (the Boiler gas input variable, kW) x that day's gas unit rate: estimated, assuming the boiler fires at full output the whole time. Set the variable to 0 to show minutes only.",
+      "description": "Gas cost of the heating in each completed hour, at that hour's gas unit rate (no standing charge). Heating is any hour the thermostat called for heat or a boost was on. 'Measured' hours use Octopus's half-hourly gas less a learned hot-water baseline; 'estimated' hours (the newest ~1.5 days, until the gas arrives) use the minutes on times the boiler's learned kW. An hour with too many missing Hive readings is left blank, not shown as zero.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -794,7 +794,7 @@
             "spanNulls": true,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -810,13 +810,14 @@
                 "value": null
               }
             ]
-          }
+          },
+          "unit": "currencyGBP"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "boost_minutes"
+              "options": "measured_cost_gbp"
             },
             "properties": [
               {
@@ -827,59 +828,27 @@
                 }
               },
               {
-                "id": "unit",
-                "value": "suffix: min"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              },
-              {
                 "id": "displayName",
-                "value": "boost minutes"
+                "value": "measured"
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "extra_cost_gbp"
+              "options": "estimated_cost_gbp"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "purple",
+                  "fixedColor": "light-orange",
                   "mode": "fixed"
                 }
               },
               {
-                "id": "unit",
-                "value": "currencyGBP"
-              },
-              {
-                "id": "custom.drawStyle",
-                "value": "line"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              },
-              {
-                "id": "custom.showPoints",
-                "value": "always"
-              },
-              {
                 "id": "displayName",
-                "value": "extra gas cost (estimated; assumes full output)"
+                "value": "estimated (gas not arrived yet)"
               }
             ]
           }
@@ -915,7 +884,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, boost_minutes, extra_cost_gbp\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,\n    boost_minutes,\n    IF(\n      IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) > 0,\n      ROUND(boost_minutes / 60 * IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) * (\n        SELECT pr.unit_rate\n        FROM agreement a\n        JOIN product_rate pr\n          ON pr.product_code = a.product_code\n         AND pr.region = ${region:sqlstring}\n         AND pr.valid_from <= CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC')\n        WHERE a.energy = 'G'\n          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') >= a.valid_from\n          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')\n        ORDER BY pr.valid_from DESC\n        LIMIT 1\n      ) / 100, 4),\n      NULL\n    ) AS extra_cost_gbp\n  FROM (\n    SELECT\n      DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,\n      COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes\n    FROM heating_status\n    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY\n      AND polled_at <= $__timeTo()\n    GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))\n  ) b\n) d\nWHERE $__timeFilter(time)\nORDER BY time;",
+          "rawSql": "SELECT time, measured_cost_gbp, estimated_cost_gbp\nFROM (\n  SELECT\n    h.hour_start AS time,\n    IF(h.source = 'measured', ROUND(h.cost_gbp, 4), NULL) AS measured_cost_gbp,\n    IF(h.source = 'estimated', ROUND(h.cost_gbp, 4), NULL) AS estimated_cost_gbp\n  FROM heating_hour h\n  WHERE $__timeFilter(h.hour_start)\n    AND h.on_minutes > 0\n    AND h.cost_gbp IS NOT NULL\n) d\nORDER BY time;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -936,7 +905,7 @@
           }
         }
       ],
-      "title": "Boost Minutes and Estimated Extra Gas Cost",
+      "title": "Heating Cost per Hour",
       "type": "timeseries"
     },
     {
@@ -1609,27 +1578,6 @@
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
-      },
-      {
-        "current": {
-          "selected": false,
-          "text": "12",
-          "value": "12"
-        },
-        "description": "The boiler's gas input at full output, for the estimated boost cost, as digits only (no spaces or units). About 12 kW was measured on the 6 October 2026 test evening.",
-        "hide": 0,
-        "label": "Boiler gas input (kW, 0 = minutes only)",
-        "name": "boiler_kw",
-        "options": [
-          {
-            "selected": true,
-            "text": "12",
-            "value": "12"
-          }
-        ],
-        "query": "12",
-        "skipUrlSync": false,
-        "type": "textbox"
       },
       {
         "current": {

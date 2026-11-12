@@ -128,6 +128,7 @@ def test_a_database_with_every_table_already_present_is_left_untouched(
 HEATING_TABLES = {
     "heating_model",
     "heating_forecast_day",
+    "heating_hour",
 }
 
 

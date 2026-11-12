@@ -14,7 +14,7 @@ class Energy(Enum):
 
 
 def as_energy_char(energy: Energy) -> str:
-    match (energy):
+    match energy:
         case Energy.electricity:
             return "E"
         case Energy.gas:
@@ -22,7 +22,7 @@ def as_energy_char(energy: Energy) -> str:
 
 
 def energy_from_char(char: str) -> Energy:
-    match (char):
+    match char:
         case "E":
             return Energy.electricity
         case "G":
@@ -102,6 +102,21 @@ class StoredHeatingModel:
 
 
 @dataclass(frozen=True)
+class HeatingHourRecord:  # pylint: disable=too-many-instance-attributes
+    """One completed hour of heating as stored (naive UTC stamps)."""
+
+    hour_start: datetime
+    poll_count: int
+    on_minutes: int
+    measured_kwh: float | None
+    heating_kwh: float | None
+    source: str
+    unit_rate: float | None
+    cost_gbp: float | None
+    computed_at: datetime
+
+
+@dataclass(frozen=True)
 class HeatingForecastRecord:
     """One future day's projected gas as stored."""
 
@@ -112,7 +127,7 @@ class HeatingForecastRecord:
 
 
 def get_raw_unit(energy: Energy) -> Unit:
-    match (energy):
+    match energy:
         case Energy.gas:
             return Unit.m3
         case Energy.electricity:

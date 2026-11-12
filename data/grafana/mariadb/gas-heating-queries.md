@@ -18,7 +18,6 @@ One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dash
 
 - `${region}`: the GSP region code, `SELECT DISTINCT region FROM product_rate;`, for the gas rate lookups.
 - `${gas_unit}`: `kWh` or `pounds` (default `kWh`), the unit of the Daily Gas panel.
-- `${boiler_kw}`: text box, default `12`. The boiler's gas input at full output, in kW, for the estimated boost cost; 12 kW was measured on the 6 October 2026 test evening. `0` (or anything that is not a number) shows minutes only.
 - `${comfort_target}`: text box, default `15` (C). A target at or above it counts as a comfort target; below it is the frost setting.
 - `${comfort_margin}`: text box, default `1.0` (C). How far under its target the room must be for a minute to count.
 - `${wake_up}`: text box, default `7`. The hour the waking window starts, in whole hours 0-23 (London time), for the indoor average on the Daily Outdoor Temperature Band.
@@ -44,6 +43,8 @@ cost_forecast             (octopus) billing_period_start/end, actual_cost_to_dat
 heating_model             (octopus) id, fitted_at, usable, threshold, slope, weight,
                                     r_squared, baseload, ...
 heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
+heating_hour              (octopus) hour_start (UTC, key), poll_count, on_minutes, measured_kwh, heating_kwh,
+                                    source ('measured' or 'estimated'), unit_rate (p/kWh), cost_gbp, computed_at
 ```
 
 `heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation (ties on the same hour go to the newest row id), so a changed postcode never mixes two places.
@@ -56,7 +57,7 @@ heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_tem
 
 Three lines: **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather, then a dashed **outdoor forecast** (green) that continues the outdoor line to the right with the forecast daily mean temperature. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
 
-Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Boost Minutes panel counts them at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
+Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Heating Cost per Hour panel counts every hour the heating was on, at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
 
 ```sql
 SELECT
@@ -164,7 +165,7 @@ AND (
 
 **Gas rates for a day.** The gas agreement and the rate row in force at the day's London midnight (the same correlated lookup as the electricity panels: the latest `product_rate` row with `valid_from` at or before the day start).
 
-**Repeated fragments.** The hourly outdoor CTE (`wx` and `daily`) is copied into the daily gas panel's query C and the band query, the Complete Gas Day condition into the two daily gas queries, and the text box number guard (`REGEXP` then `CAST`, NULL otherwise) into the boost and comfort queries, on purpose: each query stands alone in Grafana, so a later change has to be made in every copy (the tests check the copies exist).
+**Repeated fragments.** The hourly outdoor CTE (`wx` and `daily`) is copied into the daily gas panel's query C and the band query, the Complete Gas Day condition into the two daily gas queries, and the text box number guard (`REGEXP` then `CAST`, NULL otherwise) into the comfort query, on purpose: each query stands alone in Grafana, so a later change has to be made in every copy (the tests check the copies exist).
 
 ### Daily Gas and Outdoor Temperature (time series)
 
@@ -337,52 +338,30 @@ ORDER BY time;
 
 **Checked read-only against the Pi on 27 October 2026.** Query D returned 27 October to 2 November (8.231, 8.231, 12.734, 14.160, 14.235, 16.112, 18.063 kWh); query E returned the same days in pounds (27 October 0.7065 unit cost, 8.231 kWh at 8.58p, plus the 0.2924 standing charge). D returns nothing while the unit is pounds and E nothing while it is kWh. With the usable-model test made to match no model (`m.usable = 2`), D and E return no rows, so there are no expected bars.
 
-### Boost Minutes and Estimated Extra Gas Cost (time series)
+### Heating Cost per Hour (time series)
 
-Bars of boost minutes per London day (boost-active readings x the 2-minute poll interval), plus a line of the estimated extra gas cost on the right axis: minutes / 60 x the **Boiler gas input** (kW, default 12, measured on the 6 October 2026 test evening) x that day's gas unit rate / 100. It is labelled "estimated; assumes full output", and a boiler input of 0 (or anything that is not a plain number, digits with an optional decimal part and no spaces) shows minutes only. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, the `* 2` in the boost and comfort queries must change too. A day with thermostat readings and no boost shows 0 minutes; a day with no thermostat readings has no row.
+Stacked bars of the gas cost of the heating in each completed UTC hour, in pounds, read from the small `heating_hour` table that octopus-app's hourly job writes (ADR-0033), so the panel does no heavy work on the Pi. Heating is any hour the thermostat called for heat or a boost was on (`state = 'ON' OR boost_active = 1`, counted by the job). Each bar is one of two series: **measured** (solid; Octopus's half-hourly gas for the hour less a learned hot-water baseline) or **estimated** (lighter; the minutes on times the boiler's learned effective kW, used until the gas arrives about 1.5 days later). Cost is the gas unit rate in force at the start of the hour, with no standing charge. An hour with too few Hive readings has no row, so it is a gap, never a zero. Hours with the heating off (on-minutes 0) are not drawn. The panel looks back over the dashboard's 14 days and shows nothing for the forward 7.
 
 ```sql
-SELECT time, boost_minutes, extra_cost_gbp
+SELECT time, measured_cost_gbp, estimated_cost_gbp
 FROM (
   SELECT
-    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') AS time,
-    boost_minutes,
-    IF(
-      IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) > 0,
-      ROUND(boost_minutes / 60 * IF(${boiler_kw:sqlstring} REGEXP '^[0-9]+([.][0-9]+)?$', CAST(${boiler_kw:sqlstring} AS DECIMAL(8, 2)), NULL) * (
-        SELECT pr.unit_rate
-        FROM agreement a
-        JOIN product_rate pr
-          ON pr.product_code = a.product_code
-         AND pr.region = ${region:sqlstring}
-         AND pr.valid_from <= CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC')
-        WHERE a.energy = 'G'
-          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') >= a.valid_from
-          AND CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC') < COALESCE(a.valid_to, '9999-12-31 23:59:59')
-        ORDER BY pr.valid_from DESC
-        LIMIT 1
-      ) / 100, 4),
-      NULL
-    ) AS extra_cost_gbp
-  FROM (
-    SELECT
-      DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}')) AS day,
-      COUNT(CASE WHEN boost_active = 1 THEN 1 END) * 2 AS boost_minutes
-    FROM heating_status
-    WHERE polled_at >= $__timeFrom() - INTERVAL 2 DAY
-      AND polled_at <= $__timeTo()
-    GROUP BY DATE(CONVERT_TZ(polled_at, 'UTC', '${timezone}'))
-  ) b
+    h.hour_start AS time,
+    IF(h.source = 'measured', ROUND(h.cost_gbp, 4), NULL) AS measured_cost_gbp,
+    IF(h.source = 'estimated', ROUND(h.cost_gbp, 4), NULL) AS estimated_cost_gbp
+  FROM heating_hour h
+  WHERE $__timeFilter(h.hour_start)
+    AND h.on_minutes > 0
+    AND h.cost_gbp IS NOT NULL
 ) d
-WHERE $__timeFilter(time)
 ORDER BY time;
 ```
 
-**Checked read-only against the Pi on 16 October 2026.** The 6 October test evening has two boost readings (19:18 and 19:24 UTC): 4 minutes, and 4 / 60 x 12 kW x 8.58396p = 6.87p (0.0687 in the query, shown as 0.07). Every other day from 3 October has 0 minutes and 0 cost. With the boiler input at 0 or `abc` the cost column is NULL and only the minutes remain.
+**Not yet checked against the Pi.** This query is checked once, in the final dashboard review, read-only on a throwaway copy of the database (never on the live MariaDB, which has a 512 MB limit). Deploy octopus-app first so the table exists and is filled, then import the dashboard.
 
 ### Minutes Below Target (time series)
 
-Bars of minutes per London day in which a comfort target was active (target at or above the **Comfort target** variable, default 15 C) and the room was more than the **Margin below target** (default 1.0 C) under it. A day on the frost setting (7 C) counts zero whatever the room temperature, and a day with thermostat readings shows 0 rather than a gap. If a setting is not a number (a typo like `15C`), the panel shows no data instead of silently counting every frost-setting minute.
+Bars of minutes per London day in which a comfort target was active (target at or above the **Comfort target** variable, default 15 C) and the room was more than the **Margin below target** (default 1.0 C) under it. A day on the frost setting (7 C) counts zero whatever the room temperature, and a day with thermostat readings shows 0 rather than a gap. If a setting is not a number (a typo like `15C`), the panel shows no data instead of silently counting every frost-setting minute. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, the `* 2` in this query must change too (and so must the heating-hour job's `POLL_MINUTES` and `MIN_POLLS_PER_HOUR`).
 
 ```sql
 SELECT time, minutes_below_target
