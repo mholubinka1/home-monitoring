@@ -20,36 +20,39 @@ class HeatingHourJob:
         """Rewrites every hour that has ended in the last few local days. An hour
         without enough polls gets no row, and loses any row it had. When the newest
         stored hour is older than those days (an empty table, or a stop), it first
-        backfills a local day at a time from there."""
+        backfills a local day at a time from the hour after it."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         end = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
         today = local_day.to_local_date(now)
         window_first_day = today - timedelta(days=RECOMPUTE_LOCAL_DAYS - 1)
-        resume_from = self._resume_day()
-        if resume_from is None or resume_from >= window_first_day:
+        resume_from = self._resume_from()
+        if (
+            resume_from is None
+            or local_day.to_local_date(resume_from.replace(tzinfo=UTC))
+            >= window_first_day
+        ):
             self._recompute(now, self._day_start(window_first_day), end)
             return
-        # Each day learns only from the rows the days before it have written.
-        day = resume_from
-        while day <= today:
-            day_end = min(self._day_start(day + timedelta(days=1)), end)
-            self._recompute(now, self._day_start(day), day_end)
-            day += timedelta(days=1)
+        # A local day at a time, so each learns only from the rows before it.
+        start = resume_from
+        while start < end:
+            day = local_day.to_local_date(start.replace(tzinfo=UTC))
+            chunk_end = min(self._day_start(day + timedelta(days=1)), end)
+            self._recompute(now, start, chunk_end)
+            start = chunk_end
 
-    def _resume_day(self) -> date | None:
-        """The local day a backfill starts from: the first poll's day on an empty
-        table, otherwise the day after the newest stored hour's (so a job that stopped, or
-        died part-way through a backfill, carries on). None with no polls."""
+    def _resume_from(self) -> datetime | None:
+        """Where a backfill starts (naive UTC): the hour after the newest stored
+        one, so a job that stopped, or died part-way through a backfill or a day,
+        carries on without rewriting what it stored; on an empty table the start
+        of the first poll's local day. None with no polls."""
         latest = self._mariadb.read_latest_heating_hour()
         if latest is not None:
-            # A day is written in one go, so the newest stored hour's day is done.
-            return local_day.to_local_date(latest.replace(tzinfo=UTC)) + timedelta(
-                days=1
-            )
+            return latest + timedelta(hours=1)
         first_poll = self._mariadb.read_first_heating_poll()
         if first_poll is None:
             return None
-        return local_day.to_local_date(first_poll.replace(tzinfo=UTC))
+        return self._day_start(local_day.to_local_date(first_poll.replace(tzinfo=UTC)))
 
     @staticmethod
     def _day_start(day: date) -> datetime:

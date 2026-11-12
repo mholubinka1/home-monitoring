@@ -618,3 +618,28 @@ def test_a_learned_boiler_kw_of_zero_falls_back_to_the_default(
     row = _heating_hours(mariadb_client)[-1]
     assert row.source == "estimated"
     assert row.heating_kwh == pytest.approx(24 / 60 * 12)
+
+
+def test_a_run_after_a_stop_part_way_through_a_day_fills_the_rest_of_that_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a job that stopped at 11:30 nine days ago, so only that day's 10:00
+    # hour was stored, though hive-app went on polling through the day
+    _seed_gas_rate(mariadb_client)
+    stop_day = HOUR.replace(hour=10) - timedelta(days=9)
+    for hours in range(3):
+        _seed_polls(mariadb_client, stop_day + timedelta(hours=hours), on=12)
+    HeatingHourJob(mariadb_client, REGION).refresh(
+        stop_day.replace(hour=11, minute=30, tzinfo=UTC)
+    )
+    assert [r.hour_start for r in _heating_hours(mariadb_client)] == [stop_day]
+    for back in range(8, 0, -1):
+        _seed_polls(mariadb_client, HOUR - timedelta(days=back), on=12)
+
+    # When the job runs again
+    HeatingHourJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then the rest of the stop day has its rows too
+    hours = [row.hour_start for row in _heating_hours(mariadb_client)]
+    assert hours[:3] == [stop_day + timedelta(hours=h) for h in range(3)]
+    assert len(hours) == 3 + 8

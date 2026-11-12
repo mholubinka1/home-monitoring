@@ -80,7 +80,7 @@ When `heating_hour` is empty, the first run fills it chronologically from the ea
 - [x] Given that backfill, then each day's baseline and kW come only from earlier days' rows.
 - [x] Given polls older than the retained gas window, then those hours are `estimated`.
 - [x] Given a populated table, when the job runs, then rows older than the last 4 London days are not recomputed.
-- [x] Given the job stopped for more than 4 days, when it runs again, then the missed days are backfilled from the day after its newest stored hour.
+- [x] Given the job stopped for more than 4 days, when it runs again, then the missed days are backfilled from the hour after its newest stored hour, including the rest of a day it stopped part-way through.
 
 ---
 
