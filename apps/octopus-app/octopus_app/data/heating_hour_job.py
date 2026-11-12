@@ -1,11 +1,17 @@
 """Recomputes the recent completed hours of heating and what each cost."""
 
+import logging.config
 from datetime import UTC, date, datetime, timedelta
+from logging import Logger, getLogger
 
 from common import local_day
+from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data import heating_hours
 from octopus_app.data.model import Energy, HeatingHourRecord
 from octopus_app.data.mysql.client import MariaDBClient
+
+logging.config.dictConfig(config)
+logger: Logger = getLogger(APP_LOGGER_NAME)
 
 RECOMPUTE_LOCAL_DAYS = 4  # today and the three before it
 
@@ -34,6 +40,7 @@ class HeatingHourJob:
             self._recompute(now, self._day_start(window_first_day), end)
             return
         # A local day at a time, so each learns only from the rows before it.
+        logger.info(f"Heating hours: backfilling from {resume_from} UTC to {end}.")
         start = resume_from
         while start < end:
             day = local_day.to_local_date(start.replace(tzinfo=UTC))
@@ -81,6 +88,10 @@ class HeatingHourJob:
         ]
         rows = sorted(measured + estimated, key=lambda row: row.hour_start)
         self._mariadb.replace_heating_hours(start, end, rows)
+        logger.info(
+            f"Heating hours: wrote {len(rows)} hour(s) ({len(measured)} measured) "
+            f"from {start} to {end} UTC."
+        )
 
     def _record(
         self,

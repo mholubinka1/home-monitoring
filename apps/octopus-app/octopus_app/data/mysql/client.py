@@ -754,12 +754,7 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 .order_by(hh.hour_start)
                 .all()
             )
-            return [
-                HeatingHourRecord(
-                    **{f.name: getattr(row, f.name) for f in fields(HeatingHourRecord)}
-                )
-                for row in rows
-            ]
+            return [_record_of(HeatingHourRecord, row) for row in rows]
 
     def replace_heating_hours(
         self, start: datetime, end: datetime, rows: list[HeatingHourRecord]
