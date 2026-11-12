@@ -117,6 +117,18 @@ class HeatingHourRecord:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass(frozen=True)
+class ComfortDayRecord:
+    """One local day's comfort figures as stored (ADR-0034)."""
+
+    date: date
+    comfort_temp: float | None
+    boost_starts: int
+    counted_hours: str
+    minutes_below: int | None
+    computed_at: datetime
+
+
+@dataclass(frozen=True)
 class HeatingForecastRecord:
     """One future day's projected gas as stored."""
 

@@ -14,13 +14,13 @@ The tracer through every layer: a new `comfort_day` table, reads of boost polls 
 
 ### Acceptance criteria
 
-- [ ] Given five boosts on earlier days that started with the room at 16.0, 16.5, 17.0, 17.5 and 20.0 C, when the job runs, then today's `comfort_day` row has comfort temperature 17.0 and 5 boost starts.
-- [ ] Given a boost earlier today, when the job runs, then it is not evidence for today's comfort temperature.
-- [ ] Given boost polls 2 minutes apart, then they are one boost start whose temperature is the first poll's, and given a boost poll more than 10 minutes after the previous one, then it starts a new boost.
-- [ ] Given a boost more than 90 days before today, when the job runs, then it is not used.
-- [ ] Given fewer than 5 boosts in the window and no earlier comfort temperature stored, when the job runs, then today's row has no comfort temperature.
-- [ ] Given hive-app's `heating_status` table does not exist, when the job runs, then nothing is written and nothing raises.
-- [ ] Given the hourly heating-hour run succeeded, when the hourly chain runs, then the comfort job runs after it and records its own `job_run`; given the heating-hour run failed, then the comfort job is recorded as skipped.
+- [x] Given five boosts on earlier days that started with the room at 16.0, 16.5, 17.0, 17.5 and 20.0 C, when the job runs, then today's `comfort_day` row has comfort temperature 17.0 and 5 boost starts.
+- [x] Given a boost earlier today, when the job runs, then it is not evidence for today's comfort temperature.
+- [x] Given boost polls 2 minutes apart, then they are one boost start whose temperature is the first poll's, and given a boost poll more than 10 minutes after the previous one, then it starts a new boost.
+- [x] Given a boost more than 90 days before today, when the job runs, then it is not used.
+- [x] Given fewer than 5 boosts in the window and no earlier comfort temperature stored, when the job runs, then today's row has no comfort temperature.
+- [x] Given hive-app's `heating_status` table does not exist, when the job runs, then nothing is written and nothing raises.
+- [x] Given the hourly heating-hour run succeeded, when the hourly chain runs, then the comfort job runs after it and records its own `job_run`; given the heating-hour run failed, then the comfort job is recorded as skipped.
 
 ---
 
