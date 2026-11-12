@@ -483,7 +483,7 @@ def test_the_first_run_on_an_empty_table_fills_every_hour_back_to_the_first_poll
     assert hours == [HOUR - timedelta(days=back) for back in range(10, 0, -1)]
 
 
-def test_each_backfilled_day_learns_only_from_the_days_before_it(
+def test_each_backfilled_day_learns_from_its_own_and_earlier_days_never_later_ones(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given a heating hour on each of ten days; the five middle days are metered

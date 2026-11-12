@@ -72,12 +72,12 @@ Replace the fixed 12 kW with the effective boiler kW learned from the household'
 
 ### What to build
 
-When `heating_hour` is empty, the first run fills it chronologically from the earliest `heating_status` poll, one London day at a time, so each day's learned baseline and kW use only the days written before it. Days older than the retained gas window stay estimated. Later runs recompute only the last 4 London days.
+When `heating_hour` is empty, the first run fills it chronologically from the earliest `heating_status` poll, one London day at a time, so each day's learned baseline and kW use that day and the days written before it, never later days (what an hourly run at the end of that day would have used). Days older than the retained gas window stay estimated. Later runs recompute only the last 4 London days.
 
 ### Acceptance criteria
 
 - [x] Given an empty `heating_hour` table and polls over several days, when the job runs, then rows exist for every complete hour from the earliest poll.
-- [x] Given that backfill, then each day's baseline and kW come only from earlier days' rows.
+- [x] Given that backfill, then each day's baseline and kW come only from that day and earlier days' rows, never later days'.
 - [x] Given polls older than the retained gas window, then those hours are `estimated`.
 - [x] Given a populated table, when the job runs, then rows older than the last 4 London days are not recomputed.
 - [x] Given the job stopped for more than 4 days, when it runs again, then the missed days are backfilled from the hour after its newest stored hour, including the rest of a day it stopped part-way through.
