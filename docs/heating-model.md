@@ -113,9 +113,48 @@ Example of the fade: last winter left 100 boosts at about 17 °C, spread over 18
 
 What this cannot tell you: it is the temperature at which the household acts, not the temperature it would like (boosts ask for 18 to 20 °C and the room rarely gets there). About half of the boosts (by weight) start above it, by construction. The thermostat is in one room. And the counted hours are patchy until the heating has been used at most times of day.
 
-## 12. Glossary and further reading
+## 12. The thermal model
+
+Everything above works in whole days of gas. The thermal model answers a different question: **how does the room's temperature change from one hour to the next?** It is the groundwork for a forecast of the room and for heating advice, which are not on the dashboard yet.
+
+It is five numbers, learned from the thermostat's own readings, the heating hours of section 10 and the hourly weather:
+
+- **Loss.** How much the room falls in an hour for each degree it is warmer than outdoors. On the first six weeks of data it was about 0.02 °C. A room at 17 °C with 7 °C outside loses about 0.2 °C an hour.
+- **Heating gain.** How much the room rises per hour of heating: about 1.4 °C. The 45-minute morning slot is worth about 1 °C.
+- **Carried gain.** Radiators stay hot after the boiler stops, so some of the rise arrives in the following hour: about 0.2 °C per hour of heating.
+- **Sunshine gain.** How much a bright hour adds: about 0.1 °C in an hour of strong winter sun. Sunshine is used here and nowhere on the dashboard.
+- **Constant gain.** A small steady gain from people, cooking and appliances, about 0.06 °C an hour. It is why an unheated house settles a few degrees above outdoors and not at the outdoor temperature.
+
+Example: at 06:00 the room is at 16.0 °C and it is 6 °C outside, before sunrise, and the heating runs for 30 minutes of the hour. Loss: 0.02 times 10 degrees is 0.2 °C. Heating: half an hour at 1.4 is 0.7 °C. Constant: 0.06 °C. The model says the room is at about 16.56 °C at 07:00, and that a further 0.1 °C arrives during the next hour from the hot radiators.
+
+**How it is learned.** The model looks at every hour of the last 60 days for which it has everything: the room's temperature at the start and the end, the minutes of heating in that hour and the one before, and the weather. It then finds the five numbers that fit all of those hours best at once ([ordinary least squares](https://en.wikipedia.org/wiki/Ordinary_least_squares), as in section 5). An hour with anything missing (Hive was down, a weather gap) is left out, never filled in. It is relearned once a day.
+
+**How it is checked.** A model that fits the past is not proof that it predicts. So each time it is relearned it is given a test it has not seen the answers to, called a [backtest](https://en.wikipedia.org/wiki/Backtesting):
+
+- Take each of the last 14 days in turn.
+- Learn a model from only the 60 days before that day.
+- Start it at the room's temperature at midnight and let it run for the whole day on its own, hour after hour, given the weather and the heating that really happened.
+- Compare what it said with what the thermostat recorded.
+
+The average miss over all those hours, and the worst single miss, are stored with the model. On the first six weeks of data (to 13 November 2026) the average was about 0.3 °C and the worst hour about 1 °C, over the 8 days that could be tested. A day is only tested when all of its hours are complete and the model before it had enough heating to learn from, so early in a heating season several days are skipped.
+
+**When it is not trusted.** Each stored model says whether it is usable, and if not, why:
+
+- under a week of complete hours to learn from;
+- almost no heating in the 60 days, so the heating gain cannot be learned;
+- numbers that make no physical sense (a room that warms as it gets colder outside, or heating that cools it);
+- fewer than 5 of the 14 days could be tested;
+- an average miss above 0.5 °C.
+
+While the newest model is not usable, nothing is forecast.
+
+What this cannot tell you: it describes one room, the one with the thermostat. It has seen only mild weather so far (nothing colder than about 1 °C outdoors), so its numbers will move as winter arrives, which is why it is relearned and retested daily. It knows nothing about open windows, guests or a door left open, which show up as misses. And the backtest is given the heating that really happened, so it tests the house model, not anyone's ability to guess when the heating will be on.
+
+## 13. Glossary and further reading
 
 **Away day.** A day with gas under about a third of the baseload, treated as a holiday and left out.
+
+**Backtest.** A replay of each of the last 14 days by a thermal model that learned only from the days before it, to measure how far its predictions miss.
 
 **Baseload.** Gas used whatever the weather: hot water and cooking. Measured from warm days over the last 120 days.
 
@@ -133,6 +172,8 @@ What this cannot tell you: it is the temperature at which the household acts, no
 
 **Slope.** The extra gas each degree-day costs, in kWh.
 
+**Thermal model.** Five learned numbers that say how the thermostat's room warms and cools from one hour to the next.
+
 **Threshold.** The temperature below which heating starts to be needed.
 
 ### Learn more
@@ -143,5 +184,6 @@ What this cannot tell you: it is the temperature at which the household acts, no
 - [Segmented regression](https://en.wikipedia.org/wiki/Segmented_regression)
 - [Coefficient of determination (R-squared)](https://en.wikipedia.org/wiki/Coefficient_of_determination)
 - [Thermal mass](https://en.wikipedia.org/wiki/Thermal_mass)
+- [Backtesting](https://en.wikipedia.org/wiki/Backtesting)
 - [Reanalysis](https://en.wikipedia.org/wiki/Reanalysis)
 - [PRISM, the original three-parameter heating model](https://www.aceee.org/wp-content/uploads/proceedings-1980-2020/1986/SS86_Panel9_Paper_04.pdf)

@@ -61,9 +61,9 @@ The thermal model job joins the hourly job chain: after a successful heating-hou
 
 ### Acceptance criteria
 
-- [ ] Given the hourly heating-hour run succeeded, when the chain runs, then the comfort days and then the thermal model are refreshed, each recorded as its own `job_run`.
-- [ ] Given the heating-hour run failed, when the chain runs, then the thermal model refresh is recorded as skipped.
-- [ ] Given a failing comfort-day refresh, when the chain runs, then the thermal model refresh still runs.
-- [ ] Given the heating guide, when a reader looks for the thermal model, then a plain-language section explains the five numbers, the backtest and the 0.5 C gate, and the glossary's database entry lists `thermal_model`.
+- [x] Given the hourly heating-hour run succeeded, when the chain runs, then the comfort days and then the thermal model are refreshed, each recorded as its own `job_run`.
+- [x] Given the heating-hour run failed, when the chain runs, then the thermal model refresh is recorded as skipped.
+- [x] Given a failing comfort-day refresh, when the chain runs, then the thermal model refresh still runs.
+- [x] Given the heating guide, when a reader looks for the thermal model, then a plain-language section explains the five numbers, the backtest and the 0.5 C gate, and the glossary's database entry lists `thermal_model`.
 
 ---

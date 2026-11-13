@@ -29,6 +29,7 @@ from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
 from octopus_app.data.pruning import DataPruner
+from octopus_app.data.thermal_job import ThermalModelJob
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -40,6 +41,7 @@ CONSUMPTION_SUMMARY_JOB = "update_consumption_summary"
 HEATING_MODEL_JOB = "heating_model_refresh"
 HEATING_HOUR_JOB = "heating_hour_refresh"
 COMFORT_DAY_JOB = "comfort_day_refresh"
+THERMAL_MODEL_JOB = "thermal_model_refresh"
 PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
@@ -342,32 +344,42 @@ def register_heating_hour_job(
     scheduler: Scheduler,
     heating_hour: HeatingHourJob,
     comfort_day: ComfortDayJob,
+    thermal_model: ThermalModelJob,
     mariadb: MariaDBClient,
 ) -> Job:
     """Registers one hourly job that refreshes the heating hours, then -- only if
-    that succeeded -- the comfort days (skipped, and recorded so, otherwise), in
-    the same background thread. A comfort day is settled once from the stored
-    heating hours (ADR-0034), so it must never be settled while they are missing
-    or part-way through a backfill."""
+    that succeeded -- the comfort days and then the thermal model (each skipped,
+    and recorded so, otherwise), in the same background thread. Both read the
+    stored heating hours: a comfort day is settled once from them (ADR-0034) and
+    the thermal model learns from them (ADR-0035), so neither may run while they
+    are missing or part-way through a backfill. The thermal model does not
+    depend on the comfort days, so a failed comfort refresh does not stop it."""
     refresh_heating_hours = _with_backoff_recording(
         HEATING_HOUR_JOB, heating_hour.refresh, mariadb
     )
-    refresh_comfort_days = _with_backoff_recording(
-        COMFORT_DAY_JOB, comfort_day.refresh, mariadb
-    )
+    dependants = {
+        COMFORT_DAY_JOB: _with_backoff_recording(
+            COMFORT_DAY_JOB, comfort_day.refresh, mariadb
+        ),
+        THERMAL_MODEL_JOB: _with_backoff_recording(
+            THERMAL_MODEL_JOB, thermal_model.refresh, mariadb
+        ),
+    }
 
-    def refresh_heating_hours_then_comfort_days() -> None:
+    def refresh_heating_hours_then_dependants() -> None:
         refresh_heating_hours()
-        if mariadb.latest_job_run_is_successful(HEATING_HOUR_JOB):
-            refresh_comfort_days()
-        else:
-            logger.info(
-                f"{HEATING_HOUR_JOB} did not succeed this cycle; "
-                f"skipping {COMFORT_DAY_JOB}."
-            )
-            mariadb.record_job_run(COMFORT_DAY_JOB, "skipped")
+        heating_hours_refreshed = mariadb.latest_job_run_is_successful(HEATING_HOUR_JOB)
+        for job_name, refresh in dependants.items():
+            if heating_hours_refreshed:
+                refresh()
+            else:
+                logger.info(
+                    f"{HEATING_HOUR_JOB} did not succeed this cycle; "
+                    f"skipping {job_name}."
+                )
+                mariadb.record_job_run(job_name, "skipped")
 
-    run = _run_in_background(HEATING_HOUR_JOB, refresh_heating_hours_then_comfort_days)
+    run = _run_in_background(HEATING_HOUR_JOB, refresh_heating_hours_then_dependants)
     return scheduler.every(1).hours.do(run)
 
 
@@ -446,6 +458,7 @@ def main() -> None:
         default_scheduler,
         HeatingHourJob(client.mariadb, client.region_code),
         ComfortDayJob(client.mariadb),
+        ThermalModelJob(client.mariadb),
         client.mariadb,
     )
 
