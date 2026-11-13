@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-hourly-forecast-and-hive-schedule
 
 ## Hourly weather forecast stored
