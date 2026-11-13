@@ -164,6 +164,23 @@ def test_a_poll_without_a_usable_weekly_schedule_is_stored_without_a_schedule_ro
     assert not _stored_schedules(mariadb_client)
 
 
+def test_a_weekly_schedule_that_cannot_be_written_does_not_fail_the_poll(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+) -> None:
+    # A set is a dictionary value the JSON column cannot store.
+    unstorable = {"schedule": {"monday": {390, 435}}}
+    source = _source(install_fake_hive, mariadb_client, tmp_path, unstorable)
+
+    _poll_and_persist(source)
+
+    with mariadb_client.session_read_scope() as session:
+        status_rows = session.query(model.heating_status).count()
+    assert status_rows == 1
+    assert not _stored_schedules(mariadb_client)
+
+
 def test_a_database_created_before_the_weekly_schedule_gains_its_table_on_startup(
     unsynced_mariadb_client_factory: Callable[[], MariaDBClient],
 ) -> None:

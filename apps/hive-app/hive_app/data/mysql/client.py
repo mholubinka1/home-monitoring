@@ -87,6 +87,7 @@ class MariaDBClient(MariaDBClientBase):
             return
         record = sql_model.heating_schedule(captured_at=captured_at, schedule=schedule)
         self._write_all([record], "Heating schedule data")
+        logger.info("Hive weekly schedule changed; stored a new heating_schedule row.")
 
     def latest_heating_polled_at(self) -> datetime | None:
         """When the newest heating_status row was polled (UTC), or None."""

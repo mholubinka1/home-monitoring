@@ -43,7 +43,7 @@ Terms are in `.agent-docs/context.md`.
 
 **Retriever.** `WeatherSource` gains `fetch_hourly_forecast` and `persist_hourly_forecast`; `WeatherApiSource` implements them. `WeatherRetriever.refresh_forecast()` fetches and persists the daily forecast first, then the hourly one, so a failing hourly request leaves the daily rows written and still fails the job (retried and recorded by the existing wrapper). No new scheduled job.
 
-**Weekly schedule.** `HeatingStatus` gains `weekly_schedule` (a dict, or None). `HiveApiSource` reads it in the poll from the product data the library already holds (`session.data.products[<device hiveID>]["state"]["schedule"]`, the structure `getScheduleNowNextLater` itself reads); anything missing or not a dict gives None, logged at DEBUG. `persist_heating_status` writes the poll as today, then calls a new `MariaDBClient.write_weekly_schedule(captured_at, schedule)`, which inserts a row only when the schedule differs from the newest stored one (or none is stored) and does nothing for None. The comparison is of the parsed JSON, so key order does not matter.
+**Weekly schedule.** `HeatingStatus` gains `weekly_schedule` (a dict, or None). `HiveApiSource` reads it in the poll from the product data the library already holds (`session.data.products[<device hiveID>]["state"]["schedule"]`, the structure `getScheduleNowNextLater` itself reads); anything missing or not a dict gives None, logged at DEBUG. `persist_heating_status` writes the poll as today, then calls a new `MariaDBClient.write_weekly_schedule(captured_at, schedule)`, which inserts a row only when the schedule differs from the newest stored one (or none is stored) and does nothing for None. The comparison is of the parsed JSON, so key order does not matter. A schedule write that fails is logged as a warning and does not fail the poll: the poll job retries a failed poll, each retry stores another `heating_status` row, and heating minutes are counted per row (ADR-0033). A stored change is logged at INFO.
 
 **Docs.** The glossary's `home_monitoring` database entry lists the two new tables. ADR-0035 and the E terms are already written.
 
@@ -71,7 +71,8 @@ Scenarios (each also a BDD red-green step):
 - the first poll's weekly schedule is stored;
 - an unchanged schedule on the next poll adds no row;
 - a changed schedule adds a row and keeps the old one;
-- a poll with a missing or malformed weekly schedule is stored and adds no schedule row.
+- a poll with a missing or malformed weekly schedule is stored and adds no schedule row;
+- a poll whose weekly schedule cannot be written is still stored, and persisting it does not fail.
 
 Tests assert stored rows and returned values, not internals. Existing fakes of `WeatherSource` gain the two new methods.
 

@@ -14,7 +14,9 @@ from typing import Any
 from aiohttp import ClientSession
 from apyhiveapi import Hive
 from apyhiveapi.helper import hive_exceptions
+from sqlalchemy.exc import SQLAlchemyError
 
+from common.exceptions import MariaDBError
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
@@ -503,4 +505,15 @@ class HiveApiSource:
 
     def persist_heating_status(self, status: HeatingStatus) -> None:
         self._mariadb.write_heating_status(status)
-        self._mariadb.write_weekly_schedule(status.polled_at, status.weekly_schedule)
+        # The poll is already stored: failing it here would make the job retry
+        # and store another heating_status row, and heating minutes are counted
+        # per row (ADR-0033). The next poll tries the schedule again.
+        try:
+            self._mariadb.write_weekly_schedule(
+                status.polled_at, status.weekly_schedule
+            )
+        except (MariaDBError, SQLAlchemyError) as e:
+            logger.warning(
+                f"Hive weekly schedule not stored ({type(e).__name__}); "
+                "the poll itself was."
+            )
