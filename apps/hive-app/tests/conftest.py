@@ -78,6 +78,9 @@ def unsynced_mariadb_client_factory(
     return lambda: MariaDBClient(settings)
 
 
+THERMOSTAT_HIVE_ID = "thermostat-hive-id"
+
+
 class FakeApyHive:  # pylint: disable=too-many-instance-attributes
     """Stands in for apyhiveapi's real `Hive` object at the system boundary
     (see .agent-docs/agent.md's "mock only at system boundaries" rule).
@@ -94,9 +97,19 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         sms_error: Exception | None = None,
         registration_sets_password: bool = True,
         heating_working: Any = None,
-        **_: Any,
+        **options: Any,
     ) -> None:
         self._sms_result = sms_result
+        # As apyhiveapi exposes it: the Hive object is its own session, and
+        # its product data is keyed by the device's hiveID. `product_state` is
+        # that product's `state` (empty when not given).
+        self.session = SimpleNamespace(
+            data=SimpleNamespace(
+                products={
+                    THERMOSTAT_HIVE_ID: {"state": options.get("product_state") or {}}
+                }
+            )
+        )
         self._registration_sets_password = registration_sets_password
         self._login_result = login_result or {
             "ChallengeName": "SMS_MFA",
@@ -190,7 +203,9 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
     async def startSession(self, config: dict[str, Any] | None = None) -> None:
         self.call_order.append("startSession")
         self.start_session_configs.append(config)
-        self.deviceList = {"climate": [{"id": "thermostat-1"}]}
+        self.deviceList = {
+            "climate": [{"id": "thermostat-1", "hiveID": THERMOSTAT_HIVE_ID}]
+        }
 
 
 SMS_SUCCESS = {

@@ -69,6 +69,25 @@ class MariaDBClient(MariaDBClientBase):
         )
         self._write_all([record], "Heating status data")
 
+    def write_weekly_schedule(
+        self, captured_at: datetime, schedule: dict[str, Any] | None
+    ) -> None:
+        """Stores the weekly schedule when it differs from the newest stored
+        one; does nothing for None."""
+        if schedule is None:
+            return
+        with self.session_read_scope() as session:
+            newest = (
+                session.query(sql_model.heating_schedule.schedule)
+                .order_by(sql_model.heating_schedule.id.desc())
+                .limit(1)
+                .scalar()
+            )
+        if newest == schedule:
+            return
+        record = sql_model.heating_schedule(captured_at=captured_at, schedule=schedule)
+        self._write_all([record], "Heating schedule data")
+
     def latest_heating_polled_at(self) -> datetime | None:
         """When the newest heating_status row was polled (UTC), or None."""
         with self.session_read_scope() as session:

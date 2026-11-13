@@ -38,6 +38,17 @@ class heating_status(SQLBase):
     working = Column(Boolean)
 
 
+class heating_schedule(SQLBase):
+    """Hive's weekly schedule, one row each time it changes."""
+
+    __tablename__ = "heating_schedule"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    captured_at = Column(DateTime, nullable=False)
+    schedule = Column(JSON, nullable=False)
+
+
 # One observation per hour per source and location: the unique key, which the
 # keyed upsert also resolves conflicts on.
 WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")

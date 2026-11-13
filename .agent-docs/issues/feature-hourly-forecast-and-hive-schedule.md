@@ -39,11 +39,11 @@ Each thermostat poll also carries Hive's full seven-day schedule, read from the 
 
 ### Acceptance criteria
 
-- [ ] Given Hive's product data holds a weekly schedule, when the thermostat is polled, then the poll carries it.
-- [ ] Given no stored schedule, when a poll with a weekly schedule is persisted, then `heating_schedule` has one row with it and the poll's time.
-- [ ] Given a stored schedule, when the next poll carries the same schedule, then no row is added.
-- [ ] Given a stored schedule, when a poll carries a different one, then a second row is added and the first is kept.
-- [ ] Given a poll whose weekly schedule is missing or not a dictionary, when it is persisted, then the `heating_status` row is written and no schedule row is added.
-- [ ] Given a database created before this change, when hive-app starts, then `heating_schedule` exists.
+- [x] Given Hive's product data holds a weekly schedule, when the thermostat is polled, then the poll carries it.
+- [x] Given no stored schedule, when a poll with a weekly schedule is persisted, then `heating_schedule` has one row with it and the poll's time.
+- [x] Given a stored schedule, when the next poll carries the same schedule, then no row is added.
+- [x] Given a stored schedule, when a poll carries a different one, then a second row is added and the first is kept.
+- [x] Given a poll whose weekly schedule is missing or not a dictionary, when it is persisted, then the `heating_status` row is written and no schedule row is added.
+- [x] Given a database created before this change, when hive-app starts, then `heating_schedule` exists.
 
 ---

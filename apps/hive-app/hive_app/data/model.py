@@ -14,6 +14,7 @@ class HeatingStatus:  # pylint: disable=too-many-instance-attributes
     boost_ends_at: datetime | None
     schedule: dict[str, Any]
     working: bool | None = None
+    weekly_schedule: dict[str, Any] | None = None
 
 
 @dataclass

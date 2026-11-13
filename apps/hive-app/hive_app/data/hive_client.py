@@ -440,6 +440,7 @@ class HiveApiSource:
             working = self._as_working_flag(
                 await hive.heating.getCurrentOperation(device)
             )
+            weekly_schedule = self._weekly_schedule(hive, device)
 
         return HeatingStatus(
             polled_at=datetime.now(UTC),
@@ -458,7 +459,21 @@ class HiveApiSource:
             boost_ends_at=None,
             schedule=schedule,
             working=working,
+            weekly_schedule=weekly_schedule,
         )
+
+    @staticmethod
+    def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
+        """Hive's seven-day schedule from the product data the library already
+        holds, or None (logged at DEBUG) when it is missing or not a dict."""
+        try:
+            schedule = hive.session.data.products[device["hiveID"]]["state"]["schedule"]
+        except (AttributeError, KeyError, TypeError):
+            schedule = None
+        if not isinstance(schedule, dict):
+            logger.debug("Hive product data has no usable weekly schedule.")
+            return None
+        return schedule
 
     def _as_working_flag(self, reported: object) -> bool | None:
         """The thermostat's own "heating is working" report, or None (logged)
@@ -488,3 +503,4 @@ class HiveApiSource:
 
     def persist_heating_status(self, status: HeatingStatus) -> None:
         self._mariadb.write_heating_status(status)
+        self._mariadb.write_weekly_schedule(status.polled_at, status.weekly_schedule)
