@@ -14,9 +14,7 @@ from typing import Any
 from aiohttp import ClientSession
 from apyhiveapi import Hive
 from apyhiveapi.helper import hive_exceptions
-from sqlalchemy.exc import SQLAlchemyError
 
-from common.exceptions import MariaDBError
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
@@ -467,12 +465,13 @@ class HiveApiSource:
     @staticmethod
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
         """Hive's seven-day schedule from the product data the library already
-        holds, or None (logged at DEBUG) when it is missing or not a dict."""
+        holds, or None (logged at DEBUG) when it is missing, empty or not a
+        dict. An empty one would read as "no heating all week"."""
         try:
             schedule = hive.session.data.products[device["hiveID"]]["state"]["schedule"]
         except (AttributeError, KeyError, TypeError):
             schedule = None
-        if not isinstance(schedule, dict):
+        if not isinstance(schedule, dict) or not schedule:
             logger.debug("Hive product data has no usable weekly schedule.")
             return None
         return schedule
@@ -507,13 +506,14 @@ class HiveApiSource:
         self._mariadb.write_heating_status(status)
         # The poll is already stored: failing it here would make the job retry
         # and store another heating_status row, and heating minutes are counted
-        # per row (ADR-0033). The next poll tries the schedule again.
+        # per row (ADR-0033). So whatever goes wrong storing the schedule is
+        # logged, not raised; the next poll tries the schedule again.
         try:
             self._mariadb.write_weekly_schedule(
                 status.polled_at, status.weekly_schedule
             )
-        except (MariaDBError, SQLAlchemyError) as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logger.warning(
-                f"Hive weekly schedule not stored ({type(e).__name__}); "
-                "the poll itself was."
+                f"Hive weekly schedule not stored; the poll itself was. "
+                f"{type(e).__name__}: {e}"
             )

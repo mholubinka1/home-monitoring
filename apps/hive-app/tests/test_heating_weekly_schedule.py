@@ -145,8 +145,8 @@ def test_a_changed_weekly_schedule_adds_a_row_and_keeps_the_earlier_one(
 
 @pytest.mark.parametrize(
     "product_state",
-    [{}, {"schedule": ["not", "a", "dict"]}],
-    ids=["missing", "not-a-dictionary"],
+    [{}, {"schedule": ["not", "a", "dict"]}, {"schedule": {}}],
+    ids=["missing", "not-a-dictionary", "empty"],
 )
 def test_a_poll_without_a_usable_weekly_schedule_is_stored_without_a_schedule_row(
     install_fake_hive: Callable[..., Any],
