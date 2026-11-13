@@ -38,7 +38,10 @@ from octopus_app.data.model import (
     HeatingForecastRecord,
     HeatingHourRecord,
     HeatingModelRecord,
+    HourlyWeather,
     StoredHeatingModel,
+    StoredThermalModel,
+    ThermalModelRecord,
     as_energy_char,
     energy_from_char,
 )
@@ -143,6 +146,24 @@ def _is_missing_table_error(error: Exception) -> bool:
         return True
     code = next(iter(getattr(orig, "args", None) or ()), None)
     return code == 1146
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    return value if value is not None and math.isfinite(value) else None
+
+
+def _live_over_archive(rows: list[Any]) -> dict[datetime, Any]:
+    """One observation per hour stamp (aware UTC): the live reading when there is
+    one, else the archive's. temp is external, cross-app input, so a row whose
+    temp is NULL, NaN or infinite counts as "no reading"."""
+    live: dict[datetime, Any] = {}
+    archive: dict[datetime, Any] = {}
+    for row in rows:
+        if _finite_or_none(row.temp) is None:
+            continue
+        stamp = row.observed_at.replace(tzinfo=UTC)  # the DB returns naive UTC
+        (live if row.source == LIVE_WEATHER_SOURCE else archive)[stamp] = row
+    return archive | live
 
 
 @dataclass
@@ -351,6 +372,36 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 id=row.id,
                 model=_record_of(
                     HeatingModelRecord,
+                    row,
+                    fitted_at=row.fitted_at.replace(tzinfo=UTC),
+                ),
+            )
+
+    def write_thermal_model(self, record: ThermalModelRecord) -> int:
+        # Stored as naive UTC, like every other DATETIME here.
+        row = model.thermal_model(
+            **_values_of(record)
+            | {"fitted_at": record.fitted_at.astimezone(UTC).replace(tzinfo=None)}
+        )
+        try:
+            with self.session_write_scope() as session:
+                session.add(row)
+                session.flush()
+                return int(row.id)
+        except Exception as e:
+            logger.error(f"Failed to write thermal model: {e}")
+            raise MariaDBError(e) from e
+
+    def read_latest_thermal_model(self) -> StoredThermalModel | None:
+        tm = model.thermal_model
+        with self.session_read_scope() as session:
+            row = session.query(tm).order_by(tm.fitted_at.desc(), tm.id.desc()).first()
+            if row is None:
+                return None
+            return StoredThermalModel(
+                id=row.id,
+                model=_record_of(
+                    ThermalModelRecord,
                     row,
                     fitted_at=row.fitted_at.replace(tzinfo=UTC),
                 ),
@@ -630,8 +681,45 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         # temperature also needs the previous day's mean, so a caller wanting
         # one for start_date should ask from the day before.
         wo = weather_observation_table
-        window_start = local_day.hour_end_stamps(start_date)[0]
-        window_end = local_day.hour_end_stamps(end_date)[-1]
+        rows = self._read_current_location_weather(
+            [wo.c.temp],
+            local_day.hour_end_stamps(start_date)[0],
+            local_day.hour_end_stamps(end_date)[-1],
+        )
+        by_hour = _live_over_archive(rows)
+
+        means: dict[date, float] = {}
+        for offset in range((end_date - start_date).days + 1):
+            day = start_date + timedelta(days=offset)
+            stamps = local_day.hour_end_stamps(day)
+            if all(stamp in by_hour for stamp in stamps):
+                means[day] = sum(by_hour[stamp].temp for stamp in stamps) / len(stamps)
+        return means
+
+    def read_hourly_weather(
+        self, start: datetime, end: datetime
+    ) -> dict[datetime, HourlyWeather]:
+        """The outdoor temperature and radiation (W/m2) of each hour stamp in
+        [start, end] (naive UTC) for the current location. A stamp without a
+        usable temperature is absent; its radiation may be None."""
+        wo = weather_observation_table
+        rows = self._read_current_location_weather(
+            [wo.c.temp, wo.c.shortwave_radiation], start, end
+        )
+        return {
+            stamp.replace(tzinfo=None): HourlyWeather(
+                temp=row.temp, radiation=_finite_or_none(row.shortwave_radiation)
+            )
+            for stamp, row in _live_over_archive(rows).items()
+        }
+
+    def _read_current_location_weather(
+        self, columns: list[Any], window_start: datetime, window_end: datetime
+    ) -> list[Any]:
+        """The source, stamp and columns of the current location's observations
+        with a stamp in [window_start, window_end]; a missing table reads as no
+        rows."""
+        wo = weather_observation_table
         try:
             with self.session_read_scope() as session:
                 # The current location is the one on the newest observation;
@@ -645,9 +733,9 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                     .first()
                 )
                 if newest is None:
-                    return {}
-                rows = (
-                    session.query(wo.c.source, wo.c.observed_at, wo.c.temp)
+                    return []
+                return (
+                    session.query(wo.c.source, wo.c.observed_at, *columns)
                     .filter(
                         wo.c.location == newest.location,
                         wo.c.observed_at >= window_start,
@@ -658,27 +746,7 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         except (OperationalError, ProgrammingError) as error:
             if not _is_missing_table_error(error):
                 raise
-            return {}
-
-        # One temperature per hour: the live reading when there is one, else
-        # the archive's. temp is external, cross-app input, so NULL and
-        # NaN/Infinity count as "no reading".
-        live: dict[datetime, float] = {}
-        archive: dict[datetime, float] = {}
-        for source, observed_at, temp in rows:
-            if temp is None or not math.isfinite(temp):
-                continue
-            stamp = observed_at.replace(tzinfo=UTC)  # the DB returns naive UTC
-            (live if source == LIVE_WEATHER_SOURCE else archive)[stamp] = temp
-        by_hour = archive | live
-
-        means: dict[date, float] = {}
-        for offset in range((end_date - start_date).days + 1):
-            day = start_date + timedelta(days=offset)
-            stamps = local_day.hour_end_stamps(day)
-            if all(stamp in by_hour for stamp in stamps):
-                means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
-        return means
+            return []
 
     def _read_heating_status(self, *columns: Any, where: tuple[Any, ...]) -> list[Any]:
         """Rows of hive-app's heating_status, oldest first. It is hive-app's

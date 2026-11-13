@@ -184,6 +184,29 @@ class heating_model(SQLBase):
     baseload_held_days = Column(Integer)
 
 
+class thermal_model(SQLBase):
+    __tablename__ = "thermal_model"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per fit, never pruned (ADR-0035).
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fitted_at = Column(DateTime, nullable=False)
+    window_start = Column(Date, nullable=False)
+    window_end = Column(Date, nullable=False)
+    usable = Column(Boolean, nullable=False)
+    unusable_reason = Column(String(100))
+    steps_used = Column(Integer)
+    heating_steps = Column(Integer)
+    loss_per_degree = Column(_DOUBLE)
+    heating_gain = Column(_DOUBLE)
+    carried_gain = Column(_DOUBLE)
+    sun_gain = Column(_DOUBLE)
+    constant_gain = Column(_DOUBLE)
+    backtest_days = Column(Integer)
+    backtest_mean_error = Column(_DOUBLE)
+    backtest_worst_error = Column(_DOUBLE)
+
+
 class heating_forecast_day(SQLBase):
     __tablename__ = "heating_forecast_day"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
