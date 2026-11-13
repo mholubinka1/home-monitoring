@@ -1,6 +1,6 @@
-# Octopus Monitoring
+# Home Monitoring
 
-A scheduled worker that polls the Octopus Energy API for a UK household's electricity and gas consumption, normalizes it, and persists it to MariaDB for downstream visualization (e.g. Grafana).
+Data-gathering containers that poll household energy and heating sources and persist them to a shared MariaDB database for downstream Grafana dashboards.
 
 ## Language
 
@@ -19,7 +19,7 @@ The abstract connection point for a fuel supply, represented in code as `Electri
 _Avoid_: meter, supply point
 
 **Agreement**:
-A tariff contract period held against a meter, carrying a tariff code, product code, validity dates, and price history.
+A tariff contract period held against a meter, carrying a tariff code, product code, validity dates and price history.
 _Avoid_: contract, plan
 
 **Tariff Code / Product Code**:
@@ -31,11 +31,11 @@ The classification of a pricing plan — `variable`, `economy7`, `agile`, `fixed
 _Avoid_: plan type, rate type
 
 **Agile**:
-Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff code containing `AGILE`. Its rates are fetched and stored through the same generic path as every other product (see `PricingRetriever`); a dedicated Agile cost forecast feature is still unbuilt (see Cost and Forecasting below).
+Octopus's half-hourly dynamic electricity pricing tariff, detected via tariff code containing `AGILE`. Its rates are stored through the same generic path as every other product (see `PricingRetriever`), and a dedicated Agile cost forecast is still unbuilt (see Cost Forecast).
 _Avoid_: dynamic tariff, agile octopus
 
 **Octopus Go**:
-Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time) and a higher rate for the rest of the day, published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots. The Cost Forecast prices every remaining half-hour of the Billing Period individually: the rate of the agreement covering that half-hour (so a tariff change inside the period is priced from its start), times the usual usage at that time of day taken from the real elapsed days wholly on the current tariff (a renewal onto the same product, even after a gap, continues it), spread evenly across the day when no such day exists yet. Beyond the published rates a half-hour takes the rate at the same local clock time on the latest fully published day.
+Octopus's time-of-use electricity tariff: a cheap unit rate in a fixed overnight window (00:30–05:30 local time), published as two multi-hour `product_rate` windows per day rather than Agile's half-hourly slots.
 _Avoid_: time-of-use tariff (too generic), off-peak tariff
 
 **Standing Charge**:
@@ -59,35 +59,55 @@ The Grid Supply Point code for a geographic distribution zone, looked up from po
 _Avoid_: zone, area code
 
 **Account**:
-An Octopus Energy account — holds an account number, address, and postcode, and can have multiple meters.
+An Octopus Energy account — holds an account number, address and postcode, and can have multiple meters.
 _Avoid_: customer, user
 
 ### Data Storage
 
 **`home_monitoring` database** (formerly `octopus`):
-The single shared MariaDB database for both `octopus-app` and `hive-app`, on the same MariaDB instance. Holds `octopus-app`'s tables (`consumption`, `agreement`, `product`, `product_rate`, `daily_consumption_summary`, `agile_forecast`, `cost_forecast`, the two **Heating Model** tables `heating_model` and `heating_forecast_day`, `heating_hour`, `comfort_day` and the **Thermal Model**'s `thermal_model`) and `hive-app`'s (`heating_status`, `heating_schedule`, `weather_observation`, `weather_forecast`, `weather_forecast_hour`, `weather_location`), plus the cross-app `job_run` and `account_postcode` tables owned by `common`. Renamed from `octopus` to `home_monitoring` during the live Pi cutover on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md), [#547](https://github.com/mholubinka1/home-monitoring/issues/547)), via `scripts/rename_database.sql` run against the real instance — all 11 tables' row counts verified identical before and after. Every SQLAlchemy model still declares the literal `schema="octopus"` in its `__table_args__`; that is intentional and permanent, not a missed rename — [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) makes it a fixed `schema_translate_map` source key, translated to the configured `settings.database` value (`home_monitoring`) at query-execution time, so a future rename needs only a config change. The old, empty `octopus` database was dropped on the Pi on 2026-10-04 ([#589](https://github.com/mholubinka1/home-monitoring/issues/589)); the old Docker Hub repo `mholubinka1/octopus-monitoring` is archived, deliberately not deleted.
-_Avoid_: octopus database (the old name, pre-2026-10-01; the empty database was dropped 2026-10-04), the database, mysql db
+The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
+_Avoid_: octopus database (the old name), the database, mysql db
 
 **schema** (as in `schema_translate_map`, `__table_args__ = {"schema": ...}`):
-This codebase's SQLAlchemy/MySQL usage of "schema" is a synonym for **database** (MySQL/MariaDB, unlike Postgres, has no schema/database distinction) — it is not related to, and should not be confused with, **Schema Sync** below, which is a distinct table-reconciliation mechanism named before this synonymy became load-bearing. A model's `schema=` value and a connection's target database are the same kind of thing; see the `home_monitoring` database entry above for why the literal stays `"octopus"` everywhere rather than being renamed.
-_Avoid_: schema (unqualified, when the reader might mean Schema Sync instead) — prefer "the `schema=` value" or "the database" to disambiguate
+In this codebase `schema` is a synonym for database, since MariaDB has no schema/database distinction. It is unrelated to Schema Sync.
+_Avoid_: schema (unqualified, when the reader might mean Schema Sync instead) — prefer "the `schema=` value" or "the database"
 
 **Schema Sync**:
-The additive-only schema reconciliation each app's MariaDB client runs automatically on startup — creates any table missing from the live database, adds any column missing from an existing table, and creates any index missing from an existing table, diffed against that app's own SQLAlchemy models. Never drops or alters an existing column or index; that stays a deliberate manual action. The mechanism itself (engine/session plumbing, the diff-and-create logic) lives in `common` and is shared, but each app's Schema Sync run only ever diffs against its own models — the database is shared, not the schema-sync run. See [ADR-0005](adr/0005-additive-only-schema-sync.md) and [ADR-0022](adr/0022-single-shared-home-monitoring-database.md).
+The additive-only reconciliation each app's MariaDB client runs on startup: it creates missing tables, columns and indexes, diffed against that app's own models, and never drops or alters existing ones. The mechanism lives in `common` ([ADR-0005](adr/0005-additive-only-schema-sync.md), [ADR-0022](adr/0022-single-shared-home-monitoring-database.md)).
 _Avoid_: migration, schema migration (this project deliberately has no versioned migration tool)
 
 **InfluxDB (legacy)**:
 A former time-series store, described historically in the README; its implementation (`app/_deprecated/`) has been removed entirely — MariaDB is, and has been, the only active sink.
 _Avoid_: the time-series DB (when referring to the current system)
 
+**Local Day**:
+The calendar day in the configured timezone (default `Europe/London`), used for every day-bucketed cost, consumption and weather figure. Raw `consumption.period_from`/`period_to` are UTC, so bucketing converts first (`common.local_day` in app code, `CONVERT_TZ` in Grafana queries), and the apps and dashboard must share one zone ([ADR-0010](adr/0010-local-day-bucketing-python-vs-sql.md)).
+_Avoid_: UTC day, calendar day (when the raw UTC date is meant instead)
+
+**Day Completeness**:
+A strictly past Local Day must have its expected half-hourly `consumption` rows (48, or 46/50 on clock-change days) before its total is final, since settlement can lag more than 24 hours ([ADR-0009](adr/0009-day-completeness-guard-standing-charge-fallback.md)).
+_Avoid_: data lag, settlement delay (when referring to the guard itself, not the underlying cause)
+
+**Consumption Summary**:
+The `daily_consumption_summary` table: a pruning-exempt daily aggregate of raw `consumption` per energy and Local Day, with `half_hour_count` recording how many readings sit behind each total. Populated by the daily `update_consumption_summary` job (re-summarising the trailing 14 days) and by the `yearly_comparison_backfill` at startup, which fetches what the API still serves without writing raw `consumption` ([ADR-0027](adr/0027-consumption-requests-use-descending-order.md)).
+_Avoid_: daily total, consumption rollup
+
+**Yearly Comparison**:
+The pair of Grafana panels — monthly total over the trailing 12 months, and a week-over-week year-on-year change by ISO week — both reading `daily_consumption_summary`. The weekly panel only compares ISO weeks with all 7 days present, so partial current or boundary weeks don't skew the change.
+_Avoid_: annual comparison, YoY chart
+
+**Retention Window**:
+The 45-day period after which `DataPruner` deletes raw `consumption` and `product_rate` rows, run daily only after the consumption summary has succeeded in the same cycle. `agreement` rows and derived tables such as `cost_forecast` and `daily_consumption_summary` are never pruned ([ADR-0003](adr/0003-90-day-data-retention.md)).
+_Avoid_: data expiry, TTL
+
 ### Scheduling and Retrieval
 
 **Startup Backfill**:
-The historical consumption retrieval run on every process start, bounded by `retention_days` (default 400) — not one-time: `ConsumptionRetriever`'s last-retrieved watermark is in-memory only, so this re-runs in full on every restart, not just the first ever run. The same full-window call is also made periodically by the **Consumption Backfill Job**, so it is no longer restart-only.
+The historical consumption retrieval run on every process start, bounded by `retention_days`; its last-retrieved watermark is in memory only, so it re-runs in full on each restart.
 _Avoid_: initial sync, bootstrap, one-time sync
 
 **Consumption Backfill Job**:
-A daily job (`consumption_backfill`, `DAILY_JOB_TIME`) that re-runs the Startup Backfill's full-retention-window `ConsumptionRetriever.retrieve()` call, so a day that fell behind the Refresh Loop's cursor, or a permanent gap Octopus never backfills, self-heals on a fixed cadence rather than only at process restart. The consumption summary, then the heating model refresh, then raw-data pruning follow it in the same run, in one thread. See [ADR-0011](adr/0011-periodic-consumption-backfill-full-window-reuse.md).
+A daily job (`consumption_backfill`, `DAILY_JOB_TIME`) that re-runs the full-window consumption retrieval, so gaps that fell behind the refresh cursor self-heal; the consumption summary, heating model refresh and pruning follow in the same run ([ADR-0011](adr/0011-periodic-consumption-backfill-full-window-reuse.md)).
 _Avoid_: gap filler, consumption repair job
 
 **Refresh Loop**:
@@ -99,214 +119,203 @@ Orchestrates paginated consumption retrieval from Octopus and writes it to Maria
 _Avoid_: consumption service
 
 **`PricingRetriever`**:
-Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product (and for a product whose electricity agreement has ended, from where that agreement ended), writing all of it to MariaDB via `PricingSource`.
+Orchestrates syncing agreements, the product catalogue, the account's own product rates, and comparison rates for every other available product, writing all of it to MariaDB via `PricingSource`.
 _Avoid_: pricing service
 
 **`MonitoringClient`**:
-The top-level facade wiring the Octopus API client and MariaDB client together; holds account/meter state for a run.
+The top-level facade wiring the Octopus API client and MariaDB client together; holds account and meter state for a run.
 _Avoid_: app client, main client
+
+**Job Run**:
+A logged execution record (job name, status, timestamp) for each scheduled job, used to drive the dashboard's health and staleness panel.
+_Avoid_: job log, task run
 
 ### Cost and Forecasting
 
 **Billing Period**:
-The tariff charge cycle for an account — the date range Octopus actually bills consumption against, distinct from Octopus's own account statement/ledger window (previous-balance-date to new-balance-date), which runs exactly one day later on both ends. Fetched from Octopus's GraphQL "Kraken" API (`account.billingOptions`), authenticated by exchanging the account's existing REST API key for a short-lived JWT via `obtainKrakenToken` — not available via the REST v1 API this app otherwise uses. Kraken's `currentBillingPeriodStartDate`/`currentBillingPeriodEndDate` fields report the statement window, not the tariff window, so `BillingPeriod.from_billing_options` shifts them back a day to recover the true tariff dates. For accounts on flexible billing (`isFixed: false`, no `currentBillingPeriodEndDate` from Octopus — the case for this account), the period end is derived from the (already-shifted) period start plus one calendar month, same day-of-month, minus one further day to match the account's actual cycle shape (`[day X, day X−1 of next month]`, not `[day X, day X]`), clamped to the last valid day if that day doesn't exist in the target month. See `.agent-docs/research/octopus-billing-period-api.md`.
+The tariff charge cycle an account is billed against, fetched from Octopus's GraphQL Kraken API (`account.billingOptions`) after exchanging the REST API key for a JWT via `obtainKrakenToken`. Kraken's period fields describe the statement window, so `BillingPeriod.from_billing_options` shifts them back a day; for flexible-billing accounts the end is one calendar month after the start, minus a further day (see `.agent-docs/research/octopus-billing-period-api.md`).
 _Avoid_: billing cycle, invoice period
 
 **Product / Product Rate**:
-`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period — stored uniformly for every product, including whichever one the account is actually on or was on, so actual cost and the price-curve panel read from the same table.
+`Product` is Octopus's public catalogue entry for a tariff plan, distinct from `Agreement` (the account's actual contract). `Product Rate` is a product's unit rate and standing charge for a region and time period, stored uniformly for every product so actual cost and the price-curve panel read from the same table.
 _Avoid_: tariff (when referring to the public catalogue rather than the account's own agreement)
 
 **Actual Cost**:
-Cost computed directly from real consumption × the real rates actually charged (`consumption` ⋈ `agreement` ⋈ `product_rate`) — covers "yesterday's cost" (no billing-period dependency) and "this billing period's cost so far" (needs the billing period start, so computed and persisted by the app rather than a pure live query).
+Cost computed from real consumption × the real rates charged (`consumption` ⋈ `agreement` ⋈ `product_rate`), covering yesterday's cost and this Billing Period's cost so far.
 _Avoid_: spend, actual spend
 
 **Cost Forecast**:
-A projection of total cost for the current billing period (for **Octopus Go**, each remaining half-hour is priced individually rather than from an Agile forecast), built from actual cost to date plus a forecast for the remaining days: future consumption estimated as the average daily usage of the billing period so far, and for an Agile tariff, future price read from whatever the Agile Forecast Refresh job most recently persisted, tiled (the last 7 forecast days repeated in sequence) for any remaining days beyond that stored horizon. Does not fetch a forecast itself — see Agile Forecast Refresh. Refreshed hourly; when a past gap day's published rates are missing or incomplete it is still written, with its rates estimated and flagged (see Estimated Rates).
+A projection of total cost for the current Billing Period: actual cost to date plus the remaining days, using the Heating Model's expected gas for gas and, for Agile, the latest persisted Agile forecast tiled beyond its horizon. For Octopus Go each remaining half-hour is priced individually at its covering agreement's rate; past gap days with missing rates are still written, flagged with Estimated Rates.
 _Avoid_: price forecast (that term refers to the underlying Agile price data, not the derived cost projection)
 
 **Estimated Rates**:
-The rates used to price a past gap day whose published rates are missing or incomplete: the time-weighted average unit rate of that day's own published segments, or, with none, the unit rate and standing charge of the nearest earlier fully published day under the gap day's own agreement. At most 3 days per energy per refresh; beyond that the refresh fails. The Cost Forecast row records it in `rates_estimated` and `estimated_days`, which flag only rate estimation, not kWh-estimated gap-filled days. See `.agent-docs/adr/0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md`.
+The rates used to price a past gap day whose published rates are missing or incomplete: the time-weighted average of that day's own published segments, or else the nearest earlier fully published day's rates under the same agreement. At most 3 days per energy per refresh; beyond that the refresh fails ([ADR-0026](adr/0026-missing-published-rates-on-a-past-gap-day-are-estimated-and-flagged.md)).
 _Avoid_: fallback rates, guessed rates
 
 **Agile Predict**:
-A third-party public service (`agilepredict.com`, backed by the same Fly.io app historically documented at `prices.fly.dev` — that domain's `/v2/<region>/` path now serves the HTML frontend, not JSON) providing a hard-capped 14-day-ahead Agile price forecast per GSP region via `GET https://agilepredict.com/api/{region}/`, no authentication required. The primary source for the Agile Forecast Refresh job; consumed as an external API rather than reimplemented in-house — see `.agent-docs/adr/0002-agile-predict-forecast-dependency.md`.
+A third-party public service (`agilepredict.com`, backed by a Fly.io app) providing a hard-capped 14-day-ahead Agile price forecast per GSP region via `GET https://agilepredict.com/api/{region}/`, with no authentication. It is the primary source for the Agile Forecast Refresh job, consumed as an external API rather than reimplemented ([ADR-0002](adr/0002-agile-predict-forecast-dependency.md)).
 _Avoid_: the forecast API, prediction service
 
 **x2r.uk**:
-A second third-party hobby forecast service (`api.x2r.uk`, independent hosting from Agile Predict's Fly.io deployment), providing a ~14-day-ahead Agile price forecast per GSP region via `GET https://api.x2r.uk/agile/{region}`. Used as the Agile Forecast Refresh job's fallback source when Agile Predict fails — same region-code format, different response shape (nested `prices.forecast`/`day_ahead`/`actual`, `date`/`price` fields rather than Agile Predict's flat `date_time`/`agile_pred` list), so it has its own client and its own mapping into `AgileForecastReading`. See `.agent-docs/adr/0002-agile-predict-forecast-dependency.md`.
+A second third-party hobby forecast service (`api.x2r.uk`, independently hosted), providing a ~14-day-ahead Agile price forecast per GSP region, used as the Agile Forecast Refresh job's fallback when Agile Predict fails. Its naive timestamps are read as Europe/London, and it has its own client and mapping into `AgileForecastReading` ([ADR-0002](adr/0002-agile-predict-forecast-dependency.md)).
 _Avoid_: the fallback API, backup forecast
 
 **Agile Forecast Refresh**:
-The hourly job that fetches Agile price forecast readings (Agile Predict primarily, falling back to x2r.uk on failure) and upserts them into `agile_forecast`. Runs on its own cadence, decoupled from the Cost Forecast job, so an outage of one or both forecast sources no longer blocks the same-day cost projection from recomputing off whatever forecast data is already stored.
+The hourly job that fetches Agile price forecast readings (Agile Predict first, x2r.uk on failure) and upserts them into `agile_forecast`. It runs independently of the Cost Forecast, so a forecast-source outage does not block the cost projection.
 _Avoid_: forecast sync, price forecast job
 
-**Job Run**:
-A logged execution record (job name, status, timestamp) for each scheduled job — consumption refresh, pricing refresh, Agile Forecast Refresh, cost forecast refresh — used to drive the dashboard's health/staleness panel.
-_Avoid_: job log, task run
-
-**Retention Window**:
-The 45-day period after which raw consumption and product-rate rows are pruned by `DataPruner` (`apps/octopus-app/octopus_app/data/pruning.py`), a daily job that runs at `DAILY_JOB_TIME` after the consumption-summary job (and after the heating model refresh, which sits between them), and only if that summary job's _this-cycle_ run succeeded — so raw data is never deleted before it has been safely rolled up. `agreement` rows are never pruned. `retention_days` (45) also bounds the Startup Backfill's lookback. The hourly pricing refresh likewise fetches only rates within the window (own agreements from the later of their start and the window start; comparison products from the window start), so pruned rate rows are not re-fetched. Derived/aggregated results (e.g. `cost_forecast`, `daily_consumption_summary`) are exempt from pruning. Was briefly widened to 400 days as a stopgap to carry raw history for a not-yet-built summarization pass, then reverted to 45 once `feature/yearly-consumption-comparison` shipped a dedicated backfill (see Consumption Summary) that no longer depends on raw-data retention. See `.agent-docs/adr/0003-90-day-data-retention.md`.
-_Avoid_: data expiry, TTL
-
-**Consumption Summary**:
-The `daily_consumption_summary` table (`energy`, `date`, `total_kwh`, `half_hour_count`, composite primary key on `energy` and `date`) — a pruning-exempt daily aggregate of raw `consumption`, populated two ways: a daily `update_consumption_summary` job (`DAILY_JOB_TIME`, run after the Consumption Backfill Job's refetch, re-summarizes the trailing 14 days plus any never-yet-summarized older days, to absorb upstream Octopus corrections to estimated readings), and a startup backfill (`yearly_comparison_backfill`) that fetches everything Octopus's API still serves (about 2 years) without ever writing to raw `consumption`. The backfill runs at any startup where the summary's days with a known `half_hour_count` reach back less than 6 months for any energy, so a fresh, wiped or restored database fills itself. Both paths record `half_hour_count`, the number of half-hour readings behind each total; days older than the API serves keep it NULL (see Complete Gas Day). Backs the Yearly Comparison panels so they remain correct regardless of the raw retention window. Both paths bucket by Local Day, and consumption is requested newest-first so paging returns each interval once ([ADR-0027](adr/0027-consumption-requests-use-descending-order.md)); days Octopus has no readings for stay absent.
-_Avoid_: daily total, consumption rollup
-
-**Yearly Comparison**:
-The pair of Grafana panels (monthly total consumption over the trailing 12 months, and a week-over-week year-on-year % change by ISO week number, both split by energy) reading from `daily_consumption_summary`. ISO week numbering (MariaDB `YEARWEEK(date, 3)`) is used specifically to avoid the "week 0" ambiguity of calendar-week numbering and to avoid misattributing early-January/late-December boundary dates to the wrong week-year; an orphan week 53 (a year with no matching week 53 a year prior) falls back to comparing against that prior year's week 52. The weekly panel only compares ISO weeks with all 7 days present (`HAVING COUNT(*) = 7`) — the current, still-in-progress week and the oldest weeks near the summary backfill's non-week-aligned boundary (the first day the Octopus API still serves) can otherwise be short, understating totals and skewing the % change.
-_Avoid_: annual comparison, YoY chart
-
 **Cheap Window**:
-The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates of the tariff covering each half-hour (the Agile forecast fills unpublished Agile half-hours, the Tariff Projection fills those of any other tariff), computed live at query time rather than stored.
+The cheapest contiguous block of a given duration (30min/1h/2h/3h/4h/6h) within the next few days of half-hourly rates, computed live at query time rather than stored.
 _Avoid_: best time to use power, price dip
 
 **Tariff Projection**:
-Half-hourly unit rates for the current non-Agile electricity tariff beyond its last published rate, each taken from the same local clock time on the latest fully published day. Stored so the dashboard can show prices Octopus has not published yet (Octopus Go is published only to the end of the current day).
+Half-hourly unit rates for the current non-Agile electricity tariff beyond its last published rate, each taken from the same local clock time on the latest fully published day.
 _Avoid_: tariff forecast, estimated rates (that is a past-day cost term)
 
-**Day Completeness**:
-A local calendar day has 48 half-hourly `consumption` rows once Octopus's settlement lag has fully caught up — confirmed to take more than 24 hours in practice (a day can sit at 2/48 or 0/48 rows a full day after it ends) — except the two UK clock-change days each year, which are 46 (spring-forward) or 50 (fall-back) rows. Any query grouping by day must guard on the expected row count for that specific day for strictly past days before treating that day's total as final, to avoid presenting a lag-truncated day as a genuinely low-cost/low-usage one. The current, still-in-progress day is exempt from this guard — it's expected to be partial. See [ADR-0009](adr/0009-day-completeness-guard-standing-charge-fallback.md).
-_Avoid_: data lag, settlement delay (when referring to the guard itself, not the underlying cause)
-
-**Local Day**:
-The calendar day in the configured timezone (the `timezone` setting in each app's `config.yml`, default `Europe/London`) used for every day-bucketed cost/consumption/weather figure — `cost_forecast.py`, the daily consumption-summarization job, the weather completeness report, and every Grafana panel that groups by day or hour. `consumption.period_from`/`period_to` are stored in UTC, so bucketing by day requires converting to local time first: the shared `common.local_day` module (`zoneinfo`) in app code, `CONVERT_TZ(period_from, 'UTC', '${timezone}')` in the Grafana queries, where `timezone` is a dashboard variable (the standalone reference queries have no SQLite-compatibility constraint, unlike the app's own test suite). The two apps and the dashboard must be given the same zone. The one exception is x2r.uk's naive Agile forecast timestamps, which are always read as Europe/London because that is the zone x2r documents. See [ADR-0010](adr/0010-local-day-bucketing-python-vs-sql.md).
-_Avoid_: UTC day, calendar day (when the raw UTC date is meant instead of the app's local-day convention)
-
-### Home Monitoring Restructure (in progress)
-
-**Home Monitoring**:
-This repo was renamed from `octopus-monitoring` now that it hosts more than one data-gathering container. Encompasses `octopus-app` and `hive-app`, sharing one MariaDB instance/database (`home_monitoring` — see that term's entry) for downstream visualization (Grafana). Repo layout, already landed: `apps/` (deployable containers only — `octopus-app`, `hive-app`), `libs/` (`common`, no container of its own), `data/` (`grafana/`, `mariadb/`), `deployments/` (each app's Dockerfile and compose file, plus a combined top-level compose file — see **Combined Compose File**). Scoping tracked on a Wayfinder map ([#490](https://github.com/mholubinka1/home-monitoring/issues/490)). The GitHub repo rename landed via #496; the Docker Hub image rename ([ADR-0024](adr/0024-docker-hub-image-name-octopus-app.md), to `mholubinka1/octopus-app`) and the database's own `octopus`→`home_monitoring` rename both executed against the live Pi on 2026-10-01 ([#547](https://github.com/mholubinka1/home-monitoring/issues/547)).
-_Avoid_: octopus-monitoring (only the pre-rename name)
-
-**Data-Gathering Container**:
-An independently deployable service, packaged under `apps/`, that polls one external data source and persists it to the shared `home_monitoring` database (see that term's entry). `octopus-app` and `hive-app` are the two so far.
-_Avoid_: app, service (ambiguous once more than one container exists)
-
-**`common`**:
-The shared library package (`libs/common/`) both `octopus-app` and `hive-app` depend on, imported as `common` but installed as the distribution `monitoring-common` (a bare `common` clashes with an unrelated PyPI package): logging setup, MariaDB engine/session plumbing, the Schema Sync mechanism, and the cross-app `job_run` and `account_postcode` tables. Not itself deployable — no Dockerfile, no entrypoint. Everything app-specific (domain models, retrieval/retry logic, config schema, CRUD beyond `job_run` and `account_postcode`) stays in that app rather than here. See [ADR-0020](adr/0020-shared-common-library.md).
-_Avoid_: utils, shared (ambiguous outside this glossary entry)
-
-**Combined Compose File**:
-`deployments/docker-compose.yml`, a reference copy of the three services (`octopus-app`, `hive-app`, `home-monitoring-db`), kept in sync by hand with the Pi's live stack. That stack is a separate, combined compose file (`/home/pi/git/pi-desktop/docker/docker-compose.yml`, project name `docker`) shared with unrelated services, so this file is not itself deployed, and hand-syncing is the accepted arrangement (see #585). Has no service definitions of its own — it `include:`s the three per-app compose files (`deployments/octopus-app/docker-compose.yml`, `deployments/hive-app/docker-compose.yml`, `deployments/mariadb/docker-compose.yml`), which hold the service definitions within the repo (the combined file defines none of its own). The Pi's live `pi-desktop` compose, not these files, is authoritative for what actually runs. See [ADR-0021](adr/0021-uv-workspace-packaging.md) for the equivalent per-package pattern on the Python packaging side.
-_Avoid_: the compose file (ambiguous once four compose files exist)
-
-**Container Naming Pattern**:
-A container's compose service name, its `container_name` and its directory under `/mnt/media/pi-media/containers/` are the same string: `octopus-app`, `hive-app` and `home-monitoring-db` (renamed from `energy-monitor`, `energy-monitor-db` and the service `mariadb`). Each directory holds `config/` and `log/` (the database also `data/`), mounted at `/config` and `/log` (the database: its own `config/` files, `/var/lib/mysql` and `/var/log/mysql`). Apps and Grafana reach the database by host IP and published port, never by container name. Pinned by `scripts/tests/test_deployment_layout.py`; the Pi's containers carry these names; the rename procedure is `deployments/CUTOVER_RUNBOOK.md`. See [ADR-0015](adr/0015-pi-media-per-container-bind-mounts.md).
-_Avoid_: energy-monitor, energy-monitor-db, the `mariadb` service (retired names)
-
-**octopus-app**:
-The Octopus Energy data-gathering container, at `apps/octopus-app/octopus_app/` (relocated from this repo's former `app/` + `tests/` by the apps/libs/data/deployments restructure) — same responsibilities as before, just repackaged as one of several containers rather than the repo's sole app.
-_Avoid_: the app, main app (ambiguous once `hive-app` exists)
-
-**hive-app**:
-A data-gathering container for British Gas Hive heating data (current/target temperature, mode, state, boost, and the now/next/later schedule) and outdoor weather (current/historical observations and a forecast), alongside `octopus-app`, at `apps/hive-app/hive_app/`. Scoped to heating only — no hot water, smart plugs, lights, or sensors, since none exist on the household's account. Weather observation/forecast polling is not yet built (issues #508/#510); see the `hive-app initial data scope` ticket on the Home Monitoring Wayfinder map (issue #494) for the full scope.
-_Avoid_: hive (ambiguous with Apache Hive)
-
-**Heating Status**:
-hive-app's poll of the Hive thermostat via the community `apyhiveapi` library (no official Hive API exists — see `.agent-docs/research/hive-api-access-approach.md`): current/target temperature, mode, state, and boost, polled every 120 seconds (the community-standard cadence both the library and Home Assistant's Hive integration default to). The now/next/later schedule is stored as a JSON column rather than flat columns, a deliberate deviation from this schema's usual style — see [ADR-0017](adr/0017-json-column-for-heating-schedule.md). Each row also carries a nullable `working` flag, the thermostat's own "heating is working" report (null when missing or unexpected); what it means (boiler firing vs. thermostat demand) is unverified until an on/off test after deploy.
-_Avoid_: thermostat status, Hive state
-
-**Waking-Hours Indoor Average**:
-The Daily Outdoor Temperature Band's indoor line: the mean `current_temp` of Heating Status polls between the dashboard's Wake Up and Bedtime hours (defaults 7 and 23, London time), plotted only when at least 80% of the polls expected in that window exist.
-_Avoid_: average indoor temperature (ambiguous with the all-day mean)
-
-**Hive Data Lost Notification**:
-The ntfy.sh message hive-app sends when the newest `heating_status` row is more than 30 minutes old, checked every minute against the database (so any cause counts). High priority, links `deployments/hive-app/REAUTH_RUNBOOK.md` on `main`, and names the age of the data and the latest failed poll reason. Repeats hourly while data is missing, followed by one default-priority **recovered** notice with the outage length (only if a lost message was sent). Nothing is sent between `ntfy.quiet_hours.start` and `ntfy.quiet_hours.end` (default 22:00 to 08:00 local); held messages go out when the window ends. Sent to the topic `home-monitoring-hive-auth-ntfy-<guid-no-dashes>`, whose GUID is the only secret on a public ntfy.sh topic and so lives only in the Pi's `config.yml`. Recovery from a genuine re-authentication failure is operator-run: `python -m hive_app.login` via `docker exec -it hive-app`. See [ADR-0031](adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md), which replaced the re-authentication alerts of [ADR-0018](adr/0018-ntfy-for-hive-reauth-alerting.md). Format: title `<app>: <short event>`, plain-sentence body, a status emoji tag, `Click` only when a link helps.
-_Avoid_: re-auth alert (removed), alert (too general)
-
-**Weather Observation / Weather Forecast**:
-hive-app's outdoor-temperature data, split into two concerns: **Weather Observation** is recent and historical hourly readings (temperature, humidity, pressure, wind, precipitation, plus nullable shortwave radiation in W/m2, cloud cover in % and sunshine duration in seconds) polled hourly from Open-Meteo at the **Weather Location**: each run stores the last 24 hours plus the current hour's stamp from Open-Meteo's hourly data, each stamped on the hour, so a missed hour is filled by the next run. Each is stored with that location's key and is unique per source, location and hour, so a re-written hour updates its row (modelled data, not a station reading; a Weather Underground station was considered and dropped because its API keys are only issued to registered personal-weather-station owners, see [ADR-0028](adr/0028-weather-location-derived-lazily-from-account-postcode.md)). **Weather Forecast** is upcoming days' predicted max temperature and (nullable) min and mean temperatures (earlier rows have no min), fetched hourly from Open-Meteo, feeding the Heating Model's forecast days (and through them the Gas Cost Forecast). Both accumulate history from hive-app's first successful poll onward; earlier observation history, from the first gas day (2024-07-24), is backfilled hourly from Open-Meteo's archive and labelled `open-meteo-archive`: automatically at hive-app startup whenever the current location's stored history doesn't reach back that far, or by the hand-run `hive_app.weather_backfill` command ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
-_Avoid_: weather data (ambiguous between the two)
-
-**Weather Location**:
-The coordinates hive-app's weather jobs poll Open-Meteo for. Explicit `location` config always wins and is never cached or overwritten. Otherwise hive-app derives them lazily on each run: from the **Account Postcode** (geocoded via postcodes.io), falling back to IP geolocation when there is no postcode or the lookup fails. The result is cached in hive-app's `weather_location` table and re-derived only when the cache is empty, when it came from IP geolocation and an Account Postcode has since appeared (hive-app booted before octopus-app wrote it), or when the Account Postcode differs from the postcode the cached row records (a postcode that cannot be geocoded keeps the cached location). See [ADR-0028](adr/0028-weather-location-derived-lazily-from-account-postcode.md). Every reading is stored with a **location key** (the coordinates rounded to two decimals, never the postcode), and a changed Account Postcode or explicit `location` yields a new key and so starts a new series ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
-_Avoid_: household location (implies a user-entered setting)
-
-**Account Postcode**:
-The Octopus account's property postcode, written by octopus-app on startup to the one-row `account_postcode` table defined in `common` (so either app's Schema Sync creates it), and read by hive-app to derive the Weather Location. octopus-app is its only writer.
+### Gas Heating Model
 
 **Degree-day**:
-A measure of how much heating a day needed: how far that day's temperature was below a base temperature (a house needs no heating above it), summed over a period; gas divided by degree-days gives a weather-independent efficiency measure. The cost forecast's original regression used a fixed 15.5 C base on the daily maximum; the **Heating Model** instead uses a learned **Heating Threshold** on the **Effective Temperature**.
+A measure of how much heating a day needed: how far its temperature fell below a base temperature, summed over a period. The Heating Model uses a learned Heating Threshold on the Effective Temperature instead of a fixed base.
 _Avoid_: HDD (unexplained)
 
 **Effective Temperature**:
-The temperature the **Heating Model** uses for a day: a blend of that Local Day's mean temperature and the previous day's, `(1 - w) * today + w * yesterday`, with `w` fitted from the data (thermal memory: a house is still cold from yesterday). Needs a **complete day** of weather ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
+The temperature the Heating Model uses for a day, `(1 - w) * today + w * yesterday`, with `w` fitted from the data to capture thermal memory. It needs a complete day of weather ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
 
 **Heating Model**:
-The learned description of how the household's gas use depends on the weather: over a rolling 12 months, `gas = baseload + slope * max(0, threshold - effective temperature)`, refitted weekly by a daily octopus-app job that also projects 7 days ahead into two small tables (model and forecast day). The cost forecast and the gas dashboard read these tables; it replaces the cost forecast's fixed-threshold regression. Until 2026-11-04 it also judged every past day, built a weekly efficiency table and labelled itself against the thermostat; those parts were removed with the panels that showed them. See [ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md).
+The learned relationship between weather and daily gas, `gas = baseload + slope * max(0, threshold - effective temperature)`, fitted over a rolling 12 months and refitted weekly by octopus-app, which also projects 7 days ahead. The cost forecast and gas dashboard read its tables ([ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)).
 _Avoid_: regression (the older fixed-threshold method)
 
 **Baseload**:
-The gas used on a day with no heating (hot water and cooking). It moves: it is measured from warm days as a trailing 120-day moving average (at least 8 warm days), joined by a labelled straight line across winter gaps and held at the last measured value for the newest days (and at the first measured value for any days before it) ([ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)). **Away days** (gas below about a third of baseload, e.g. a holiday) are excluded from the fit.
+The gas used on a day with no heating (hot water and cooking), measured as a trailing 120-day moving average from warm days, interpolated across winter gaps and held flat at the ends. Away days (gas below about a third of baseload) are excluded from the fit.
 
 **Heating Threshold**:
-The effective temperature below which the **Heating Model** says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C the repo first assumed).
-
-**Heating Hour**:
-One UTC hour of heating, stored as a `heating_hour` row: the minutes the heating was on, the heating kWh and its cost at the gas unit rate (no standing charge), and whether the kWh is measured or estimated. See [ADR-0033](adr/0033-hourly-heating-cost-learns-a-hot-water-baseline-and-the-boilers-effective-kw.md).
-_Avoid_: boost cost (boost is only one way heating comes on)
-
-**Hot-Water Baseline**:
-The typical gas used in an hour of day with no heating on (hot water and cooking), learned from the last 28 days and subtracted from measured gas in heating hours.
-
-**Effective Boiler kW**:
-The gas the boiler actually draws per hour of heating-on time, learned from measured heating hours (about 12 kW on the 2026-10-06 test), used to estimate hours with no measured gas yet.
-
-**Comfort Temperature**:
-The room temperature below which the household usually reaches for boost: the weighted median room temperature at the **Boost Starts** of the two years before a Local Day, each counting half as much for every 60 **Heating Days** since it. It is learned, not the thermostat target and not the temperature a boost asks for. See [ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md).
-_Avoid_: comfort target, target temperature (the thermostat's setting)
-
-**Boost Start**:
-The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading. Its room temperature is the evidence the **Comfort Temperature** is learned from.
-
-**Heating Day**:
-A Local Day on which the heating was on at least once, by schedule or boost. Boost evidence ages by heating days, not calendar days, so a summer with no heating ages nothing.
-
-**Counted Hour**:
-A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort, so nights nobody heats are left out.
-
-**Comfort Day**:
-One Local Day's stored comfort figures: its **Comfort Temperature**, its **Counted Hours** and the minutes the room was below comfort in them. A finished day is settled once and never restated.
-
-**Thermal Model**:
-The five learned numbers that describe how the thermostat's room warms and cools hour by hour: loss per degree above outdoors, gain per hour of heating, the gain carried into the next hour, sunshine gain and a constant gain. See [ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md).
-_Avoid_: heating model (that is the daily gas model)
-
-**Backtest**:
-A replay of each of the last 14 days by a **Thermal Model** fitted only on the data before that day, with the weather and heating that really happened; its average and worst error are stored with the model and decide whether it is usable.
-
-**Room Forecast**:
-The predicted room temperature for each hour to the end of tomorrow, stored twice: under the Hive schedule as programmed and under the **Comfort Plan**.
-_Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
-
-**Comfort Plan**:
-The least heating that keeps the room at the **Comfort Temperature** (rounded up to a half degree) throughout the **Comfort Window**, including the pre-heat before it opens. Advice only; nothing is written to Hive.
-_Avoid_: recommended schedule, optimised schedule
-
-**Comfort Window**:
-The configured hours of a day the **Comfort Plan** keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends by default. Distinct from **Counted Hours**, which are learned.
-
-**Day-Ahead Forecast**:
-The **Room Forecast** for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
-
-**Weekly Schedule**:
-Hive's full seven-day heating schedule as programmed, stored by hive-app one row each time it changes. The schedule stored with each **Heating Status** poll is only the now, next and later slots.
-
-**Hourly Weather Forecast**:
-hive-app's stored Open-Meteo forecast of temperature and sunshine for each of the coming hours, beside the daily **Weather Forecast**.
+The effective temperature below which the Heating Model says heating is needed, learned from the data (about 12.6 C on the prototype, not the 15.5 C first assumed).
 
 **Complete Gas Day**:
-A Local Day whose gas total is above zero and which has every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`; a day with an unknown count (before the API's first day, 2024-10-09) is usable unless its total is zero and is reported as unverified. Gas gaps are upstream (the Octopus API itself reports zero or no data for about 13% of days since 2024-10-09), so partial and missing days are excluded, never filled in. See the [gas gap investigation](research/heating-model-prototype.md).
+A Local Day with a gas total above zero and every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`. Partial and missing gas days are excluded, never filled in, because the Octopus API reports zero or no data for about 13% of days since 2024-10-09.
 _Avoid_: zero day (a stored zero means missing data, not zero use)
 
 **Gas Cost Forecast**:
-The extension of octopus-app's `cost_forecast` (previously implicitly electricity-only — `cost_forecast.py` hard-coded `_current_electricity_agreement`) to also cover gas, distinguished by a new `energy` column on the existing table rather than a parallel table — see [ADR-0016](adr/0016-energy-column-on-cost-forecast.md). Its actual-cost-to-date figure reuses the existing Agreement/product_rate join. Its projected-total figure adds the remaining days' standing charge to their expected gas cost: each remaining day's expected gas comes from the latest usable **Heating Model**'s forecast (the `heating_forecast_day` rows tied to that model, today and the next six days, see [ADR-0030](adr/0030-learned-heating-model-and-its-adoption-by-the-cost-forecast.md)), and every other remaining day, or every day when there is no usable model, uses the average daily consumption of the period's elapsed days (the prior week's average when none has elapsed yet, [ADR-0023](adr/0023-gap-filled-days-get-an-estimated-variable-cost.md)), the same method as electricity's non-Agile branch (issue #507). The model reads the stored table on each run, so nothing is fitted in the forecast itself. Issue #630 replaced the earlier live regression of daily gas against daily max temperature (issue #511).
+The extension of `cost_forecast` to gas, distinguished by an `energy` column ([ADR-0016](adr/0016-energy-column-on-cost-forecast.md)). The projected total adds each remaining day's standing charge to its expected gas from the latest usable Heating Model's forecast days; days without a usable model fall back to average daily consumption ([ADR-0023](adr/0023-gap-filled-days-get-an-estimated-variable-cost.md)).
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 
 **Gas Heating Dashboard**:
-The second Grafana dashboard ("pi-desktop: gas-heating-monitoring", `data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard, which it never changes. Every panel is a chart (no tables; the billing-period predictor is a bar gauge), in London time. Its import steps and panels are in the queries document. After the 2026-11-02 review it has six panels (temperatures, daily gas with the **Heating Model**'s expected-gas bars, heating cost per hour from the **Heating Hour** table, minutes below comfort from the **Comfort Day** table, the outdoor temperature band and the billing-period predictor); the heatmap, the monthly year-on-year change and the model's own charts were removed as not supporting a decision.
+The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it has six chart panels: temperatures, daily gas with expected-gas bars, heating cost per hour, minutes below comfort, the outdoor temperature band and the billing-period predictor.
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
+**Heating Hour**:
+One UTC hour of heating, stored as a `heating_hour` row: minutes on, heating kWh and cost at the gas unit rate (no standing charge), and whether the kWh is measured or estimated ([ADR-0033](adr/0033-hourly-heating-cost-learns-a-hot-water-baseline-and-the-boilers-effective-kw.md)).
+_Avoid_: boost cost (boost is only one way heating comes on)
+
+**Hot-Water Baseline**:
+The typical gas used in an hour of day with no heating on, learned from the last 28 days and subtracted from measured gas in heating hours.
+
+**Effective Boiler kW**:
+The gas the boiler draws per hour of heating-on time, learned from measured heating hours and used to estimate hours without measured gas.
+
+### Thermal Model and Comfort
+
+**Comfort Temperature**:
+The room temperature below which the household usually reaches for boost: the weighted median room temperature at Boost Starts over the two years before a Local Day, each evidence point halving for every 60 Heating Days since it. It is learned, not the thermostat target ([ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)).
+_Avoid_: comfort target, target temperature (the thermostat's setting)
+
+**Boost Start**:
+The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading. Its room temperature is the evidence the Comfort Temperature is learned from.
+
+**Heating Day**:
+A Local Day on which the heating was on at least once, by schedule or boost. Boost evidence ages by heating days, not calendar days.
+
+**Counted Hour**:
+A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort.
+
+**Comfort Day**:
+One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was below comfort in them. A finished day is settled once and never restated.
+
+**Thermal Model**:
+The five learned numbers describing how the room warms and cools hour by hour: loss per degree above outdoors, gain per hour of heating, the gain carried into the next hour, sunshine gain and a constant gain ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md)).
+_Avoid_: heating model (that is the daily gas model)
+
+**Backtest**:
+A replay of each of the last 14 days by a Thermal Model fitted only on data before that day; its average and worst error decide whether the model is usable.
+
+**Room Forecast**:
+The predicted room temperature for each hour to the end of tomorrow, stored twice: under the Hive schedule as programmed and under the Comfort Plan.
+_Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
+
+**Day-Ahead Forecast**:
+The Room Forecast for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
+
+**Comfort Plan**:
+The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. Advice only; nothing is written to Hive.
+_Avoid_: recommended schedule, optimised schedule
+
+**Comfort Window**:
+The configured hours the Comfort Plan keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends by default. Distinct from Counted Hours, which are learned.
+
+### Hive and Weather
+
+**Heating Status**:
+hive-app's poll of the Hive thermostat via the community `apyhiveapi` library (no official Hive API exists), storing current and target temperature, mode, state, boost and the now/next/later schedule every 120 seconds. `state` is thermostat demand (current below target), not boiler firing; the nullable `working` flag is the thermostat's own report and is unverified.
+_Avoid_: thermostat status, Hive state
+
+**Weekly Schedule**:
+Hive's full seven-day heating schedule as programmed, stored by hive-app one row each time it changes. The schedule stored with each Heating Status poll is only the now, next and later slots.
+
+**Waking-Hours Indoor Average**:
+The Daily Outdoor Temperature Band's indoor line: the mean `current_temp` of Heating Status polls between the dashboard's Wake Up and Bedtime hours (defaults 7 and 23, London time), plotted only when at least 80% of the expected polls exist.
+_Avoid_: average indoor temperature (ambiguous with the all-day mean)
+
+**Hive Data Lost Notification**:
+The ntfy.sh message hive-app sends when the newest `heating_status` row is more than 30 minutes old, checked every minute. It repeats hourly while data is missing, followed by a recovered notice; nothing is sent during quiet hours. Recovery from a genuine re-authentication failure is operator-run via `python -m hive_app.login` ([ADR-0031](adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md)).
+_Avoid_: re-auth alert (removed), alert (too general)
+
+**Weather Observation**:
+Recent and historical hourly outdoor readings from Open-Meteo at the Weather Location, stored per source, location key and hour so a re-written hour updates its row. Earlier history from 2024-07-24 is backfilled from Open-Meteo's archive and labelled `open-meteo-archive` ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
+_Avoid_: weather data (ambiguous between the two)
+
+**Weather Forecast**:
+Upcoming days' predicted max temperature and (nullable) min and mean temperatures, fetched hourly from Open-Meteo and feeding the Heating Model's forecast days.
+
+**Hourly Weather Forecast**:
+hive-app's stored Open-Meteo forecast of temperature and sunshine for each of the coming hours, beside the daily Weather Forecast.
+
+**Weather Location**:
+The coordinates hive-app's weather jobs poll. Explicit `location` config always wins; otherwise it is derived from the Account Postcode (geocoded via postcodes.io), falling back to IP geolocation, and cached in `weather_location` ([ADR-0028](adr/0028-weather-location-derived-lazily-from-account-postcode.md)). Every reading is stored under a location key (coordinates rounded to two decimals, never the postcode), so a changed location starts a new series.
+_Avoid_: household location (implies a user-entered setting)
+
+**Account Postcode**:
+The Octopus account's property postcode, written by octopus-app to the one-row `account_postcode` table in `common` and read by hive-app to derive the Weather Location. octopus-app is its only writer.
+
 **Presence-Based Heating Control**:
-A deferred, explicitly last-phase capability: automatically preventing the heating from running when nobody is home, most likely via Hive's own geofencing/geolocation feature rather than a new integration (phone tracking, Home Assistant, etc.) — contingent on confirming `apyhiveapi` actually exposes that state, which is not yet known. Unlike every other Home Monitoring capability so far, this is control/actuation (writing to Hive), not passive data-gathering. Not yet started; tracked as a fog/research item on the Home Monitoring Wayfinder map.
+A deferred, last-phase capability to stop heating when nobody is home, most likely via Hive's own geofencing rather than a new integration. It is control (writing to Hive), not passive data-gathering, and is contingent on `apyhiveapi` exposing that state.
 _Avoid_: smart heating, occupancy detection (until the actual signal is confirmed)
+
+### Repository and Containers
+
+**Home Monitoring**:
+This repo, renamed from `octopus-monitoring` now that it hosts more than one data-gathering container. It holds `apps/` (deployable containers), `libs/` (`common`), `data/` (Grafana, MariaDB) and `deployments/`.
+_Avoid_: octopus-monitoring (only the pre-rename name)
+
+**Data-Gathering Container**:
+An independently deployable service under `apps/` that polls one external data source and persists it to the shared `home_monitoring` database.
+_Avoid_: app, service (ambiguous once more than one container exists)
+
+**`common`**:
+The shared library package (`libs/common/`) both apps depend on, imported as `common` but installed as `monitoring-common`, holding logging setup, MariaDB plumbing, Schema Sync and the cross-app `job_run` and `account_postcode` tables. It is not deployable, and app-specific logic stays in each app ([ADR-0020](adr/0020-shared-common-library.md)).
+_Avoid_: utils, shared (ambiguous outside this glossary entry)
+
+**Combined Compose File**:
+`deployments/docker-compose.yml`, which `include:`s the three per-app compose files and is kept in sync by hand with the Pi's live stack, which is what actually runs (see #585).
+_Avoid_: the compose file (ambiguous once four compose files exist)
+
+**Container Naming Pattern**:
+A container's compose service name, `container_name` and host directory under `/mnt/media/pi-media/containers/` are the same string (`octopus-app`, `hive-app`, `home-monitoring-db`), pinned by `scripts/tests/test_deployment_layout.py` ([ADR-0015](adr/0015-pi-media-per-container-bind-mounts.md)).
+_Avoid_: energy-monitor, energy-monitor-db, the `mariadb` service (retired names)
+
+**octopus-app**:
+The Octopus Energy data-gathering container, at `apps/octopus-app/octopus_app/`.
+_Avoid_: the app, main app (ambiguous once `hive-app` exists)
+
+**hive-app**:
+The data-gathering container for British Gas Hive heating data and outdoor weather, at `apps/hive-app/hive_app/`. Scoped to heating only, since no hot water, plugs, lights or sensors exist on the account.
+_Avoid_: hive (ambiguous with Apache Hive)
