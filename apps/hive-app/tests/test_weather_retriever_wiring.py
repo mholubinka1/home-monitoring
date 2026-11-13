@@ -87,6 +87,18 @@ def test_a_forecast_refresh_persists_rows_and_the_job_records_success(
         },
         status=200,
     )
+    responses.add(
+        responses.GET,
+        OPEN_METEO_ENDPOINT,
+        json={
+            "hourly": {
+                "time": ["2026-09-26T12:00"],
+                "temperature_2m": [14.5],
+                "shortwave_radiation": [286.0],
+            }
+        },
+        status=200,
+    )
 
     retriever = _build_weather_retriever(
         LocationSettings(latitude=51.5, longitude=-0.1), mariadb_client
@@ -97,6 +109,7 @@ def test_a_forecast_refresh_persists_rows_and_the_job_records_success(
     job.run().join()
 
     with mariadb_client.session_read_scope() as session:
+        assert session.query(model.weather_forecast_hour).count() == 1
         runs = session.query(model.job_run).all()
         forecast_rows = (
             session.query(model.weather_forecast)

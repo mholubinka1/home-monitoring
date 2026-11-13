@@ -42,6 +42,16 @@ class WeatherForecastDay:
 
 
 @dataclass
+class WeatherForecastHour:
+    source: str
+    location: str
+    forecast_at: datetime
+    temp: float | None
+    shortwave_radiation: float | None
+    fetched_at: datetime
+
+
+@dataclass
 class ResolvedLocation:
     latitude: float
     longitude: float

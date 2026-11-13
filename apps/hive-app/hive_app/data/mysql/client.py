@@ -14,10 +14,15 @@ from hive_app.data.model import (
     HeatingStatus,
     ResolvedLocation,
     WeatherForecastDay,
+    WeatherForecastHour,
     WeatherObservation,
 )
 from hive_app.data.mysql import model as sql_model
-from hive_app.data.mysql.model import WEATHER_OBSERVATION_KEY, SQLBase
+from hive_app.data.mysql.model import (
+    WEATHER_FORECAST_HOUR_KEY,
+    WEATHER_OBSERVATION_KEY,
+    SQLBase,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -157,6 +162,27 @@ class MariaDBClient(MariaDBClientBase):
             for day in forecast
         ]
         self._write_all(records, "Weather forecast data")
+
+    def write_weather_forecast_hours(self, hours: list[WeatherForecastHour]) -> None:
+        # See write_weather_observations for why the float assignments need an
+        # ignore, and why errors are redacted.
+        records = [
+            sql_model.weather_forecast_hour(
+                source=hour.source,
+                location=hour.location,
+                forecast_at=hour.forecast_at,
+                temp=hour.temp,  # type: ignore[misc]
+                shortwave_radiation=hour.shortwave_radiation,  # type: ignore[misc]
+                fetched_at=hour.fetched_at,
+            )
+            for hour in hours
+        ]
+        self._write_all(
+            records,
+            "Weather forecast hour data",
+            key_columns=WEATHER_FORECAST_HOUR_KEY,
+            redact_errors=True,
+        )
 
     def read_weather_observation_hours(
         self, location: str, start: datetime, end: datetime

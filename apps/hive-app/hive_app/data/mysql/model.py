@@ -81,6 +81,27 @@ class weather_forecast(SQLBase):
     fetched_at = Column(DateTime, nullable=False)
 
 
+# One forecast per hour per source and location: the unique key, which the
+# keyed upsert also resolves conflicts on, so a refresh overwrites the hour.
+WEATHER_FORECAST_HOUR_KEY = ("source", "location", "forecast_at")
+
+
+class weather_forecast_hour(SQLBase):
+    __tablename__ = "weather_forecast_hour"
+    __table_args__ = (
+        Index("uq_weather_forecast_hour", *WEATHER_FORECAST_HOUR_KEY, unique=True),
+        {"schema": "octopus"},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String(20))
+    location = Column(String(20), nullable=False)
+    forecast_at = Column(DateTime, nullable=False)
+    temp = Column(Float)
+    shortwave_radiation = Column(Float)
+    fetched_at = Column(DateTime, nullable=False)
+
+
 class weather_location(SQLBase):
     """One row (fixed id=1): the Weather Location resolved lazily by hive-app
     -- see ADR-0028. Never written for an explicit `location` config."""

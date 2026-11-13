@@ -4,7 +4,11 @@ from unittest.mock import Mock
 import pytest
 from schedule import Scheduler
 
-from hive_app.data.model import WeatherForecastDay, WeatherObservation
+from hive_app.data.model import (
+    WeatherForecastDay,
+    WeatherForecastHour,
+    WeatherObservation,
+)
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.weather import WeatherRetriever
@@ -95,6 +99,12 @@ class _OpenMeteoSource:
         raise NotImplementedError
 
     def persist_forecast(self, forecast: list[WeatherForecastDay]) -> None:
+        raise NotImplementedError
+
+    def fetch_hourly_forecast(self) -> list[WeatherForecastHour]:
+        raise NotImplementedError
+
+    def persist_hourly_forecast(self, hours: list[WeatherForecastHour]) -> None:
         raise NotImplementedError
 
 

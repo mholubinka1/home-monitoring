@@ -1,4 +1,8 @@
-from hive_app.data.model import WeatherForecastDay, WeatherObservation
+from hive_app.data.model import (
+    WeatherForecastDay,
+    WeatherForecastHour,
+    WeatherObservation,
+)
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.open_meteo_client import OpenMeteoClient
 from hive_app.data.weather_location import WeatherLocationResolver
@@ -28,3 +32,9 @@ class WeatherApiSource:
 
     def persist_forecast(self, forecast: list[WeatherForecastDay]) -> None:
         self._mariadb.write_weather_forecast(forecast)
+
+    def fetch_hourly_forecast(self) -> list[WeatherForecastHour]:
+        return self._open_meteo().get_hourly_forecast()
+
+    def persist_hourly_forecast(self, hours: list[WeatherForecastHour]) -> None:
+        self._mariadb.write_weather_forecast_hours(hours)
