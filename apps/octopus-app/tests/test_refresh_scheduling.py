@@ -10,14 +10,12 @@ from schedule import Job, Scheduler
 
 from octopus_app.common.config import RefreshSettings
 from octopus_app.data.agile_forecast import AgileForecastRetriever
-from octopus_app.data.comfort_job import ComfortDayJob
 from octopus_app.data.consumption import ConsumptionRetriever
 from octopus_app.data.consumption_summary import (
     ConsumptionSummaryBackfill,
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
-from octopus_app.data.heating_hour_job import HeatingHourJob
 from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.model import ConsumptionSummary, Energy
 from octopus_app.data.mysql import model
@@ -30,7 +28,6 @@ from octopus_app.main import (
     register_agile_forecast_refresh_job,
     register_cost_forecast_refresh_job,
     register_daily_consumption_job,
-    register_heating_hour_job,
     register_jobs,
     register_pricing_job,
     run_backfill_at_startup,
@@ -915,54 +912,3 @@ def test_run_initial_heating_model_sync_does_not_propagate_a_startup_failure() -
     heating.refresh.side_effect = RuntimeError("fit exploded")
 
     run_initial_heating_model_sync(heating)
-
-
-def test_heating_hour_job_is_registered_hourly(
-    mariadb_client: MariaDBClient,
-) -> None:
-    job = register_heating_hour_job(
-        Scheduler(),
-        Mock(spec=HeatingHourJob),
-        Mock(spec=ComfortDayJob),
-        mariadb_client,
-    )
-
-    assert job.interval == 1
-    assert job.unit == "hours"
-
-
-def test_the_comfort_days_are_refreshed_after_a_successful_heating_hour_run(
-    mariadb_client: MariaDBClient,
-) -> None:
-    steps = Mock()
-    heating_hour = Mock(spec=HeatingHourJob)
-    comfort_day = Mock(spec=ComfortDayJob)
-    steps.attach_mock(heating_hour.refresh, "heating_hour")
-    steps.attach_mock(comfort_day.refresh, "comfort_day")
-
-    register_heating_hour_job(
-        Scheduler(), heating_hour, comfort_day, mariadb_client
-    ).run().join()
-
-    assert [name for name, _, _ in steps.mock_calls] == ["heating_hour", "comfort_day"]
-    assert _runs_of(mariadb_client, "heating_hour_refresh") == ["success"]
-    assert _runs_of(mariadb_client, "comfort_day_refresh") == ["success"]
-
-
-def test_a_failing_heating_hour_run_retries_and_skips_the_comfort_days(
-    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
-    heating_hour = Mock(spec=HeatingHourJob)
-    heating_hour.refresh.side_effect = RuntimeError("db down")
-    comfort_day = Mock(spec=ComfortDayJob)
-
-    register_heating_hour_job(
-        Scheduler(), heating_hour, comfort_day, mariadb_client
-    ).run().join()
-
-    heating_hour_runs = _runs_of(mariadb_client, "heating_hour_refresh")
-    assert len(heating_hour_runs) > 1
-    assert set(heating_hour_runs) == {"failure"}
-    comfort_day.refresh.assert_not_called()
-    assert _runs_of(mariadb_client, "comfort_day_refresh") == ["skipped"]

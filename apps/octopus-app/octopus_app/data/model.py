@@ -102,6 +102,42 @@ class StoredHeatingModel:
 
 
 @dataclass(frozen=True)
+class ThermalModelRecord:  # pylint: disable=too-many-instance-attributes
+    """One thermal-model fit as stored (ADR-0035). The numbers are None when no
+    fit could be made, and the backtest figures until a backtest has run."""
+
+    fitted_at: datetime  # timezone-aware UTC
+    window_start: date
+    window_end: date
+    usable: bool
+    unusable_reason: str | None
+    steps_used: int
+    heating_steps: int
+    loss_per_degree: float | None
+    heating_gain: float | None
+    carried_gain: float | None
+    sun_gain: float | None
+    constant_gain: float | None
+    backtest_days: int | None
+    backtest_mean_error: float | None
+    backtest_worst_error: float | None
+
+
+@dataclass(frozen=True)
+class StoredThermalModel:
+    id: int
+    model: ThermalModelRecord
+
+
+@dataclass(frozen=True)
+class HourlyWeather:
+    """One hour stamp's outdoor temperature (C) and mean radiation (W/m2)."""
+
+    temp: float
+    radiation: float | None
+
+
+@dataclass(frozen=True)
 class HeatingHourRecord:  # pylint: disable=too-many-instance-attributes
     """One completed hour of heating as stored (naive UTC stamps)."""
 
