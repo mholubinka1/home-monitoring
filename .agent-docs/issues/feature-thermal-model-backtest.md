@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-thermal-model-backtest
 
 ## Thermal model fitted and stored
