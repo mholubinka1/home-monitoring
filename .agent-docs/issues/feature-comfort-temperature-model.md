@@ -84,11 +84,11 @@ Panel 1 gains a stepped "comfort" line read from `comfort_day`. Panel 4 becomes 
 
 ### Acceptance criteria
 
-- [ ] Given the gas heating dashboard JSON, when panel 1 is read, then it has a query returning `time` and `comfort` from `comfort_day`, drawn as a step in its own colour.
-- [ ] Given the comfort query, then the newest day's value is repeated at the end of that day so the line reaches the present.
-- [ ] Given the gas heating dashboard JSON, when panel 4 is read, then it is titled "Minutes Below Comfort" and reads `minutes_below` from `comfort_day` with no read of `heating_status`.
-- [ ] Given the dashboard variables, then `comfort_target` and `comfort_margin` are gone and every remaining variable is still used.
-- [ ] Given the queries document, then it lists `comfort_day`, both new queries, and no longer the two variables or the old comfort query.
-- [ ] Given the explainer `docs/heating-model.md`, then it has a plain-language section on the comfort temperature.
+- [x] Given the gas heating dashboard JSON, when panel 1 is read, then it has a query returning `time` and `comfort` from `comfort_day`, drawn as a step in its own colour.
+- [x] Given the comfort query, then the newest day's value is repeated at the end of that day so the line reaches the present.
+- [x] Given the gas heating dashboard JSON, when panel 4 is read, then it is titled "Minutes Below Comfort" and reads `minutes_below` from `comfort_day` with no read of `heating_status`.
+- [x] Given the dashboard variables, then `comfort_target` and `comfort_margin` are gone and every remaining variable is still used.
+- [x] Given the queries document, then it lists `comfort_day`, both new queries, and no longer the two variables or the old comfort query.
+- [x] Given the explainer `docs/heating-model.md`, then it has a plain-language section on the comfort temperature.
 
 ---

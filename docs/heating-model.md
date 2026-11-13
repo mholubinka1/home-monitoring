@@ -79,7 +79,7 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 ## 9. Reading the dashboard panels
 
-The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The heating-cost-per-hour chart is separate from the model (section 10). The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
+The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The heating-cost-per-hour chart and the comfort temperature are separate from the model (sections 10 and 11). The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
 
 - **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
@@ -96,11 +96,29 @@ Example: the heating is on for 24 minutes in an hour, the meter says 4.5 kWh, an
 
 What this cannot tell you: the thermostat's "on" is demand, not proof the burner was firing the whole time, and the hot-water amount is a typical figure, not a measurement. Both are labelled as estimates.
 
-## 11. Glossary and further reading
+## 11. The comfort temperature
+
+The thermostat's target is a setting, and in this house it sits at the 7 °C frost setting for most of the day. It says little about when the room felt cold. What does say it is the boost button: pressing boost means the room had dropped below what the household was content with.
+
+- **Comfort temperature.** For each day, take every boost pressed in the 90 days before it and note the room temperature at the moment it started. The comfort temperature is the middle value (the median). It needs at least 5 boosts; with fewer, the last learned value carries on, and before any value exists nothing is drawn.
+- **One boost, not several.** A boost that is extended or pressed again within 10 minutes is the same boost.
+- **Counted hours.** A cold room at 03:00 while everyone is asleep is not discomfort. So minutes only count in clock hours in which the heating has been on at least once in the same 90 days (from a boost or the schedule).
+- **Minutes below comfort.** The minutes in a day when the room was below the comfort temperature during a counted hour.
+- **Frozen days.** A day is worked out while it happens and settled once when it ends. It never changes afterwards, so the comfort line shows how the household's comfort level drifts over a winter.
+
+Example: boosts were pressed with the room at 16.0, 16.5, 17.0, 17.5 and 20.0 °C, so the comfort temperature is 17.0 °C. The heating has been on in the 18:00 hour during the last 90 days. Today the room sat at 16.5 °C from 18:00 to 18:20: that is 20 minutes below comfort. The same 16.5 °C at 03:00, an hour never heated, counts nothing.
+
+What this cannot tell you: it is the temperature at which the household acts, not the temperature it would like (boosts ask for 18 to 20 °C and the room rarely gets there). About half of boosts start above it, by construction. The thermostat is in one room. And the counted hours are patchy until the heating has been used at most times of day.
+
+## 12. Glossary and further reading
 
 **Away day.** A day with gas under about a third of the baseload, treated as a holiday and left out.
 
 **Baseload.** Gas used whatever the weather: hot water and cooking. Measured from warm days over the last 120 days.
+
+**Comfort temperature.** The typical room temperature at which a boost is pressed, over the last 90 days.
+
+**Counted hour.** A clock hour in which the heating has been on in the last 90 days; only these count towards minutes below comfort.
 
 **Degree-day.** One degree of difference below the threshold, for one day. A 3 °C day against a 13 °C threshold is 10 degree-days.
 
