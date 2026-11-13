@@ -182,6 +182,19 @@ def test_refresh_forecast_persists_the_daily_forecast_and_then_the_hourly_one() 
     assert source.persisted_hours == hours
 
 
+def test_a_forecast_refresh_that_finds_no_hours_to_store_says_so_in_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    source = _FakeWeatherSourceForecastSucceeds([_forecast_day("2026-09-26")])
+
+    with caplog.at_level(logging.WARNING):
+        WeatherRetriever(source).refresh_forecast()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "no hours" in warnings[0].getMessage()
+
+
 def test_a_failing_hourly_fetch_still_persists_the_daily_forecast_and_fails_the_refresh() -> (
     None
 ):

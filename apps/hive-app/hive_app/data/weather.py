@@ -56,4 +56,9 @@ class WeatherRetriever:
         logger.info(f"Weather forecast refresh: persisted {len(forecast)} day(s).")
         hours = self._client.fetch_hourly_forecast()
         self._client.persist_hourly_forecast(hours)
+        if not hours:
+            # As in refresh(): the job still succeeds, so this line is the only
+            # trace that Open-Meteo gave back no storable hourly forecast.
+            logger.warning("Weather forecast refresh: no hours to store.")
+            return
         logger.info(f"Weather forecast refresh: persisted {len(hours)} hour(s).")
