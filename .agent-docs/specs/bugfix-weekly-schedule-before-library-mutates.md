@@ -56,6 +56,8 @@ Scenarios, each also a red-green step:
 - the weekly schedule of a poll is equal in SCHEDULE mode and in another mode, for the same programmed schedule;
 - a poll with a missing, empty or non-dict schedule is still stored and adds no schedule row (existing behaviour). Missing and empty run in SCHEDULE mode. Non-dict runs in MANUAL mode: in SCHEDULE mode the library itself raises `TypeError` on a list schedule before hive-app's rule applies, and the now, next and later call is out of scope.
 
+The existing test that a weekly schedule which cannot be written is logged and does not fail the poll also moves to MANUAL mode. Its schedule (`{"monday": {390, 435}}`, a set) is parsed by the real helper only when today is Monday, where the library raises `TypeError`; on other days the library hits `KeyError` first. The test checks the logged write failure, not parsing, so MANUAL mode keeps it the same every day.
+
 ## Out of Scope
 
 - E3 (room forecast) and E2 (thermal model); no octopus-app change.

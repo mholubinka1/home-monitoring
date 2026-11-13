@@ -33,10 +33,10 @@ The Hive API source reads the **Weekly Schedule** straight after finding the cli
 
 ### Acceptance criteria
 
-- [ ] Given a thermostat in SCHEDULE mode with a programmed weekly schedule, when a poll is fetched and persisted, then the stored weekly schedule has no `Start_DateTime` or `End_DateTime` in any slot and no "weekly schedule not stored" warning is logged.
-- [ ] Given an unchanged programmed schedule in SCHEDULE mode, when two polls are fetched and persisted, then exactly one `heating_schedule` row is stored.
-- [ ] Given a stored weekly schedule, when a poll in SCHEDULE mode returns the schedule with one slot edited, then a second row is stored and the first is kept.
-- [ ] Given the same programmed schedule, when one poll runs in SCHEDULE mode and another in MANUAL mode, then both polls return equal weekly schedules.
-- [ ] Given a missing or empty schedule in SCHEDULE mode, or a non-dict schedule in MANUAL mode, when a poll is fetched and persisted, then the poll is stored and no `heating_schedule` row is added.
+- [x] Given a thermostat in SCHEDULE mode with a programmed weekly schedule, when a poll is fetched and persisted, then the stored weekly schedule has no `Start_DateTime` or `End_DateTime` in any slot and no "weekly schedule not stored" warning is logged.
+- [x] Given an unchanged programmed schedule in SCHEDULE mode, when two polls are fetched and persisted, then exactly one `heating_schedule` row is stored.
+- [x] Given a stored weekly schedule, when a poll in SCHEDULE mode returns the schedule with one slot edited, then a second row is stored and the first is kept.
+- [x] Given the same programmed schedule, when one poll runs in SCHEDULE mode and another in MANUAL mode, then both polls return equal weekly schedules.
+- [x] Given a missing or empty schedule in SCHEDULE mode, or a non-dict schedule in MANUAL mode, when a poll is fetched and persisted, then the poll is stored and no `heating_schedule` row is added.
 
 ---
