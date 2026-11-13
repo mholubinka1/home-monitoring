@@ -14,7 +14,8 @@ from octopus_app.data.mysql.client import MariaDBClient
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-LEARNING_WINDOW = timedelta(days=comfort.LEARNING_DAYS)
+BOOST_WINDOW = timedelta(days=comfort.BOOST_WINDOW_DAYS)
+COUNTED_HOURS_WINDOW = timedelta(days=comfort.COUNTED_HOURS_WINDOW_DAYS)
 
 
 class ComfortDayJob:
@@ -23,16 +24,17 @@ class ComfortDayJob:
 
     def refresh(self, now: datetime | None = None) -> None:
         """Writes the local days from the newest stored one to today, each learned
-        from the 90 days before it. So today is rewritten on every run, a finished
-        day one last time on the first run after it ends, and older days never.
-        An empty table is filled from the first thermostat poll's day; a day with
-        no polls gets no row."""
+        from the boosts of the two years, and the heated hours of the year, before
+        it. So today is rewritten on every run, a finished day one last time on
+        the first run after it ends, and older days never. An empty table is
+        filled from the first thermostat poll's day; a day with no polls gets no
+        row."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         today = local_day.to_local_date(now)
         first_day = self._first_day_to_write()
         if first_day is None:
             return
-        evidence_start = _day_start(first_day) - LEARNING_WINDOW
+        evidence_start = _day_start(first_day) - BOOST_WINDOW
         evidence_end = _day_start(today)
         # From one boost gap earlier, so a boost already running as the earliest
         # window opens is not taken for a new one.
@@ -82,18 +84,29 @@ class ComfortDayJob:
         )
         if not polls:
             return None
-        window_start = day_start - LEARNING_WINDOW
-        start_temps = [
-            room for at, room in boost_starts if window_start <= at < day_start
+        days_with_heating = comfort.heating_days(
+            hour for hour in heating_on_hours if hour < day_start
+        )
+        weighted_start_temps = [
+            (
+                room,
+                comfort.boost_weight(
+                    days_with_heating, local_day.to_local_date(at), day
+                ),
+            )
+            for at, room in boost_starts
+            if day_start - BOOST_WINDOW <= at < day_start
         ]
         hours = comfort.counted_hours(
-            hour for hour in heating_on_hours if window_start <= hour < day_start
+            hour
+            for hour in heating_on_hours
+            if day_start - COUNTED_HOURS_WINDOW <= hour < day_start
         )
-        comfort_temp = comfort.comfort_temperature(start_temps, carried)
+        comfort_temp = comfort.comfort_temperature(weighted_start_temps, carried)
         return ComfortDayRecord(
             date=day,
             comfort_temp=comfort_temp,
-            boost_starts=len(start_temps),
+            boost_starts=len(weighted_start_temps),
             counted_hours=",".join(str(hour) for hour in hours),
             minutes_below=(
                 None

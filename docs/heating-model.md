@@ -100,15 +100,18 @@ What this cannot tell you: the thermostat's "on" is demand, not proof the burner
 
 The thermostat's target is a setting, and in this house it sits at the 7 °C frost setting for most of the day. It says little about when the room felt cold. What does say it is the boost button: pressing boost means the room had dropped below what the household was content with.
 
-- **Comfort temperature.** For each day, take every boost pressed in the 90 days before it and note the room temperature at the moment it started. The comfort temperature is the middle value (the median). It needs at least 5 boosts; with fewer, the last learned value carries on, and before any value exists nothing is drawn.
+- **Comfort temperature.** For each day, take every boost pressed in the two years before it and note the room temperature at the moment it started. The comfort temperature is the middle value (the median), with recent boosts counting for more than old ones (next point). It needs at least 5 boosts; with fewer, the last learned value carries on, and before any value exists nothing is drawn.
+- **Old boosts fade.** A boost counts half as much for every 60 heating days that have passed since it. A heating day is a day on which the heating was on at least once. Days with no heating do not count, so nothing fades over a summer and last winter still informs the start of the next one. A boost from 60 heating days ago counts 0.5, from 120 counts 0.25, and from a whole winter ago (about 180) counts about 0.125.
 - **One boost, not several.** A boost that is extended or pressed again within 10 minutes is the same boost.
-- **Counted hours.** A cold room at 03:00 while everyone is asleep is not discomfort. So minutes only count in clock hours in which the heating has been on at least once in the same 90 days (from a boost or the schedule).
+- **Counted hours.** A cold room at 03:00 while everyone is asleep is not discomfort. So minutes only count in clock hours in which the heating has been on at least once in the 365 days before the day (from a boost or the schedule).
 - **Minutes below comfort.** The minutes in a day when the room was below the comfort temperature during a counted hour.
 - **Frozen days.** A day is worked out while it happens and settled once when it ends. It never changes afterwards, so the comfort line shows how the household's comfort level drifts over a winter.
 
-Example: boosts were pressed with the room at 16.0, 16.5, 17.0, 17.5 and 20.0 °C, so the comfort temperature is 17.0 °C. The heating has been on in the 18:00 hour during the last 90 days. Today the room sat at 16.5 °C from 18:00 to 18:20: that is 20 minutes below comfort. The same 16.5 °C at 03:00, an hour never heated, counts nothing.
+Example: boosts were pressed with the room at 16.0, 16.5, 17.0, 17.5 and 20.0 °C, so the comfort temperature is 17.0 °C. The heating has been on in the 18:00 hour during the last year. Today the room sat at 16.5 °C from 18:00 to 18:20: that is 20 minutes below comfort. The same 16.5 °C at 03:00, an hour never heated, counts nothing.
 
-What this cannot tell you: it is the temperature at which the household acts, not the temperature it would like (boosts ask for 18 to 20 °C and the room rarely gets there). About half of boosts start above it, by construction. The thermostat is in one room. And the counted hours are patchy until the heating has been used at most times of day.
+Example of the fade: last winter left 100 boosts at about 17 °C, spread over 180 heating days. On the first cold day of autumn they still carry a combined weight of about 42, because the summer aged nothing. Five new boosts at 19 °C carry about 5, so the comfort temperature stays at 17 °C. If boosts keep starting at 19 °C day after day, the new weight overtakes the old after about five weeks of heating, and the comfort temperature moves up.
+
+What this cannot tell you: it is the temperature at which the household acts, not the temperature it would like (boosts ask for 18 to 20 °C and the room rarely gets there). About half of the boosts (by weight) start above it, by construction. The thermostat is in one room. And the counted hours are patchy until the heating has been used at most times of day.
 
 ## 12. Glossary and further reading
 
@@ -116,15 +119,17 @@ What this cannot tell you: it is the temperature at which the household acts, no
 
 **Baseload.** Gas used whatever the weather: hot water and cooking. Measured from warm days over the last 120 days.
 
-**Comfort temperature.** The typical room temperature at which a boost is pressed, over the last 90 days.
+**Comfort temperature.** The typical room temperature at which a boost is pressed, over the last two years, with recent boosts counting more.
 
-**Counted hour.** A clock hour in which the heating has been on in the last 90 days; only these count towards minutes below comfort.
+**Counted hour.** A clock hour in which the heating has been on in the last 365 days; only these count towards minutes below comfort.
 
 **Degree-day.** One degree of difference below the threshold, for one day. A 3 °C day against a 13 °C threshold is 10 degree-days.
 
 **Effective temperature.** The blend of today's and yesterday's average temperature that the model treats as "how cold it was".
 
 **Expected gas.** The baseload plus the slope times the degree-days.
+
+**Heating day.** A day on which the heating was on at least once. Old boosts fade by heating days, not calendar days.
 
 **Slope.** The extra gas each degree-day costs, in kWh.
 

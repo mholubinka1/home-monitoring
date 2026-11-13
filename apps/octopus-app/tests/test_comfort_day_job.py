@@ -130,12 +130,13 @@ def test_boost_polls_within_ten_minutes_are_one_boost_and_a_longer_gap_starts_an
     assert today.comfort_temp == 18.0
 
 
-def test_a_boost_more_than_ninety_days_ago_is_not_used(
+def test_a_boost_from_last_season_is_used_and_one_over_two_years_old_is_not(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given five boosts in the window and a cold one 91 days ago
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
-    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=91)), room=5.0, boost=True)
+    # Given four recent boosts, one 91 days ago, and a cold one 731 days ago
+    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.5, 20.0])
+    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=91)), room=17.0, boost=True)
+    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=731)), room=5.0, boost=True)
     _seed_polls(mariadb_client, _at(TODAY), room=18.0)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
@@ -246,12 +247,12 @@ def test_with_under_five_boosts_the_last_learned_comfort_temperature_carries_on(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given a comfort temperature of 17.0 learned five days ago from boosts that
-    # have since left the 90-day window
+    # have since left the two-year window
     learned_on = TODAY - timedelta(days=5)
     _seed_boosts_on_earlier_days(
         mariadb_client,
         [16.0, 16.5, 17.0, 17.5, 20.0],
-        before=TODAY - timedelta(days=90),
+        before=TODAY - timedelta(days=730),
     )
     _seed_polls(mariadb_client, _at(learned_on), room=18.0)
     job = ComfortDayJob(mariadb_client)
@@ -320,18 +321,25 @@ def test_a_room_at_the_comfort_temperature_or_unread_adds_no_minutes(
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0
 
 
-def test_an_hour_heated_only_before_the_ninety_days_is_not_counted(
+def test_an_hour_heated_last_season_is_counted_and_one_over_a_year_ago_is_not(
     mariadb_client: MariaDBClient,
 ) -> None:
+    # Given heating in the 18:00 hour 91 days ago and the 06:00 hour 366 days ago
     _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
-    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=91)))
+    # (91 days ago was in British Summer Time: 17:00 UTC is 18:00 in London)
+    _seed_heating_hour(
+        mariadb_client, _at(TODAY - timedelta(days=91), timedelta(hours=17))
+    )
+    _seed_heating_hour(
+        mariadb_client, _at(TODAY - timedelta(days=366), timedelta(hours=6))
+    )
     _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
     today = _comfort_days(mariadb_client)[TODAY]
-    assert today.counted_hours == ""
-    assert today.minutes_below == 0
+    assert today.counted_hours == "18"
+    assert today.minutes_below == 20
 
 
 def test_counted_hours_follow_london_time_in_summer(
@@ -359,7 +367,7 @@ def test_a_boost_running_across_the_start_of_the_window_is_not_a_new_boost(
     # Given four boosts in the window, and one that started two minutes before
     # the window opened and was still running as it did
     _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5])
-    window_opens = _at(TODAY - timedelta(days=90), timedelta(0))
+    window_opens = _at(TODAY - timedelta(days=730), timedelta(0))
     _seed_polls(
         mariadb_client,
         window_opens - timedelta(minutes=2),
@@ -398,3 +406,40 @@ def test_a_settled_day_stays_settled_while_no_later_day_has_polls(
     row = _comfort_days(mariadb_client)[yesterday]
     assert row.computed_at == settled_at.replace(tzinfo=None)
     assert row.comfort_temp is None
+
+
+def _seed_old_and_new_boosts(client: MariaDBClient) -> None:
+    """Four boosts at 16.0 C on the days 100 to 97 days ago, and two at 19.0 C
+    on the last two days."""
+    _seed_boosts_on_earlier_days(
+        client, [16.0, 16.0, 16.0, 16.0], before=TODAY - timedelta(days=96)
+    )
+    _seed_boosts_on_earlier_days(client, [19.0, 19.0])
+    _seed_polls(client, _at(TODAY), room=18.0)
+
+
+def test_a_boost_sixty_heating_days_old_counts_half_as_much_as_a_new_one(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given four old boosts at 16.0 C, then 60 days with the heating on, then two
+    # new boosts at 19.0 C
+    _seed_old_and_new_boosts(mariadb_client)
+    for days_ago in range(90, 30, -1):
+        _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=days_ago)))
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then four at half weight balance two at full weight: the midpoint
+    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 17.5
+
+
+def test_days_without_heating_do_not_age_a_boost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the same boosts with no heating at all in between (a summer)
+    _seed_old_and_new_boosts(mariadb_client)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then all six weigh the same, and the plain median is 16.0
+    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0

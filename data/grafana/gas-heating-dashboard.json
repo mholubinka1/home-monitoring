@@ -63,7 +63,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the learned comfort temperature: the typical room temperature at which a boost is pressed, over the 90 days before each day (one value per day, so it is drawn as a step). It is not a thermostat setting, and it is absent until 5 boosts have been seen.",
+      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the learned comfort temperature: the typical room temperature at which a boost is pressed, over the two years before each day, with recent boosts counting more (one value per day, so it is drawn as a step). It is not a thermostat setting, and it is absent until 5 boosts have been seen.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -961,7 +961,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Minutes per day the room was below the learned comfort temperature (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 90 days before the day. Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
+      "description": "Minutes per day the room was below the learned comfort temperature (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 365 days before the day. Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
       "fieldConfig": {
         "defaults": {
           "color": {

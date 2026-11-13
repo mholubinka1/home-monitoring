@@ -107,9 +107,9 @@ Design change of 2026-11-13, before first deploy. The comfort temperature become
 
 ### Acceptance criteria
 
-- [ ] Given four boosts at 16.0 C that are 60 heating days old and two boosts at 19.0 C from after the last heating day, when the job runs, then the old and new weights are equal and the comfort temperature is their midpoint, 17.5.
-- [ ] Given the same boosts with no heating days between the old ones and today (a summer), when the job runs, then every boost weighs the same and the comfort temperature is 16.0.
-- [ ] Given a boost more than two years before today, when the job runs, then it is not used, and given one 91 days before today, then it is used.
-- [ ] Given a clock hour heated 91 days ago, then it is a counted hour, and given one heated only more than 365 days ago, then it is not.
+- [x] Given four boosts at 16.0 C that are 60 heating days old and two boosts at 19.0 C from after the last heating day, when the job runs, then the old and new weights are equal and the comfort temperature is their midpoint, 17.5.
+- [x] Given the same boosts with no heating days between the old ones and today (a summer), when the job runs, then every boost weighs the same and the comfort temperature is 16.0.
+- [x] Given a boost more than two years before today, when the job runs, then it is not used, and given one 91 days before today, then it is used.
+- [x] Given a clock hour heated 91 days ago, then it is a counted hour, and given one heated only more than 365 days ago, then it is not.
 
 ---
