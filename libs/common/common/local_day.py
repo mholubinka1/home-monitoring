@@ -34,6 +34,13 @@ def to_local_date(instant: datetime) -> date:
     return instant.astimezone(_active_zone).date()
 
 
+def to_local_hour(instant: datetime) -> int:
+    """The local hour of day (0 to 23) of an instant; a naive one is UTC."""
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    return instant.astimezone(_active_zone).hour
+
+
 def start_of_local_day(local_date: date) -> datetime:
     return datetime(
         local_date.year, local_date.month, local_date.day, tzinfo=_active_zone

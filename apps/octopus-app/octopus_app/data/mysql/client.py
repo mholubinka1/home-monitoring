@@ -29,6 +29,7 @@ from common.exceptions import MariaDBError
 from common.mariadb.client import MariaDBClientBase
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data.model import (
+    ComfortDayRecord,
     Consumption,
     ConsumptionSummary,
     CostForecast,
@@ -679,25 +680,64 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 means[day] = sum(by_hour[stamp] for stamp in stamps) / len(stamps)
         return means
 
-    def read_heating_polls(
-        self, start: datetime, end: datetime
-    ) -> list[tuple[datetime, str | None, bool | None]]:
-        """Thermostat polls in [start, end) (naive UTC), oldest first. hive-app's
-        table, so a missing one reads as no polls."""
-        hs = heating_status_table
+    def _read_heating_status(self, *columns: Any, where: tuple[Any, ...]) -> list[Any]:
+        """Rows of hive-app's heating_status, oldest first. It is hive-app's
+        table, so a missing one reads as no rows."""
         try:
             with self.session_read_scope() as session:
-                rows = (
-                    session.query(hs.c.polled_at, hs.c.state, hs.c.boost_active)
-                    .filter(hs.c.polled_at >= start, hs.c.polled_at < end)
-                    .order_by(hs.c.polled_at)
+                return (
+                    session.query(*columns)
+                    .filter(*where)
+                    .order_by(heating_status_table.c.polled_at)
                     .all()
                 )
         except (OperationalError, ProgrammingError) as error:
             if not _is_missing_table_error(error):
                 raise
             return []
+
+    def read_heating_polls(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, str | None, bool | None]]:
+        """Thermostat polls in [start, end) (naive UTC), oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.state,
+            hs.c.boost_active,
+            where=(hs.c.polled_at >= start, hs.c.polled_at < end),
+        )
         return [(row.polled_at, row.state, row.boost_active) for row in rows]
+
+    def read_boost_polls(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float | None]]:
+        """The (time, room temperature) of the thermostat polls in [start, end)
+        (naive UTC) with boost active, oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.current_temp,
+            where=(
+                hs.c.polled_at >= start,
+                hs.c.polled_at < end,
+                hs.c.boost_active.is_(True),
+            ),
+        )
+        return [(row.polled_at, row.current_temp) for row in rows]
+
+    def read_room_temperatures(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float | None]]:
+        """The (time, room temperature) of the thermostat polls in [start, end)
+        (naive UTC), oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.current_temp,
+            where=(hs.c.polled_at >= start, hs.c.polled_at < end),
+        )
+        return [(row.polled_at, row.current_temp) for row in rows]
 
     def read_first_heating_poll(self) -> datetime | None:
         """The earliest thermostat poll (naive UTC), or None when there is none or
@@ -769,6 +809,52 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 session.add_all(hh(**_values_of(row)) for row in rows)
         except Exception as e:
             logger.error(f"Failed to replace heating hours: {e}")
+            raise MariaDBError(e) from e
+
+    def read_heating_on_hours(self, start: datetime, end: datetime) -> list[datetime]:
+        """The starts (naive UTC) of the stored heating_hour rows in [start, end)
+        in which the heating was on."""
+        hh = model.heating_hour
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(hh.hour_start)
+                .filter(hh.hour_start >= start, hh.hour_start < end, hh.on_minutes > 0)
+                .order_by(hh.hour_start)
+                .all()
+            )
+        return [row[0] for row in rows]
+
+    def read_latest_comfort_day(self) -> tuple[date, datetime] | None:
+        """The newest stored comfort_day's date and when it was written (naive
+        UTC), if any."""
+        cd = model.comfort_day
+        with self.session_read_scope() as session:
+            row = (
+                session.query(cd.date, cd.computed_at).order_by(cd.date.desc()).first()
+            )
+        return None if row is None else (row[0], row[1])
+
+    def read_latest_comfort_temperature(self, before: date) -> float | None:
+        """The comfort temperature of the newest comfort_day before a date that
+        has one."""
+        cd = model.comfort_day
+        with self.session_read_scope() as session:
+            row = (
+                session.query(cd.comfort_temp)
+                .filter(cd.date < before, cd.comfort_temp.isnot(None))
+                .order_by(cd.date.desc())
+                .first()
+            )
+        return None if row is None or row[0] is None else float(row[0])
+
+    def write_comfort_days(self, rows: list[ComfortDayRecord]) -> None:
+        """Writes each comfort_day row over any stored row for its date."""
+        try:
+            with self.session_write_scope() as session:
+                for row in rows:
+                    session.merge(model.comfort_day(**_values_of(row)))
+        except Exception as e:
+            logger.error(f"Failed to write comfort days: {e}")
             raise MariaDBError(e) from e
 
     def read_weather_forecast_mean_temps(

@@ -211,3 +211,17 @@ class heating_hour(SQLBase):
     unit_rate = Column(_DOUBLE)  # pence per kWh
     cost_gbp = Column(_DOUBLE)
     computed_at = Column(DateTime, nullable=False)
+
+
+class comfort_day(SQLBase):
+    __tablename__ = "comfort_day"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per local day; a finished day is settled once and never rewritten
+    # (ADR-0034).
+    date = Column(Date, primary_key=True)
+    comfort_temp = Column(_DOUBLE)
+    boost_starts = Column(Integer, nullable=False)
+    counted_hours = Column(String(100), nullable=False)  # e.g. "0,1,6,7,12"
+    minutes_below = Column(Integer)
+    computed_at = Column(DateTime, nullable=False)

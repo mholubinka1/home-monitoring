@@ -159,8 +159,6 @@ def test_the_agreed_defaults_are_set() -> None:
         v["name"]: v for v in _load(GAS_HEATING_DASHBOARD)["templating"]["list"]
     }
 
-    assert variables["comfort_target"]["query"] == "15"
-    assert variables["comfort_margin"]["query"] == "1.0"
     assert variables["gas_unit"]["query"] == "kWh,pounds"
 
 
@@ -228,8 +226,6 @@ def test_text_box_values_enter_the_sql_escaped() -> None:
     sql = " ".join(t["rawSql"] for p in _gas_panels() for t in p["targets"])
 
     for name in (
-        "comfort_target",
-        "comfort_margin",
         "gas_unit",
         "region",
         "wake_up",
@@ -250,12 +246,57 @@ def test_a_missing_day_is_a_gap_on_the_daily_temperature_lines() -> None:
     assert custom["insertNulls"] == 129600000
 
 
-def test_a_comfort_setting_that_is_not_a_number_shows_no_data_not_zero() -> None:
-    below = next(p for p in _gas_panels() if p["title"].startswith("Minutes Below"))
-    sql = below["targets"][0]["rawSql"]
+MINUTES_BELOW_COMFORT = "Minutes Below Comfort"
 
-    assert "CAST(${comfort_target:sqlstring} AS DECIMAL(8, 2)), NULL)" in sql
-    assert "IS NULL OR" in sql
+
+def test_the_comfort_line_is_a_step_read_from_the_comfort_days() -> None:
+    sql = _query(TEMPERATURES, "D")
+    overrides = _panel_overrides(TEMPERATURES)
+
+    assert "FROM comfort_day" in sql
+    assert "c.comfort_temp AS comfort" in sql
+    assert overrides["comfort"]["custom.lineInterpolation"] == "stepAfter"
+    colours = [properties["color"] for properties in overrides.values()]
+    assert colours.count(overrides["comfort"]["color"]) == 1
+
+
+def test_the_comfort_line_reaches_the_end_of_a_range_that_ends_part_way_through_a_day() -> (
+    None
+):
+    closing_point = _query(TEMPERATURES, "D").split("UNION ALL")[1]
+
+    # The newest day that starts within the range is held to its own end, or to
+    # the end of the range when that comes first (a range ending "now").
+    assert "SELECT MAX(l.date) FROM comfort_day l" in closing_point
+    assert (
+        "CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()"
+        in closing_point
+    )
+    assert re.search(
+        r"LEAST\(\s*CONVERT_TZ\(CAST\(c\.date AS DATETIME\) \+ INTERVAL 1 DAY, "
+        r"'\$\{timezone\}', 'UTC'\),\s*\$__timeTo\(\)\s*\) AS time",
+        closing_point,
+    )
+
+
+def test_minutes_below_comfort_are_read_from_the_comfort_days() -> None:
+    sql = _query(MINUTES_BELOW_COMFORT, "A")
+
+    assert "c.minutes_below AS minutes_below_comfort" in sql
+    assert "FROM comfort_day" in sql
+    assert "heating_status" not in sql
+    # A day with no comfort temperature is a gap, not a zero.
+    assert "c.minutes_below IS NOT NULL" in sql
+
+
+def test_the_typed_comfort_settings_are_gone() -> None:
+    dashboard = _load(GAS_HEATING_DASHBOARD)
+    variables = {v["name"] for v in dashboard["templating"]["list"]}
+    text = json.dumps(dashboard["panels"])
+
+    assert variables.isdisjoint({"comfort_target", "comfort_margin"})
+    assert "comfort_target" not in text
+    assert "comfort_margin" not in text
 
 
 def test_the_band_shades_between_its_maximum_and_minimum_display_names() -> None:
@@ -288,10 +329,9 @@ def test_the_outdoor_complete_day_rule_is_the_same_in_every_copy() -> None:
 
 
 def test_minutes_use_a_fixed_suffix_not_an_auto_scaling_unit() -> None:
-    title = next(p["title"] for p in _gas_panels() if "Minutes Below" in p["title"])
-    overrides = _panel_overrides(title)
+    overrides = _panel_overrides("Minutes Below Comfort")
 
-    assert overrides["minutes_below_target"]["unit"].startswith("suffix: ")
+    assert overrides["minutes_below_comfort"]["unit"].startswith("suffix: ")
 
 
 def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:
@@ -305,10 +345,6 @@ def test_every_copy_of_a_shared_fragment_keeps_all_its_parts() -> None:
     assert len(ranked) == 3  # panel 1 outdoor, daily gas C, the band
     for sql in ranked:
         assert "ORDER BY (COALESCE(w.source, '') = 'open-meteo-archive'), w.id" in sql
-
-    comfort = next(q for q in queries if "minutes_below_target" in q)
-    for name in ("comfort_target", "comfort_margin"):
-        assert f"${{{name}:sqlstring}} REGEXP" in comfort
 
 
 def _query(title: str, ref_id: str) -> str:

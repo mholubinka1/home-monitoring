@@ -3,7 +3,7 @@ was on in each, and what that cost."""
 
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from statistics import median
 
 from common import local_day
@@ -86,7 +86,7 @@ def hot_water_baselines(
     with none at all the baseline is 0."""
     by_hour: dict[int, list[float]] = defaultdict(list)
     for hour, kwh in zero_on_hours:
-        by_hour[_london_hour_of_day(hour)].append(kwh)
+        by_hour[local_day.to_local_hour(hour)].append(kwh)
     every = [kwh for kwhs in by_hour.values() for kwh in kwhs]
     overall = median(every) if every else 0.0
     return {
@@ -98,13 +98,9 @@ def hot_water_baselines(
 
 
 def baseline_for(baselines: dict[int, float], hour: datetime) -> float:
-    return baselines.get(_london_hour_of_day(hour), baselines.get(-1, 0.0))
+    return baselines.get(local_day.to_local_hour(hour), baselines.get(-1, 0.0))
 
 
 def measured_heating_kwh(measured_kwh: float, baseline: float) -> float:
     """The metered gas less the hot-water baseline, within 0 and the metered gas."""
     return min(measured_kwh, max(0.0, measured_kwh - baseline))
-
-
-def _london_hour_of_day(hour: datetime) -> int:
-    return hour.replace(tzinfo=UTC).astimezone(local_day.get_local_timezone()).hour
