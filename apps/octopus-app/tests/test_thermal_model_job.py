@@ -6,7 +6,7 @@ recover them. London is on GMT throughout, so local time is UTC."""
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -101,12 +101,21 @@ STEADY = Conditions(
 RARELY_HEATED = Conditions(on_minutes=_rarely_on_minutes)
 
 
+@dataclass(frozen=True)
+class Shift:
+    """From `at` on, the house follows different numbers."""
+
+    at: datetime
+    numbers: Numbers
+
+
 def _history(
     days: int,
     numbers: Numbers,
     *,
     end: datetime = NOW,
     conditions: Conditions = Conditions(),  # noqa: B008
+    shift: Shift | None = None,
 ) -> list[Hour]:
     """Every hour of the `days` before the hour of `end`, plus that hour itself,
     with a room that follows `numbers` exactly."""
@@ -125,12 +134,13 @@ def _history(
             on_minutes=conditions.on_minutes(moment),
         )
         hours.append(hour)
+        active = shift.numbers if shift and moment >= shift.at else numbers
         room += (
-            numbers.loss_per_degree * (hour.outdoor - hour.room)
-            + numbers.heating_gain * hour.on_minutes / 60
-            + numbers.carried_gain * previous_on / 60
-            + numbers.sun_gain * hour.radiation / 1000
-            + numbers.constant_gain
+            active.loss_per_degree * (hour.outdoor - hour.room)
+            + active.heating_gain * hour.on_minutes / 60
+            + active.carried_gain * previous_on / 60
+            + active.sun_gain * hour.radiation / 1000
+            + active.constant_gain
         )
         previous_on = hour.on_minutes
         moment += ONE_HOUR
@@ -202,9 +212,9 @@ def _thermal_models(client: MariaDBClient) -> list[model.thermal_model]:
 def test_the_model_recovers_the_numbers_the_history_was_generated_from(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given 10 days of history that follows known numbers exactly
+    # Given 30 days of history that follows known numbers exactly
     numbers = Numbers()
-    _seed(mariadb_client, _history(10, numbers))
+    _seed(mariadb_client, _history(30, numbers))
 
     # When the job runs
     ThermalModelJob(mariadb_client).refresh(NOW)
@@ -334,3 +344,98 @@ def test_nothing_is_written_or_raised_when_hive_apps_tables_are_missing(
     ThermalModelJob(client).refresh(NOW)
 
     assert not _thermal_models(client)
+
+
+def test_a_history_that_follows_the_model_backtests_with_almost_no_error(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 30 days of history that follows known numbers exactly
+    _seed(mariadb_client, _history(30, Numbers()))
+
+    # When the job runs
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    # Then each of the 14 days before today was replayed, and the replays agree
+    # with what the thermostat recorded
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days == 14
+    assert stored.backtest_mean_error == pytest.approx(0.0, abs=1e-6)
+    assert stored.backtest_worst_error == pytest.approx(0.0, abs=1e-6)
+    assert stored.usable
+
+
+def test_a_backtest_day_with_a_gap_in_its_hours_is_skipped_and_the_count_says_so(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 30 days of history in which one hour of a backtest day has no reading
+    hours = _history(30, Numbers())
+    missing = datetime(2026, 11, 10, 12)
+    _seed(mariadb_client, hours, Gaps(reading=frozenset({missing})))
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    # Then that day is skipped and the other 13 are replayed
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days == 13
+    assert stored.usable
+
+
+def test_fewer_than_five_backtestable_days_is_unusable_for_too_few_backtest_days(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 10 days of history: only the last few backtest days have enough steps
+    # before them for an earlier model to learn from
+    _seed(mariadb_client, _history(10, Numbers()))
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days is not None
+    assert 0 < stored.backtest_days < 5
+    assert not stored.usable
+    assert stored.unusable_reason == "too_few_backtest_days"
+
+
+def test_a_last_fortnight_that_behaves_differently_is_unusable_for_a_high_backtest_error(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 60 days that follow one set of numbers, then a fortnight in which the
+    # room loses heat much faster
+    leaky = Shift(at=datetime(2026, 11, 6), numbers=Numbers(loss_per_degree=0.2))
+    _seed(mariadb_client, _history(74, Numbers(), shift=leaky))
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    # Then the earlier models mispredict the fortnight
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_mean_error is not None
+    assert stored.backtest_mean_error > 0.5
+    assert not stored.usable
+    assert stored.unusable_reason == "backtest_error_too_high"
+
+
+def test_a_backtest_day_is_replayed_by_a_model_that_has_not_seen_it(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a history that follows the numbers exactly except that the thermostat
+    # read 2 C warm all through the newest backtest day after its first hour
+    hours = _history(30, Numbers())
+    newest_day = datetime(2026, 11, 19)
+    warm = [
+        (
+            replace(hour, room=hour.room + 2.0)
+            if newest_day < hour.start < newest_day + timedelta(hours=24)
+            else hour
+        )
+        for hour in hours
+    ]
+    _seed(mariadb_client, warm)
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    # Then every day is still replayed, and only that day's hours are in error:
+    # the model that replayed it was fitted before the day, so it is still exact
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days == 14
+    assert stored.backtest_worst_error == pytest.approx(2.0, abs=1e-6)
+    assert stored.backtest_mean_error == pytest.approx(23 * 2.0 / (14 * 24), abs=1e-6)

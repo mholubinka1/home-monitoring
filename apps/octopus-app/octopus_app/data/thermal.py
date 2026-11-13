@@ -8,8 +8,8 @@ There is no numerical library in this app, so the normal equations are solved in
 plain Python."""
 
 import math
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import astuple, dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -26,6 +26,9 @@ MIN_STEPS = 168  # a week of hours
 MIN_HEATING_STEPS = 10
 MIN_HEATING_MINUTES = 10  # an hour with this much heating is a heating step
 TERMS = 5
+BACKTEST_DAYS = 14
+MIN_BACKTEST_DAYS = 5
+MAX_MEAN_ERROR = 0.5  # C
 # A pivot this small, against the largest entry of the normal equations, means
 # the inputs do not vary enough to tell the numbers apart.
 PIVOT_TOLERANCE = 1e-12
@@ -36,6 +39,8 @@ class Unusable(StrEnum):
     TOO_LITTLE_HEATING = "too_little_heating"
     NO_FIT = "no_fit"
     IMPLAUSIBLE = "implausible"
+    TOO_FEW_BACKTEST_DAYS = "too_few_backtest_days"
+    BACKTEST_ERROR_TOO_HIGH = "backtest_error_too_high"
 
 
 @dataclass(frozen=True)
@@ -62,11 +67,16 @@ class ThermalFit:
 class Step:
     """One hour's inputs and outcome."""
 
-    gap: float  # outdoor less room, C
+    room: float  # at the hour's start, C
+    outdoor: float  # at the hour's start, C
     on_minutes: int
     previous_on_minutes: int
     radiation_kw: float
     change: float  # the room's change over the hour, C
+
+    @property
+    def gap(self) -> float:
+        return self.outdoor - self.room
 
 
 @dataclass(frozen=True)
@@ -131,7 +141,8 @@ def _step_at(hour: datetime, evidence: HourlyEvidence) -> Step | None:
     if radiation is None:
         return None
     return Step(
-        gap=outdoor - rooms[0],
+        room=rooms[0],
+        outdoor=outdoor,
         on_minutes=heating[0],
         previous_on_minutes=heating[1],
         radiation_kw=radiation / WATTS_PER_KILOWATT,
@@ -216,3 +227,78 @@ def fit_thermal_model(steps: list[Step]) -> ThermalFit:
     plausible = numbers.loss_per_degree > 0 and numbers.heating_gain > 0
     reason = None if plausible else Unusable.IMPLAUSIBLE
     return ThermalFit(len(steps), heating_steps, numbers, reason)
+
+
+@dataclass(frozen=True)
+class DayHours:
+    """The hours of one local day, [start, end) in naive UTC: 23, 24 or 25."""
+
+    start: datetime
+    end: datetime
+
+
+@dataclass(frozen=True)
+class Backtest:
+    """How far replays strayed from the thermostat. The errors are None when no
+    day could be replayed."""
+
+    days: int
+    mean_error: float | None
+    worst_error: float | None
+
+
+def _predicted_change(numbers: ThermalNumbers, step: Step) -> float:
+    return sum(
+        number * value
+        for number, value in zip(astuple(numbers), _inputs(step), strict=True)
+    )
+
+
+def replay(numbers: ThermalNumbers, steps: Sequence[Step]) -> list[float]:
+    """The absolute error of each hour of a replay that starts from the first
+    step's room and feeds its own prediction forward. Each hour's error is the
+    predicted room at its end against the room the thermostat recorded then."""
+    room = steps[0].room
+    errors = []
+    for step in steps:
+        room += _predicted_change(numbers, replace(step, room=room))
+        errors.append(abs(room - (step.room + step.change)))
+    return errors
+
+
+def _replay_day(evidence: HourlyEvidence, day: DayHours) -> list[float] | None:
+    """The errors of the day replayed by a model fitted on the 60 days before it,
+    or None when the day has a gap or that model fails the first four checks."""
+    steps = hourly_steps(evidence, day.start, day.end)
+    if len(steps) != (day.end - day.start) // ONE_HOUR:
+        return None
+    earlier = fit_thermal_model(
+        hourly_steps(evidence, day.start - FIT_WINDOW, day.start)
+    )
+    if earlier.numbers is None or earlier.reason is not None:
+        return None
+    return replay(earlier.numbers, steps)
+
+
+def backtest(evidence: HourlyEvidence, days: Sequence[DayHours]) -> Backtest:
+    errors: list[float] = []
+    replayed = 0
+    for day in days:
+        day_errors = _replay_day(evidence, day)
+        if day_errors is not None:
+            replayed += 1
+            errors += day_errors
+    if not errors:
+        return Backtest(replayed, None, None)
+    return Backtest(replayed, sum(errors) / len(errors), max(errors))
+
+
+def with_backtest(fit: ThermalFit, result: Backtest) -> ThermalFit:
+    """The fit, made unusable by the backtest when it fails checks 5 or 6."""
+    if fit.reason is not None:
+        return fit
+    if result.mean_error is None or result.days < MIN_BACKTEST_DAYS:
+        return replace(fit, reason=Unusable.TOO_FEW_BACKTEST_DAYS)
+    if result.mean_error > MAX_MEAN_ERROR:
+        return replace(fit, reason=Unusable.BACKTEST_ERROR_TOO_HIGH)
+    return fit

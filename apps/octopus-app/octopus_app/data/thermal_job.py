@@ -2,7 +2,7 @@
 
 import logging.config
 from dataclasses import asdict, fields
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
 from common import local_day
@@ -29,17 +29,23 @@ class ThermalModelJob:
             return
         end = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
         start = end - thermal.FIT_WINDOW
-        readings = self._mariadb.read_room_temperatures(start, end + thermal.ONE_HOUR)
+        days = _backtest_days(now)
+        first = min(start, days[0].start - thermal.FIT_WINDOW)
+        readings = self._mariadb.read_room_temperatures(first, end + thermal.ONE_HOUR)
         if not readings:
             logger.info("Thermal model: no thermostat readings, nothing fitted.")
             return
         evidence = thermal.HourlyEvidence.from_readings(
             readings,
-            self._mariadb.read_heating_hours(start - thermal.ONE_HOUR, end),
-            self._mariadb.read_hourly_weather(start, end),
+            self._mariadb.read_heating_hours(first - thermal.ONE_HOUR, end),
+            self._mariadb.read_hourly_weather(first, end),
         )
         fit = thermal.fit_thermal_model(thermal.hourly_steps(evidence, start, end))
-        self._mariadb.write_thermal_model(_record(fit, now, start, end))
+        result = None
+        if fit.reason is None:
+            result = thermal.backtest(evidence, days)
+            fit = thermal.with_backtest(fit, result)
+        self._mariadb.write_thermal_model(_record(fit, result, now, start, end))
         logger.info(
             f"Thermal model: fitted over {fit.steps_used} step(s), "
             f"{'usable' if fit.reason is None else fit.reason.value}."
@@ -52,8 +58,28 @@ class ThermalModelJob:
         ) == local_day.to_local_date(now)
 
 
+def _backtest_days(now: datetime) -> list[thermal.DayHours]:
+    """The 14 local days before the day of `now`, oldest first."""
+    today = local_day.to_local_date(now)
+    return [
+        thermal.DayHours(
+            _naive_start_of(today - timedelta(days=ago)),
+            _naive_start_of(today - timedelta(days=ago - 1)),
+        )
+        for ago in range(thermal.BACKTEST_DAYS, 0, -1)
+    ]
+
+
+def _naive_start_of(day: date) -> datetime:
+    return local_day.start_of_local_day(day).replace(tzinfo=None)
+
+
 def _record(
-    fit: ThermalFit, now: datetime, start: datetime, end: datetime
+    fit: ThermalFit,
+    result: thermal.Backtest | None,
+    now: datetime,
+    start: datetime,
+    end: datetime,
 ) -> ThermalModelRecord:
     numbers: dict[str, float | None] = (
         dict.fromkeys(field.name for field in fields(ThermalNumbers))
@@ -68,8 +94,8 @@ def _record(
         unusable_reason=None if fit.reason is None else fit.reason.value,
         steps_used=fit.steps_used,
         heating_steps=fit.heating_steps,
-        backtest_days=None,
-        backtest_mean_error=None,
-        backtest_worst_error=None,
+        backtest_days=result.days if result else None,
+        backtest_mean_error=result.mean_error if result else None,
+        backtest_worst_error=result.worst_error if result else None,
         **numbers,  # type: ignore[arg-type]
     )

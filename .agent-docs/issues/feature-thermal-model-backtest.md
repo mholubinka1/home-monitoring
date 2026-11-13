@@ -39,11 +39,11 @@ Every fit is backtested before it is stored: each of the 14 local days before th
 
 ### Acceptance criteria
 
-- [ ] Given a history that follows the model exactly, when the job runs, then the row records 14 backtest days with a mean and worst error near zero and is usable.
-- [ ] Given one backtest day with a gap in its hours, when the job runs, then that day is skipped and 13 backtest days are recorded.
-- [ ] Given fewer than 5 backtestable days, when the job runs, then the row is unusable with reason `too_few_backtest_days`.
-- [ ] Given a last fortnight that behaves differently from what went before, when the job runs, then the mean error is above 0.5 C and the row is unusable with reason `backtest_error_too_high`.
-- [ ] Given two histories that differ only in the readings of the newest backtest day, when the job runs on each, then the stored backtest errors differ, showing the day was replayed by a model that had not seen it.
+- [x] Given a history that follows the model exactly, when the job runs, then the row records 14 backtest days with a mean and worst error near zero and is usable.
+- [x] Given one backtest day with a gap in its hours, when the job runs, then that day is skipped and 13 backtest days are recorded.
+- [x] Given fewer than 5 backtestable days, when the job runs, then the row is unusable with reason `too_few_backtest_days`.
+- [x] Given a last fortnight that behaves differently from what went before, when the job runs, then the mean error is above 0.5 C and the row is unusable with reason `backtest_error_too_high`.
+- [x] Given two histories that differ only in the readings of the newest backtest day, when the job runs on each, then the stored backtest errors differ, showing the day was replayed by a model that had not seen it.
 
 ---
 
