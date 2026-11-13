@@ -7,7 +7,7 @@ recover them. London is on GMT throughout, so local time is UTC."""
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -327,6 +327,22 @@ def test_a_fit_is_written_once_a_day_and_again_on_the_next_day(
 
     job.refresh(NOW + timedelta(days=1))
     assert len(_thermal_models(mariadb_client)) == 2
+
+
+def test_the_stored_window_is_the_local_days_of_the_first_and_last_fitted_hour(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a first run of the day half an hour after local midnight
+    just_after_midnight = datetime(2026, 11, 20, 0, 30, tzinfo=UTC)
+    _seed(mariadb_client, _history(10, Numbers(), end=just_after_midnight))
+
+    # When the job runs
+    ThermalModelJob(mariadb_client).refresh(just_after_midnight)
+
+    # Then the window ends on yesterday, the day of the last fitted hour (23:00)
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.window_start == date(2026, 9, 21)
+    assert stored.window_end == date(2026, 11, 19)
 
 
 def test_nothing_is_written_without_thermostat_readings(

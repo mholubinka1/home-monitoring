@@ -1,7 +1,6 @@
 """Fits the thermal model once a local day and stores each fit (ADR-0035)."""
 
 import logging.config
-from dataclasses import asdict, fields
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -10,7 +9,7 @@ from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data import thermal
 from octopus_app.data.model import ThermalModelRecord
 from octopus_app.data.mysql.client import MariaDBClient
-from octopus_app.data.thermal import ThermalFit, ThermalNumbers
+from octopus_app.data.thermal import ThermalFit
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -88,15 +87,12 @@ def _record(
     start: datetime,
     end: datetime,
 ) -> ThermalModelRecord:
-    numbers: dict[str, float | None] = (
-        dict.fromkeys(field.name for field in fields(ThermalNumbers))
-        if fit.numbers is None
-        else asdict(fit.numbers)
-    )
+    numbers = fit.numbers
     return ThermalModelRecord(
         fitted_at=now,
         window_start=local_day.to_local_date(start),
-        window_end=local_day.to_local_date(end),
+        # `end` is exclusive: the last fitted hour starts an hour before it.
+        window_end=local_day.to_local_date(end - thermal.ONE_HOUR),
         usable=fit.reason is None,
         unusable_reason=None if fit.reason is None else fit.reason.value,
         steps_used=fit.steps_used,
@@ -104,5 +100,9 @@ def _record(
         backtest_days=result.days if result else None,
         backtest_mean_error=result.mean_error if result else None,
         backtest_worst_error=result.worst_error if result else None,
-        **numbers,  # type: ignore[arg-type]
+        loss_per_degree=numbers.loss_per_degree if numbers else None,
+        heating_gain=numbers.heating_gain if numbers else None,
+        carried_gain=numbers.carried_gain if numbers else None,
+        sun_gain=numbers.sun_gain if numbers else None,
+        constant_gain=numbers.constant_gain if numbers else None,
     )

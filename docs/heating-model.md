@@ -142,6 +142,7 @@ The average miss over all those hours, and the worst single miss, are stored wit
 
 - under a week of complete hours to learn from;
 - almost no heating in the 60 days, so the heating gain cannot be learned;
+- readings too alike to tell the five numbers apart;
 - numbers that make no physical sense (a room that warms as it gets colder outside, or heating that cools it);
 - fewer than 5 of the 14 days could be tested;
 - an average miss above 0.5 °C.
