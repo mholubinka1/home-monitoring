@@ -65,7 +65,7 @@ _Avoid_: customer, user
 ### Data Storage
 
 **`home_monitoring` database** (formerly `octopus`):
-The single shared MariaDB database for both `octopus-app` and `hive-app`, on the same MariaDB instance. Holds `octopus-app`'s tables (`consumption`, `agreement`, `product`, `product_rate`, `daily_consumption_summary`, `agile_forecast`, `cost_forecast`, and the two **Heating Model** tables `heating_model` and `heating_forecast_day`) and `hive-app`'s (`heating_status`, `weather_observation`, `weather_forecast`, `weather_location`), plus the cross-app `job_run` and `account_postcode` tables owned by `common`. Renamed from `octopus` to `home_monitoring` during the live Pi cutover on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md), [#547](https://github.com/mholubinka1/home-monitoring/issues/547)), via `scripts/rename_database.sql` run against the real instance — all 11 tables' row counts verified identical before and after. Every SQLAlchemy model still declares the literal `schema="octopus"` in its `__table_args__`; that is intentional and permanent, not a missed rename — [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) makes it a fixed `schema_translate_map` source key, translated to the configured `settings.database` value (`home_monitoring`) at query-execution time, so a future rename needs only a config change. The old, empty `octopus` database was dropped on the Pi on 2026-10-04 ([#589](https://github.com/mholubinka1/home-monitoring/issues/589)); the old Docker Hub repo `mholubinka1/octopus-monitoring` is archived, deliberately not deleted.
+The single shared MariaDB database for both `octopus-app` and `hive-app`, on the same MariaDB instance. Holds `octopus-app`'s tables (`consumption`, `agreement`, `product`, `product_rate`, `daily_consumption_summary`, `agile_forecast`, `cost_forecast`, and the two **Heating Model** tables `heating_model` and `heating_forecast_day`) and `hive-app`'s (`heating_status`, `heating_schedule`, `weather_observation`, `weather_forecast`, `weather_forecast_hour`, `weather_location`), plus the cross-app `job_run` and `account_postcode` tables owned by `common`. Renamed from `octopus` to `home_monitoring` during the live Pi cutover on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md), [#547](https://github.com/mholubinka1/home-monitoring/issues/547)), via `scripts/rename_database.sql` run against the real instance — all 11 tables' row counts verified identical before and after. Every SQLAlchemy model still declares the literal `schema="octopus"` in its `__table_args__`; that is intentional and permanent, not a missed rename — [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) makes it a fixed `schema_translate_map` source key, translated to the configured `settings.database` value (`home_monitoring`) at query-execution time, so a future rename needs only a config change. The old, empty `octopus` database was dropped on the Pi on 2026-10-04 ([#589](https://github.com/mholubinka1/home-monitoring/issues/589)); the old Docker Hub repo `mholubinka1/octopus-monitoring` is archived, deliberately not deleted.
 _Avoid_: octopus database (the old name, pre-2026-10-01; the empty database was dropped 2026-10-04), the database, mysql db
 
 **schema** (as in `schema_translate_map`, `__table_args__ = {"schema": ...}`):
@@ -267,6 +267,33 @@ A London clock hour in which the heating was on at least once in the 365 days be
 
 **Comfort Day**:
 One Local Day's stored comfort figures: its **Comfort Temperature**, its **Counted Hours** and the minutes the room was below comfort in them. A finished day is settled once and never restated.
+
+**Thermal Model**:
+The five learned numbers that describe how the thermostat's room warms and cools hour by hour: loss per degree above outdoors, gain per hour of heating, the gain carried into the next hour, sunshine gain and a constant gain. See [ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md).
+_Avoid_: heating model (that is the daily gas model)
+
+**Backtest**:
+A replay of each of the last 14 days by a **Thermal Model** fitted only on the data before that day, with the weather and heating that really happened; its average and worst error are stored with the model and decide whether it is usable.
+
+**Room Forecast**:
+The predicted room temperature for each hour to the end of tomorrow, stored twice: under the Hive schedule as programmed and under the **Comfort Plan**.
+_Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
+
+**Comfort Plan**:
+The least heating that keeps the room at the **Comfort Temperature** (rounded up to a half degree) throughout the **Comfort Window**, including the pre-heat before it opens. Advice only; nothing is written to Hive.
+_Avoid_: recommended schedule, optimised schedule
+
+**Comfort Window**:
+The configured hours of a day the **Comfort Plan** keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends by default. Distinct from **Counted Hours**, which are learned.
+
+**Day-Ahead Forecast**:
+The **Room Forecast** for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
+
+**Weekly Schedule**:
+Hive's full seven-day heating schedule as programmed, stored by hive-app one row each time it changes. The schedule stored with each **Heating Status** poll is only the now, next and later slots.
+
+**Hourly Weather Forecast**:
+hive-app's stored Open-Meteo forecast of temperature and sunshine for each of the coming hours, beside the daily **Weather Forecast**.
 
 **Complete Gas Day**:
 A Local Day whose gas total is above zero and which has every expected half-hour reading (46, 48 or 50 on daylight-saving days), judged from the reading count stored with `daily_consumption_summary`; a day with an unknown count (before the API's first day, 2024-10-09) is usable unless its total is zero and is reported as unverified. Gas gaps are upstream (the Octopus API itself reports zero or no data for about 13% of days since 2024-10-09), so partial and missing days are excluded, never filled in. See the [gas gap investigation](research/heating-model-prototype.md).

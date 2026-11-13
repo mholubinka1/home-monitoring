@@ -196,6 +196,18 @@ def test_with_no_weather_config_both_weather_jobs_register_and_the_forecast_uses
         },
         status=200,
     )
+    responses.add(
+        responses.GET,
+        OPEN_METEO_ENDPOINT,
+        json={
+            "hourly": {
+                "time": ["2026-09-26T12:00"],
+                "temperature_2m": [14.5],
+                "shortwave_radiation": [286.0],
+            }
+        },
+        status=200,
+    )
     scheduler = Scheduler()
 
     observation_job, forecast_job = register_weather_jobs(

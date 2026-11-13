@@ -7,7 +7,11 @@ from pydantic import BaseModel
 
 from common.local_day import get_local_timezone
 from hive_app.common.config import LocationSettings
-from hive_app.data.model import WeatherForecastDay, WeatherObservation
+from hive_app.data.model import (
+    WeatherForecastDay,
+    WeatherForecastHour,
+    WeatherObservation,
+)
 from hive_app.data.weather_types import (
     REQUEST_TIMEOUT_SECONDS,
     FiniteFloat,
@@ -32,6 +36,10 @@ ARCHIVE_SOURCE = "open-meteo-archive"
 # so an hour missed by an earlier run -- the daily restart, an outage -- is
 # filled by the next one.
 LOOKBACK_HOURS = 24
+FORECAST_HOURLY_FIELDS = "temperature_2m,shortwave_radiation"
+# Open-Meteo's forecast_hours counts from the current hour: 54 covers the rest
+# of today plus all of tomorrow (the room forecast's horizon) in any hour.
+FORECAST_HOURS = 54
 DAILY_FIELDS = "temperature_2m_max,temperature_2m_min,temperature_2m_mean"
 
 
@@ -61,6 +69,24 @@ class OpenMeteoHourly(BaseModel):
             name: _values_or_nulls(getattr(self, name), len(self.time))
             for name in HOURLY_VARIABLES
         }
+
+
+def _checked_hourly(
+    hourly_payload: dict[str, Any],
+) -> tuple[OpenMeteoHourly, dict[str, list[float | None]]]:
+    hourly = OpenMeteoHourly.model_validate(hourly_payload)
+    series = hourly.series()
+    mismatched = {
+        name: len(values)
+        for name, values in series.items()
+        if len(values) != len(hourly.time)
+    }
+    if mismatched:
+        raise ValueError(
+            "Open-Meteo hourly response has mismatched array lengths: "
+            f"{len(hourly.time)} time entries vs {mismatched}."
+        )
+    return hourly, series
 
 
 class OpenMeteoDaily(BaseModel):
@@ -141,18 +167,7 @@ class OpenMeteoClient:
         self, hourly_payload: dict[str, Any], source: str
     ) -> list[WeatherObservation]:
         """Shared by the live and archive paths so both map variables identically."""
-        hourly = OpenMeteoHourly.model_validate(hourly_payload)
-        series = hourly.series()
-        mismatched = {
-            name: len(values)
-            for name, values in series.items()
-            if len(values) != len(hourly.time)
-        }
-        if mismatched:
-            raise ValueError(
-                "Open-Meteo hourly response has mismatched array lengths: "
-                f"{len(hourly.time)} time entries vs {mismatched}."
-            )
+        hourly, series = _checked_hourly(hourly_payload)
         location = location_key(self._settings.latitude, self._settings.longitude)
         current_hour = self._clock().replace(minute=0, second=0, microsecond=0)
 
@@ -182,6 +197,36 @@ class OpenMeteoClient:
                 )
             )
         return observations
+
+    def get_hourly_forecast(self) -> list[WeatherForecastHour]:
+        payload = self._request(
+            {
+                "hourly": FORECAST_HOURLY_FIELDS,
+                "forecast_hours": str(FORECAST_HOURS),
+                "timezone": "UTC",
+            }
+        )
+        hourly, series = _checked_hourly(payload["hourly"])
+        location = location_key(self._settings.latitude, self._settings.longitude)
+        fetched_at = self._clock()
+        return [
+            WeatherForecastHour(
+                source="open-meteo",
+                location=location,
+                # Naive UTC as Open-Meteo gives it, stored as given.
+                forecast_at=forecast_at,
+                temp=temp,
+                shortwave_radiation=radiation,
+                fetched_at=fetched_at,
+            )
+            for forecast_at, temp, radiation in zip(
+                hourly.time,
+                series["temperature_2m"],
+                series["shortwave_radiation"],
+            )
+            # An hour with neither value carries no information to store.
+            if temp is not None or radiation is not None
+        ]
 
     def get_forecast(self) -> list[WeatherForecastDay]:
         payload = self._request(

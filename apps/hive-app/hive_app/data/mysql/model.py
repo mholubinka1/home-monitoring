@@ -38,6 +38,17 @@ class heating_status(SQLBase):
     working = Column(Boolean)
 
 
+class heating_schedule(SQLBase):
+    """Hive's weekly schedule, one row each time it changes."""
+
+    __tablename__ = "heating_schedule"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    captured_at = Column(DateTime, nullable=False)
+    schedule = Column(JSON, nullable=False)
+
+
 # One observation per hour per source and location: the unique key, which the
 # keyed upsert also resolves conflicts on.
 WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")
@@ -78,6 +89,27 @@ class weather_forecast(SQLBase):
     max_temp = Column(Float)
     mean_temp = Column(Float)
     min_temp = Column(Float)
+    fetched_at = Column(DateTime, nullable=False)
+
+
+# One forecast per hour per source and location: the unique key, which the
+# keyed upsert also resolves conflicts on, so a refresh overwrites the hour.
+WEATHER_FORECAST_HOUR_KEY = ("source", "location", "forecast_at")
+
+
+class weather_forecast_hour(SQLBase):
+    __tablename__ = "weather_forecast_hour"
+    __table_args__ = (
+        Index("uq_weather_forecast_hour", *WEATHER_FORECAST_HOUR_KEY, unique=True),
+        {"schema": "octopus"},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String(20))
+    location = Column(String(20), nullable=False)
+    forecast_at = Column(DateTime, nullable=False)
+    temp = Column(Float)
+    shortwave_radiation = Column(Float)
     fetched_at = Column(DateTime, nullable=False)
 
 

@@ -3,7 +3,11 @@ from logging import Logger, getLogger
 from typing import Protocol
 
 from hive_app.common.logging import APP_LOGGER_NAME, config
-from hive_app.data.model import WeatherForecastDay, WeatherObservation
+from hive_app.data.model import (
+    WeatherForecastDay,
+    WeatherForecastHour,
+    WeatherObservation,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -17,6 +21,10 @@ class WeatherSource(Protocol):
     def fetch_forecast(self) -> list[WeatherForecastDay]: ...
 
     def persist_forecast(self, forecast: list[WeatherForecastDay]) -> None: ...
+
+    def fetch_hourly_forecast(self) -> list[WeatherForecastHour]: ...
+
+    def persist_hourly_forecast(self, hours: list[WeatherForecastHour]) -> None: ...
 
 
 class WeatherRetriever:
@@ -46,3 +54,11 @@ class WeatherRetriever:
         forecast = self._client.fetch_forecast()
         self._client.persist_forecast(forecast)
         logger.info(f"Weather forecast refresh: persisted {len(forecast)} day(s).")
+        hours = self._client.fetch_hourly_forecast()
+        self._client.persist_hourly_forecast(hours)
+        if not hours:
+            # As in refresh(): the job still succeeds, so this line is the only
+            # trace that Open-Meteo gave back no storable hourly forecast.
+            logger.warning("Weather forecast refresh: no hours to store.")
+            return
+        logger.info(f"Weather forecast refresh: persisted {len(hours)} hour(s).")

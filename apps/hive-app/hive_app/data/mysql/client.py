@@ -14,10 +14,15 @@ from hive_app.data.model import (
     HeatingStatus,
     ResolvedLocation,
     WeatherForecastDay,
+    WeatherForecastHour,
     WeatherObservation,
 )
 from hive_app.data.mysql import model as sql_model
-from hive_app.data.mysql.model import WEATHER_OBSERVATION_KEY, SQLBase
+from hive_app.data.mysql.model import (
+    WEATHER_FORECAST_HOUR_KEY,
+    WEATHER_OBSERVATION_KEY,
+    SQLBase,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -63,6 +68,26 @@ class MariaDBClient(MariaDBClientBase):
             working=status.working,
         )
         self._write_all([record], "Heating status data")
+
+    def write_weekly_schedule(
+        self, captured_at: datetime, schedule: dict[str, Any] | None
+    ) -> None:
+        """Stores the weekly schedule when it differs from the newest stored
+        one; does nothing for None."""
+        if schedule is None:
+            return
+        with self.session_read_scope() as session:
+            newest = (
+                session.query(sql_model.heating_schedule.schedule)
+                .order_by(sql_model.heating_schedule.id.desc())
+                .limit(1)
+                .scalar()
+            )
+        if newest == schedule:
+            return
+        record = sql_model.heating_schedule(captured_at=captured_at, schedule=schedule)
+        self._write_all([record], "Heating schedule data")
+        logger.info("Hive weekly schedule changed; stored a new heating_schedule row.")
 
     def latest_heating_polled_at(self) -> datetime | None:
         """When the newest heating_status row was polled (UTC), or None."""
@@ -157,6 +182,27 @@ class MariaDBClient(MariaDBClientBase):
             for day in forecast
         ]
         self._write_all(records, "Weather forecast data")
+
+    def write_weather_forecast_hours(self, hours: list[WeatherForecastHour]) -> None:
+        # See write_weather_observations for why the float assignments need an
+        # ignore, and why errors are redacted.
+        records = [
+            sql_model.weather_forecast_hour(
+                source=hour.source,
+                location=hour.location,
+                forecast_at=hour.forecast_at,
+                temp=hour.temp,  # type: ignore[misc]
+                shortwave_radiation=hour.shortwave_radiation,  # type: ignore[misc]
+                fetched_at=hour.fetched_at,
+            )
+            for hour in hours
+        ]
+        self._write_all(
+            records,
+            "Weather forecast hour data",
+            key_columns=WEATHER_FORECAST_HOUR_KEY,
+            redact_errors=True,
+        )
 
     def read_weather_observation_hours(
         self, location: str, start: datetime, end: datetime
