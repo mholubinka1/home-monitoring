@@ -190,7 +190,8 @@ def _seed(
     ]
     with client.session_write_scope() as session:
         session.execute(heating_status_table.insert(), polls)
-        session.execute(weather_observation_table.insert(), weather)
+        if weather:
+            session.execute(weather_observation_table.insert(), weather)
         session.add_all(
             model.heating_hour(
                 hour_start=hour.start,
@@ -346,6 +347,19 @@ def test_nothing_is_written_or_raised_when_hive_apps_tables_are_missing(
     assert not _thermal_models(client)
 
 
+def test_nothing_is_written_while_there_is_no_hourly_weather_at_all(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given thermostat readings and heating hours, but no weather stored yet
+    hours = _history(30, Numbers())
+    every_hour = frozenset(hour.start for hour in hours)
+    _seed(mariadb_client, hours, Gaps(weather=every_hour))
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    assert not _thermal_models(mariadb_client)
+
+
 def test_a_history_that_follows_the_model_backtests_with_almost_no_error(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -394,6 +408,36 @@ def test_fewer_than_five_backtestable_days_is_unusable_for_too_few_backtest_days
     assert 0 < stored.backtest_days < 5
     assert not stored.usable
     assert stored.unusable_reason == "too_few_backtest_days"
+
+
+def test_exactly_five_backtestable_days_is_enough(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 13 days of history: a week of steps exists before each of the last
+    # five backtest days, and before none of the earlier ones
+    _seed(mariadb_client, _history(13, Numbers()))
+
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days == 5
+    assert stored.usable
+
+
+def test_a_backtest_across_a_clock_change_replays_the_25_hour_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 40 days of history ending a week after the clocks go back (25 October
+    # 2026), so the 14 backtest days include the 25-hour day and days on BST
+    a_week_after_the_change = datetime(2026, 11, 1, 9, 30, tzinfo=UTC)
+    _seed(mariadb_client, _history(40, Numbers(), end=a_week_after_the_change))
+
+    ThermalModelJob(mariadb_client).refresh(a_week_after_the_change)
+
+    # Then every one of the 14 days is replayed, with almost no error
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.backtest_days == 14
+    assert stored.backtest_mean_error == pytest.approx(0.0, abs=1e-6)
 
 
 def test_a_last_fortnight_that_behaves_differently_is_unusable_for_a_high_backtest_error(

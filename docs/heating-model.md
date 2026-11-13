@@ -146,7 +146,7 @@ The average miss over all those hours, and the worst single miss, are stored wit
 - fewer than 5 of the 14 days could be tested;
 - an average miss above 0.5 °C.
 
-While the newest model is not usable, nothing is forecast.
+The forecast, when it is added, will draw nothing while the newest model is not usable.
 
 What this cannot tell you: it describes one room, the one with the thermostat. It has seen only mild weather so far (nothing colder than about 1 °C outdoors), so its numbers will move as winter arrives, which is why it is relearned and retested daily. It knows nothing about open windows, guests or a door left open, which show up as misses. And the backtest is given the heating that really happened, so it tests the house model, not anyone's ability to guess when the heating will be on.
 

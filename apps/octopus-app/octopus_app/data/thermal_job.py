@@ -23,7 +23,8 @@ class ThermalModelJob:
     def refresh(self, now: datetime | None = None) -> None:
         """Fits the model over the hourly steps of the 60 days before now and
         stores one row, usable or not. Does nothing when a fit was already made
-        today, or when there are no thermostat readings to learn from."""
+        today, or when hive-app has stored no hourly weather or no thermostat
+        readings to learn from."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         if self._fitted_today(now):
             return
@@ -31,6 +32,12 @@ class ThermalModelJob:
         start = end - thermal.FIT_WINDOW
         days = _backtest_days(now)
         first = min(start, days[0].start - thermal.FIT_WINDOW)
+        # The weather first: it is the small read, so a missing hive-app costs
+        # nothing more.
+        weather = self._mariadb.read_hourly_weather(first, end)
+        if not weather:
+            logger.info("Thermal model: no hourly weather, nothing fitted.")
+            return
         readings = self._mariadb.read_room_temperatures(first, end + thermal.ONE_HOUR)
         if not readings:
             logger.info("Thermal model: no thermostat readings, nothing fitted.")
@@ -38,7 +45,7 @@ class ThermalModelJob:
         evidence = thermal.HourlyEvidence.from_readings(
             readings,
             self._mariadb.read_heating_hours(first - thermal.ONE_HOUR, end),
-            self._mariadb.read_hourly_weather(first, end),
+            weather,
         )
         fit = thermal.fit_thermal_model(thermal.hourly_steps(evidence, start, end))
         result = None

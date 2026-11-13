@@ -70,7 +70,7 @@ A matching frozen `ThermalModelRecord` dataclass and a `StoredThermalModel` (id 
 
 The stored mean error is the mean of the absolute errors over every hour of every replayed day; the worst error is their maximum; `backtest_days` is the number of days replayed.
 
-**Job.** A new `ThermalModelJob` in `data/thermal_job.py`, in the style of `ComfortDayJob` (a class with `refresh(now)` taking the clock). A run does nothing when the newest stored fit was made on today's local day; otherwise it reads 74 days of inputs once (60 for the earliest backtest fit plus 14), fits, backtests and writes one row, usable or not. With no thermostat readings at all it writes nothing. The newest row is the model in force: when it is unusable, nothing is forecast until the next day's fit (unlike the heating model, an older usable fit is not reused, ADR-0035).
+**Job.** A new `ThermalModelJob` in `data/thermal_job.py`, in the style of `ComfortDayJob` (a class with `refresh(now)` taking the clock). A run does nothing when the newest stored fit was made on today's local day; otherwise it reads 74 days of inputs once (60 for the earliest backtest fit plus 14), fits, backtests and writes one row, usable or not. With no thermostat readings at all, or no hourly weather at all (hive-app has not run), it writes nothing. The newest row is the model in force: when it is unusable, nothing is forecast until the next day's fit (unlike the heating model, an older usable fit is not reused, ADR-0035).
 
 **Client (`MariaDBClient` in `data/mysql/client.py`).** New: a read of the hourly outdoor temperature and radiation by stamp in a UTC range for the current location, the live reading winning over the archive's and a missing table reading as no rows (the rule `read_complete_day_mean_temperatures` already applies, shared and not copied); `write_thermal_model`; `read_latest_thermal_model`. The room readings and heating hours use the existing `read_room_temperatures` and `read_heating_hours`.
 
@@ -94,11 +94,12 @@ Scenarios, one per behaviour (each also a BDD red-green step):
 - no thermostat readings, or a missing `heating_status` or `weather_observation` table, writes nothing and does not raise;
 - a history that follows the model exactly gives a backtest over 14 days with a mean and worst error near zero and a usable row;
 - a backtest day with a gap in its hours is skipped, and the count of days says so;
-- fewer than 5 backtestable days gives `too_few_backtest_days`;
+- fewer than 5 backtestable days gives `too_few_backtest_days`, and exactly 5 gives a usable row;
+- a backtest that spans a clock change replays the 25-hour day like any other;
 - a history whose last fortnight behaves differently from what went before gives a mean error above 0.5 C and `backtest_error_too_high`;
 - a backtest day is replayed by a model that has not seen it: changing that day's own readings changes its error but not the numbers of the model that replayed it.
 
-Also: `tests/test_refresh_scheduling.py` gains the hourly chain cases (the thermal job runs after a successful heating-hour run with its own `job_run`, and is recorded as skipped after a failed one). Prior art: `tests/test_comfort_day_job.py`, `tests/test_heating_hour_job.py`, `tests/test_refresh_scheduling.py`.
+Also: the hourly chain cases (the thermal job runs after a successful heating-hour run with its own `job_run`, is recorded as skipped after a failed one, and still runs after a failed comfort refresh) live in a new `tests/test_hourly_heating_chain.py`, with the comfort job's chain cases moved there from `tests/test_refresh_scheduling.py`, which had reached pylint's 1000-line module limit. Prior art: `tests/test_comfort_day_job.py`, `tests/test_heating_hour_job.py`, `tests/test_refresh_scheduling.py`.
 
 Outside the test suite, the finished code is run once over the readings of 3 October to 13 November 2026 pulled during the design session, and the numbers recorded in the pull request.
 
