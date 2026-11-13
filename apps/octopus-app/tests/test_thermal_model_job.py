@@ -259,6 +259,56 @@ def test_hours_with_incomplete_readings_are_left_out_and_the_numbers_still_recov
     assert stored.constant_gain == pytest.approx(numbers.constant_gain, abs=1e-6)
 
 
+def _poll(at: datetime, temp: float | None) -> dict[str, object]:
+    return {
+        "polled_at": at,
+        "current_temp": temp,
+        "target_temp": 7.0,
+        "mode": "SCHEDULE",
+        "state": "OFF",
+        "boost_active": False,
+    }
+
+
+def test_an_hour_starts_from_its_first_reading_inside_ten_minutes(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the same history, where hours also have a later reading 3 C warmer,
+    # and three hours have no reading a minute in: one is first read just
+    # inside 10 minutes, one only at exactly 10 minutes, and one is first read
+    # with no temperature (and then with one)
+    numbers = Numbers()
+    hours = _history(10, numbers)
+    just_inside, at_the_cutoff, no_temperature = hours[48], hours[100], hours[150]
+    special = {just_inside.start, at_the_cutoff.start, no_temperature.start}
+    _seed(mariadb_client, hours, Gaps(reading=frozenset(special)))
+    extra = [
+        _poll(hour.start + timedelta(minutes=5), hour.room + 3)
+        for hour in hours
+        if hour.start not in {just_inside.start, at_the_cutoff.start}
+    ]
+    extra += [
+        _poll(just_inside.start + timedelta(minutes=9, seconds=59), just_inside.room),
+        _poll(at_the_cutoff.start + timedelta(minutes=10), at_the_cutoff.room),
+        _poll(no_temperature.start + timedelta(minutes=1), None),
+    ]
+    with mariadb_client.session_write_scope() as session:
+        session.execute(heating_status_table.insert(), extra)
+
+    # When the job runs
+    ThermalModelJob(mariadb_client).refresh(NOW)
+
+    # Then only the hour read at 10 minutes and the one first read without a
+    # temperature are left out, and the later readings change nothing
+    [stored] = _thermal_models(mariadb_client)
+    assert stored.steps_used == 239 - 2 * 2
+    assert stored.loss_per_degree == pytest.approx(numbers.loss_per_degree, abs=1e-6)
+    assert stored.heating_gain == pytest.approx(numbers.heating_gain, abs=1e-6)
+    assert stored.carried_gain == pytest.approx(numbers.carried_gain, abs=1e-6)
+    assert stored.sun_gain == pytest.approx(numbers.sun_gain, abs=1e-6)
+    assert stored.constant_gain == pytest.approx(numbers.constant_gain, abs=1e-6)
+
+
 def test_under_a_week_of_steps_is_unusable_for_too_few_steps(
     mariadb_client: MariaDBClient,
 ) -> None:

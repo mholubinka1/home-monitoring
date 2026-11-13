@@ -86,6 +86,7 @@ Scenarios, one per behaviour (each also a BDD red-green step):
 
 - history generated from known numbers gives a stored model with those numbers;
 - an hour with no reading in its first 10 minutes, with no stored heating hour, or with no weather is left out, and the model is still recovered;
+- an hour starts from its first reading: a later, different reading changes nothing, a first reading just inside 10 minutes counts, and one at exactly 10 minutes or with no temperature leaves the hour out;
 - under a week of steps gives an unusable `too_few_steps` row;
 - a history with almost no heating gives `too_little_heating`;
 - a history whose room never changes and whose inputs do not vary gives `no_fit`;
