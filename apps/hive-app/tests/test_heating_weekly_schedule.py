@@ -5,6 +5,7 @@ The shape below is the one apyhiveapi's HiveHelper.getScheduleNNL reads from a
 product's `state.schedule`: a list of slots per day name, each with `start`
 (minutes after local midnight) and `value.target`."""
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -164,21 +165,28 @@ def test_a_poll_without_a_usable_weekly_schedule_is_stored_without_a_schedule_ro
     assert not _stored_schedules(mariadb_client)
 
 
-def test_a_weekly_schedule_that_cannot_be_written_does_not_fail_the_poll(
+def test_a_weekly_schedule_that_cannot_be_written_is_logged_and_does_not_fail_the_poll(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # A set is a dictionary value the JSON column cannot store.
     unstorable = {"schedule": {"monday": {390, 435}}}
     source = _source(install_fake_hive, mariadb_client, tmp_path, unstorable)
 
-    _poll_and_persist(source)
+    with caplog.at_level(logging.WARNING):
+        _poll_and_persist(source)
 
     with mariadb_client.session_read_scope() as session:
         status_rows = session.query(model.heating_status).count()
     assert status_rows == 1
     assert not _stored_schedules(mariadb_client)
+    assert any(
+        record.levelno == logging.WARNING
+        and "weekly schedule not stored" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_a_database_created_before_the_weekly_schedule_gains_its_table_on_startup(
