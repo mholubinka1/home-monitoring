@@ -432,6 +432,7 @@ class HiveApiSource:
             self.persist_auth_state(self._auth_state_from_session(hive))
 
             device = self._climate_device(hive)
+            # Before any getter: getScheduleNowNextLater mutates this data.
             weekly_schedule = self._weekly_schedule(hive, device)
             current_temp = await hive.heating.getCurrentTemperature(device)
             target_temp = await hive.heating.getTargetTemperature(device)
@@ -467,8 +468,7 @@ class HiveApiSource:
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
         """A copy of Hive's seven-day schedule from the product data the
         library already holds, or None (logged at DEBUG) when it is missing,
-        empty or not a dict. An empty one would read as "no heating all week".
-        Read before any heating getter runs."""
+        empty or not a dict. An empty one would read as "no heating all week"."""
         try:
             schedule = hive.session.data.products[device["hiveID"]]["state"]["schedule"]
         except (AttributeError, KeyError, TypeError):
