@@ -253,14 +253,17 @@ The typical gas used in an hour of day with no heating on (hot water and cooking
 The gas the boiler actually draws per hour of heating-on time, learned from measured heating hours (about 12 kW on the 2026-10-06 test), used to estimate hours with no measured gas yet.
 
 **Comfort Temperature**:
-The room temperature below which the household usually reaches for boost: the median room temperature at the **Boost Starts** of the 90 days before a Local Day. It is learned, not the thermostat target and not the temperature a boost asks for. See [ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md).
+The room temperature below which the household usually reaches for boost: the weighted median room temperature at the **Boost Starts** of the two years before a Local Day, each counting half as much for every 60 **Heating Days** since it. It is learned, not the thermostat target and not the temperature a boost asks for. See [ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md).
 _Avoid_: comfort target, target temperature (the thermostat's setting)
 
 **Boost Start**:
 The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading. Its room temperature is the evidence the **Comfort Temperature** is learned from.
 
+**Heating Day**:
+A Local Day on which the heating was on at least once, by schedule or boost. Boost evidence ages by heating days, not calendar days, so a summer with no heating ages nothing.
+
 **Counted Hour**:
-A London clock hour in which the heating was on at least once in the 90 days before a Local Day. Only minutes in counted hours can count as below comfort, so nights nobody heats are left out.
+A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort, so nights nobody heats are left out.
 
 **Comfort Day**:
 One Local Day's stored comfort figures: its **Comfort Temperature**, its **Counted Hours** and the minutes the room was below comfort in them. A finished day is settled once and never restated.

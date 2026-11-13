@@ -1,5 +1,3 @@
-> Work complete — PR ready to merge.
-
 # Issues: feature-comfort-temperature-model
 
 ## Comfort temperature learned from boost starts
@@ -12,7 +10,7 @@
 
 ### What to build
 
-The tracer through every layer: a new `comfort_day` table, reads of boost polls from hive-app's `heating_status`, and an octopus-app job that writes today's row with the comfort temperature (the median room temperature at the boost starts of the 90 days before the day) and the number of boost starts used. The job runs in the hourly chain straight after the heating-hour job, with its own `job_run` record. Counted hours, minutes below comfort, carry-forward and history come in later slices.
+The tracer through every layer: a new `comfort_day` table, reads of boost polls from hive-app's `heating_status`, and an octopus-app job that writes today's row with the comfort temperature (the median room temperature at the boost starts before the day; first built over 90 days, changed by the last slice) and the number of boost starts used. The job runs in the hourly chain straight after the heating-hour job, with its own `job_run` record. Counted hours, minutes below comfort, carry-forward and history come in later slices.
 
 ### Acceptance criteria
 
@@ -92,5 +90,26 @@ Panel 1 gains a stepped "comfort" line read from `comfort_day`. Panel 4 becomes 
 - [x] Given the dashboard variables, then `comfort_target` and `comfort_margin` are gone and every remaining variable is still used.
 - [x] Given the queries document, then it lists `comfort_day`, both new queries, and no longer the two variables or the old comfort query.
 - [x] Given the explainer `docs/heating-model.md`, then it has a plain-language section on the comfort temperature.
+
+---
+
+## Boosts fade by heating days; longer look-backs
+
+**GitHub issue**: #762
+
+**Blocked by**: None
+
+**User stories**: 2, 6, 13
+
+### What to build
+
+Design change of 2026-11-13, before first deploy. The comfort temperature becomes a weighted median over the two years before a day, each boost weighing `0.5 ^ (heating days since it / 60)`, where a heating day is a London day with a stored heating hour in which the heating was on. Counted hours look back 365 days. This supersedes the 90-day figures in the slices above.
+
+### Acceptance criteria
+
+- [ ] Given four boosts at 16.0 C that are 60 heating days old and two boosts at 19.0 C from after the last heating day, when the job runs, then the old and new weights are equal and the comfort temperature is their midpoint, 17.5.
+- [ ] Given the same boosts with no heating days between the old ones and today (a summer), when the job runs, then every boost weighs the same and the comfort temperature is 16.0.
+- [ ] Given a boost more than two years before today, when the job runs, then it is not used, and given one 91 days before today, then it is used.
+- [ ] Given a clock hour heated 91 days ago, then it is a counted hour, and given one heated only more than 365 days ago, then it is not.
 
 ---
