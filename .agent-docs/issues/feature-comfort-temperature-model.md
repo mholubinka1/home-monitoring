@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-comfort-temperature-model
 
 ## Comfort temperature learned from boost starts
