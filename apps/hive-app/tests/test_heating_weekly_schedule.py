@@ -68,6 +68,22 @@ def test_a_poll_carries_hives_weekly_schedule(
     assert source.fetch_heating_status().weekly_schedule == _weekly_schedule()
 
 
+def test_each_poll_reads_the_schedule_hive_sent_not_one_an_earlier_poll_changed(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+) -> None:
+    # Each poll starts a new Hive session, which loads fresh product data.
+    source = _source(
+        install_fake_hive, mariadb_client, tmp_path, {"schedule": _weekly_schedule()}
+    )
+    first = source.fetch_heating_status().weekly_schedule
+    assert first is not None
+    first["monday"][0]["added_by_an_earlier_poll"] = True
+
+    assert source.fetch_heating_status().weekly_schedule == _weekly_schedule()
+
+
 def _poll_and_persist(source: HiveApiSource) -> HeatingStatus:
     status = source.fetch_heating_status()
     source.persist_heating_status(status)
