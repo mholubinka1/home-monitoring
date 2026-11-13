@@ -351,3 +351,50 @@ def test_counted_hours_follow_london_time_in_summer(
     today = _comfort_days(mariadb_client)[summer_day]
     assert today.counted_hours == "18"
     assert today.minutes_below == 20
+
+
+def test_a_boost_running_across_the_start_of_the_window_is_not_a_new_boost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given four boosts in the window, and one that started two minutes before
+    # the window opened and was still running as it did
+    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5])
+    window_opens = _at(TODAY - timedelta(days=90), timedelta(0))
+    _seed_polls(
+        mariadb_client,
+        window_opens - timedelta(minutes=2),
+        room=10.0,
+        count=2,
+        boost=True,
+    )
+    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+    job = ComfortDayJob(mariadb_client)
+    job.refresh(NOW)
+
+    # When a later run reads only today's window
+    job.refresh(NOW + timedelta(hours=1))
+
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.boost_starts == 4
+    assert today.comfort_temp is None
+
+
+def test_a_settled_day_stays_settled_while_no_later_day_has_polls(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday was settled after midnight, and Hive has sent nothing today
+    yesterday = TODAY - timedelta(days=1)
+    _seed_polls(mariadb_client, _at(yesterday), room=18.0)
+    job = ComfortDayJob(mariadb_client)
+    settled_at = datetime(2026, 11, 12, 0, 30, tzinfo=UTC)
+    job.refresh(settled_at)
+
+    # When evidence from before yesterday turns up and the job runs again
+    _seed_boosts_on_earlier_days(
+        mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0], before=yesterday
+    )
+    job.refresh(NOW)
+
+    row = _comfort_days(mariadb_client)[yesterday]
+    assert row.computed_at == settled_at.replace(tzinfo=None)
+    assert row.comfort_temp is None

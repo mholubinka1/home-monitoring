@@ -824,10 +824,15 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             )
         return [row[0] for row in rows]
 
-    def read_latest_comfort_day(self) -> date | None:
-        """The newest stored comfort_day date, if any."""
+    def read_latest_comfort_day(self) -> tuple[date, datetime] | None:
+        """The newest stored comfort_day's date and when it was written (naive
+        UTC), if any."""
+        cd = model.comfort_day
         with self.session_read_scope() as session:
-            return session.query(func.max(model.comfort_day.date)).scalar()
+            row = (
+                session.query(cd.date, cd.computed_at).order_by(cd.date.desc()).first()
+            )
+        return None if row is None else (row[0], row[1])
 
     def read_latest_comfort_temperature(self, before: date) -> float | None:
         """The comfort temperature of the newest comfort_day before a date that

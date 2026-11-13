@@ -332,7 +332,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, comfort\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n    AND c.date = (SELECT MAX(l.date) FROM comfort_day l)\n) d\nWHERE time >= $__timeFrom() - INTERVAL 1 DAY\n  AND time <= $__timeTo()\nORDER BY time;",
+          "rawSql": "SELECT time, comfort\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    LEAST(\n      CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),\n      $__timeTo()\n    ) AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.date = (\n    SELECT MAX(l.date) FROM comfort_day l\n    WHERE l.comfort_temp IS NOT NULL\n      AND CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()\n  )\n) d\nWHERE time >= $__timeFrom() - INTERVAL 1 DAY\n  AND time <= $__timeTo()\nORDER BY time;",
           "refId": "D",
           "sql": {
             "columns": [

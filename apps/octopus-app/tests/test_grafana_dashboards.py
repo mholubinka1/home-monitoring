@@ -260,11 +260,23 @@ def test_the_comfort_line_is_a_step_read_from_the_comfort_days() -> None:
     assert colours.count(overrides["comfort"]["color"]) == 1
 
 
-def test_the_comfort_line_holds_the_newest_days_value_to_the_end_of_that_day() -> None:
-    newest_day_again = _query(TEMPERATURES, "D").split("UNION ALL")[1]
+def test_the_comfort_line_reaches_the_end_of_a_range_that_ends_part_way_through_a_day() -> (
+    None
+):
+    closing_point = _query(TEMPERATURES, "D").split("UNION ALL")[1]
 
-    assert "CAST(c.date AS DATETIME) + INTERVAL 1 DAY" in newest_day_again
-    assert "c.date = (SELECT MAX(l.date) FROM comfort_day l)" in newest_day_again
+    # The newest day that starts within the range is held to its own end, or to
+    # the end of the range when that comes first (a range ending "now").
+    assert "SELECT MAX(l.date) FROM comfort_day l" in closing_point
+    assert (
+        "CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()"
+        in closing_point
+    )
+    assert re.search(
+        r"LEAST\(\s*CONVERT_TZ\(CAST\(c\.date AS DATETIME\) \+ INTERVAL 1 DAY, "
+        r"'\$\{timezone\}', 'UTC'\),\s*\$__timeTo\(\)\s*\) AS time",
+        closing_point,
+    )
 
 
 def test_minutes_below_comfort_are_read_from_the_comfort_days() -> None:

@@ -142,7 +142,7 @@ ORDER BY time;
 
 **Checked read-only against the Pi on 20 October 2026 at 20:07 UTC.** The newest outdoor reading was 20:00 UTC at 11.5 C, and the query returned that point followed by the forecast days 21 to 26 October: 21 October 9.8 C stamped 11:00 UTC (midday BST), 25 October 11.5 C stamped 12:00 UTC (midday GMT, the clocks having changed on the night of 24 October), and so on. 20 October's own forecast (11.9 C, stamped 11:00 UTC) is absent because readings already cover it.
 
-Query D, comfort (the learned **Comfort Temperature** of each London day from the small `comfort_day` table that octopus-app's hourly job writes ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)): the median room temperature at the boost starts of the 90 days before the day. One point per day at London midnight, drawn as a step, plus the newest day's value repeated at the end of that day so the line reaches the present. A day with no comfort temperature yet has no point. The range starts a day early so the step covers the left edge of the chart):
+Query D, comfort (the learned **Comfort Temperature** of each London day from the small `comfort_day` table that octopus-app's hourly job writes ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)): the median room temperature at the boost starts of the 90 days before the day. One point per day at London midnight, drawn as a step, plus one closing point so the line reaches the right-hand edge: the value of the newest day that starts within the range, repeated at the end of that day or at the end of the range, whichever is sooner (so a range ending now, or part-way through a past day, still draws that day). A day with no comfort temperature yet has no point. The range starts a day early so the step covers the left edge of the chart):
 
 ```sql
 SELECT time, comfort
@@ -156,11 +156,17 @@ FROM (
   UNION ALL
 
   SELECT
-    CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC') AS time,
+    LEAST(
+      CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),
+      $__timeTo()
+    ) AS time,
     c.comfort_temp AS comfort
   FROM comfort_day c
-  WHERE c.comfort_temp IS NOT NULL
-    AND c.date = (SELECT MAX(l.date) FROM comfort_day l)
+  WHERE c.date = (
+    SELECT MAX(l.date) FROM comfort_day l
+    WHERE l.comfort_temp IS NOT NULL
+      AND CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()
+  )
 ) d
 WHERE time >= $__timeFrom() - INTERVAL 1 DAY
   AND time <= $__timeTo()

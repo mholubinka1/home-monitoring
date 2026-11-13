@@ -34,8 +34,12 @@ class ComfortDayJob:
             return
         evidence_start = _day_start(first_day) - LEARNING_WINDOW
         evidence_end = _day_start(today)
+        # From one boost gap earlier, so a boost already running as the earliest
+        # window opens is not taken for a new one.
         boost_starts = comfort.boost_starts(
-            self._mariadb.read_boost_polls(evidence_start, evidence_end)
+            self._mariadb.read_boost_polls(
+                evidence_start - comfort.BOOST_GAP, evidence_end
+            )
         )
         heating_on_hours = self._mariadb.read_heating_on_hours(
             evidence_start, evidence_end
@@ -57,7 +61,10 @@ class ComfortDayJob:
     def _first_day_to_write(self) -> date | None:
         latest = self._mariadb.read_latest_comfort_day()
         if latest is not None:
-            return latest
+            day, computed_at = latest
+            next_day = day + timedelta(days=1)
+            # Written after it ended, so it is settled: never write it again.
+            return next_day if computed_at >= _day_start(next_day) else day
         first_poll = self._mariadb.read_first_heating_poll()
         return None if first_poll is None else local_day.to_local_date(first_poll)
 
