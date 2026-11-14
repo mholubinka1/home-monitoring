@@ -124,10 +124,10 @@ Panel 1 gains two dotted lines (the live current and plan forecasts). One new pa
 
 ### Acceptance criteria
 
-- [ ] Given the dashboard JSON, when it loads, then panel 1 has two dotted series, the live current and live plan room temperatures.
-- [ ] Given the JSON, when it loads, then a new panel shows heating minutes per hour for current against plan, the two costs and the newest backtest mean and worst error.
-- [ ] Given the newest `thermal_model` is unusable, when the new panel is viewed, then it shows its unusable reason and the age of the live forecast.
-- [ ] Given the queries, when read, then they use the data source's Database setting and no heavy aggregation.
+- [x] Given the dashboard JSON, when it loads, then panel 1 has two dotted series, the live current and live plan room temperatures.
+- [x] Given the JSON, when it loads, then a new panel shows heating minutes per hour for current against plan, the two costs and the newest backtest mean and worst error.
+- [x] Given the newest `thermal_model` is unusable, when the new panel is viewed, then it shows its unusable reason and the age of the live forecast.
+- [x] Given the queries, when read, then they use the data source's Database setting and no heavy aggregation.
 
 ---
 

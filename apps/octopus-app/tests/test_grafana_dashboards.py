@@ -627,3 +627,132 @@ def test_the_band_describes_its_dotted_forecast_without_sunshine_or_radiation() 
     assert "forecast" in band["description"].lower()
     for unused in ("sunshine", "radiation"):
         assert unused not in text, unused
+
+
+def test_the_temperature_panel_draws_the_two_room_forecasts_as_dotted_lines() -> None:
+    overrides = _panel_overrides(TEMPERATURES)
+
+    for series, name in (
+        ("room_current", "room forecast: current schedule"),
+        ("room_plan", "room forecast: comfort plan"),
+    ):
+        assert overrides[series]["custom.lineStyle"]["fill"] == "dash", series
+        assert overrides[series]["displayName"] == name, series
+    sql = {t["refId"]: t["rawSql"] for t in _panel(TEMPERATURES)["targets"]}
+    forecast_sql = " ".join(sql.values())
+    assert "room_forecast_hour" in forecast_sql
+    assert "'live'" in forecast_sql
+
+
+PLAN_PANEL = "Heating Plan and Room Model"
+
+
+def _plan_panel_sql() -> str:
+    return " ".join(t["rawSql"] for t in _panel(PLAN_PANEL)["targets"])
+
+
+def test_the_plan_panel_compares_the_two_schedules_in_minutes_and_pounds() -> None:
+    sql = _plan_panel_sql()
+    overrides = _panel_overrides(PLAN_PANEL)
+
+    assert _panel(PLAN_PANEL)["type"] == "timeseries"
+    assert _panel(PLAN_PANEL)["gridPos"]["w"] == GRID_COLUMNS
+    for series in ("current_minutes", "plan_minutes"):
+        assert overrides[series]["custom.drawStyle"] == "bars", series
+        assert f"AS {series}" in sql, series
+    for series in ("current_cost", "plan_cost"):
+        assert overrides[series]["unit"] == "currencyGBP", series
+        assert overrides[series]["custom.axisPlacement"] == "right", series
+        assert f"AS {series}" in sql, series
+    assert "r.on_minutes" in sql
+    assert "ROUND(r.cost_gbp, 3)" in sql
+    assert "kind = 'live'" in sql
+    assert "$__timeFilter(r.hour_start)" in sql
+
+
+def test_the_plan_panel_draws_every_backtest_fit_in_celsius() -> None:
+    sql = _plan_panel_sql()
+    overrides = _panel_overrides(PLAN_PANEL)
+
+    for series in ("backtest_mean", "backtest_worst"):
+        assert overrides[series]["unit"] == "celsius", series
+        assert f"AS {series}" in sql, series
+    assert "FROM thermal_model" in sql
+    assert "fitted_at AS time" in sql
+
+
+MODEL_STATES = {
+    0: "usable",
+    1: "too few steps",
+    2: "too little heating",
+    3: "no fit",
+    4: "implausible",
+    5: "too few backtest days",
+    6: "backtest error too high",
+}
+
+
+def test_the_model_state_names_all_seven_states_and_turns_red_when_flawed() -> None:
+    overrides = _panel_overrides(PLAN_PANEL)["model_state"]
+    mapped = {
+        int(value): option["text"]
+        for value, option in overrides["mappings"][0]["options"].items()
+    }
+    steps = overrides["thresholds"]["steps"]
+
+    assert mapped == MODEL_STATES
+    assert "AS model_state" in _plan_panel_sql()
+    assert steps[0]["color"] == "green"
+    assert {s["value"]: s["color"] for s in steps[1:]} == {1: "red"}
+    assert overrides["color"] == {"mode": "thresholds"}
+    assert overrides["custom.drawStyle"] == "points"
+
+
+def test_the_model_state_codes_follow_the_stored_unusable_reasons() -> None:
+    sql = next(
+        t["rawSql"]
+        for t in _panel(PLAN_PANEL)["targets"]
+        if "model_state" in t["rawSql"]
+    )
+
+    for code, reason in enumerate(
+        (
+            "too_few_steps",
+            "too_little_heating",
+            "no_fit",
+            "implausible",
+            "too_few_backtest_days",
+            "backtest_error_too_high",
+        ),
+        start=1,
+    ):
+        assert f"WHEN m.unusable_reason = '{reason}' THEN {code}" in sql, reason
+    assert "WHEN m.usable = 1 THEN 0" in sql
+
+
+def test_the_age_of_the_live_forecast_is_one_point_at_now_so_a_stale_line_shows() -> (
+    None
+):
+    sql = next(
+        t["rawSql"]
+        for t in _panel(PLAN_PANEL)["targets"]
+        if "forecast_age_hours" in t["rawSql"]
+    )
+    overrides = _panel_overrides(PLAN_PANEL)["forecast_age_hours"]
+
+    assert "LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time" in sql
+    assert "TIMESTAMPDIFF(MINUTE, MAX(r.computed_at), UTC_TIMESTAMP()) / 60" in sql
+    assert "WHERE r.kind = 'live'" in sql
+    assert overrides["unit"] == "h"
+    assert overrides["custom.showPoints"] == "always"
+
+
+def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None:
+    sql = _plan_panel_sql()
+
+    assert set(re.findall(r"\bFROM (\w+)", sql)) == {
+        "room_forecast_hour",
+        "thermal_model",
+    }
+    for heavy in ("weather_observation", "daily_consumption_summary", "heating_status"):
+        assert heavy not in sql, heavy
