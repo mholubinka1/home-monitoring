@@ -14,6 +14,7 @@ from octopus_app.data.thermal import ONE_HOUR, ThermalNumbers
 SATURDAY = 5
 # Halvings of the pre-heat search: far below a minute.
 BISECTIONS = 40
+ONE_DAY = timedelta(days=1)
 
 DAY_NAMES = (
     "monday",
@@ -277,10 +278,15 @@ def comfort_plan(
     """The forecast under heating that holds the target inside each day's comfort
     window, with the shortest pre-heat that gets there by its start, and none
     elsewhere. The hour a window starts in is the pre-heat's last, so it is not
-    held. When the first hour is already in the window there is no pre-heat."""
+    held, and the hour it ends in is left unheated. When the first hour is already
+    in the window there is no pre-heat. The window that began the day before is
+    planned first: an overnight window can still be open when the forecast starts."""
+    days = list(dict.fromkeys(hour.start.date() for hour in hours))
+    if not days:
+        return []
     planned: list[PlannedHour] = []
     state = start
-    for day in dict.fromkeys(hour.start.date() for hour in hours):
+    for day in [days[0] - ONE_DAY, *days]:
         ran, state = _plan_day(
             numbers,
             state,
@@ -316,6 +322,10 @@ def _plan_day(
         else [0.0] * len(run_up)
     )
     before, state = _with_fractions(numbers, state, run_up, fractions)
-    held = [hour for hour in remaining[first_held:] if hour.start < window_end]
+    # Whole hours only: the hour the window closes in starts at the target and
+    # drifts little before it closes, and heating it all would overstate the cost.
+    held = [
+        hour for hour in remaining[first_held:] if hour.start + ONE_HOUR <= window_end
+    ]
     during, state = _hold(numbers, state, held, lambda _start: target)
     return before + during, state

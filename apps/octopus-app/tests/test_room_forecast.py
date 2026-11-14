@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from octopus_app.common.config import ComfortWindows
+from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.room_forecast import (
     ForecastHour,
     Start,
@@ -219,3 +219,69 @@ def test_the_weekend_window_starts_later_than_the_weekday_one() -> None:
     # hour 07:45 falls in, at the weekend
     assert tuesday[2].fraction == 0.0
     assert saturday[2].fraction > 0.0
+
+
+def test_an_overnight_window_is_still_held_when_the_forecast_starts_after_midnight() -> (
+    None
+):
+    # Given a window from 22:00 to 06:00 and a forecast that starts at 02:00 on
+    # Tuesday, inside the window that began on Monday at 22:00
+    overnight = ComfortWindow(start=time(22, 0), end=time(6, 0))
+    plan = comfort_plan(
+        NUMBERS,
+        Start(room=18.0, previous_fraction=0.0),
+        _hours(datetime(2026, 11, 17, 2), 6),
+        19.0,
+        ComfortWindows(weekday=overnight, weekend=overnight),
+    )
+
+    # Then 02:00 holds 19 C from 18 C at once, (19 - 18 + 0.16 - 0.08) / 1.3 of
+    # the hour, and the hours up to 06:00 are held, not pre-heat for tonight
+    assert plan[0].fraction == pytest.approx(1.08 / 1.3)
+    assert plan[1].room == pytest.approx(19.0)
+    # the room is never below the target at the start of any hour up to 06:00
+    assert all(step.room >= 19.0 - 1e-9 for step in plan[1:5])
+    # and nothing heats once the window has closed at 06:00
+    assert [step.fraction for step in plan[4:]] == [0.0, 0.0]
+
+
+def test_the_hour_a_window_closes_in_is_left_unheated() -> None:
+    # Given a window ending at 23:30 and a cold night (-10 C outside), room at the
+    # target of 19 C at 21:00
+    ending_early = ComfortWindow(start=time(6, 30), end=time(23, 30))
+    cold = [
+        ForecastHour(datetime(2026, 11, 17, 21) + timedelta(hours=index), -10.0, 0.0)
+        for index in range(4)
+    ]
+
+    plan = comfort_plan(
+        NUMBERS,
+        Start(room=19.0, previous_fraction=0.0),
+        cold,
+        19.0,
+        ComfortWindows(weekday=ending_early, weekend=ending_early),
+    )
+
+    # Then the whole hours inside the window heat to hold it, and the 23:00 hour,
+    # which the window leaves part-way through, does not heat through midnight
+    assert plan[0].fraction > 0.0
+    assert plan[1].fraction > 0.0
+    assert plan[2].fraction == 0.0
+
+
+def test_a_forecast_that_starts_in_the_hour_the_window_closes_in_does_not_heat() -> (
+    None
+):
+    # Given a window ending at 23:30, and a forecast whose first hour is 23:00 in a
+    # cold room below the target
+    ending_early = ComfortWindow(start=time(6, 30), end=time(23, 30))
+    plan = comfort_plan(
+        NUMBERS,
+        Start(room=17.0, previous_fraction=0.0),
+        [ForecastHour(datetime(2026, 11, 17, 23), -10.0, 0.0)],
+        19.0,
+        ComfortWindows(weekday=ending_early, weekend=ending_early),
+    )
+
+    # Then the closing hour is not heated
+    assert plan[0].fraction == 0.0
