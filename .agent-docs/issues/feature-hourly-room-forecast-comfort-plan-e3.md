@@ -61,12 +61,12 @@ The comfort windows in the octopus-app config, and a second forecast under a com
 
 ### Acceptance criteria
 
-- [ ] Given no `comfort_windows` setting, when settings load, then weekdays are 06:30 to 00:00 and weekends 07:45 to 00:00; and given a bad time, then startup stops.
-- [ ] Given a comfort temperature of 19.3, when the plan runs, then the target is 19.5 held from the window's start to midnight.
-- [ ] Given a cold room before a window, when the plan is made, then the pre-heat is the shortest run of full heating that reaches the target by the window's start, with the room read by linear interpolation within the hour.
-- [ ] Given weekday and weekend days, when the plan is made, then each uses its own window.
-- [ ] Given a day with no comfort temperature, when the job runs, then no `plan` rows are stored for it and the `current` rows are still stored.
-- [ ] Given plan rows, when stored, then they carry minutes, kWh and cost like the current ones.
+- [x] Given no `comfort_windows` setting, when settings load, then weekdays are 06:30 to 00:00 and weekends 07:45 to 00:00; and given a bad time, then startup stops.
+- [x] Given a comfort temperature of 19.3, when the plan runs, then the target is 19.5 held from the window's start to midnight.
+- [x] Given a cold room before a window, when the plan is made, then the pre-heat is the shortest run of full heating that reaches the target by the window's start, with the room read by linear interpolation within the hour.
+- [x] Given weekday and weekend days, when the plan is made, then each uses its own window.
+- [x] Given a day with no comfort temperature, when the job runs, then no `plan` rows are stored for it and the `current` rows are still stored.
+- [x] Given plan rows, when stored, then they carry minutes, kWh and cost like the current ones.
 
 ---
 

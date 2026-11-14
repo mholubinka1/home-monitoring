@@ -5,13 +5,14 @@ reading to the end of tomorrow, under the Hive schedule and under the Comfort Pl
 London is on GMT in November, so local time is UTC."""
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from common.local_day import set_local_timezone
-from octopus_app.data.model import ThermalModelRecord
+from octopus_app.common.config import ComfortWindows
+from octopus_app.data.model import ComfortDayRecord, ThermalModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import (
     MariaDBClient,
@@ -564,3 +565,215 @@ def test_missing_hive_tables_store_nothing_and_do_not_raise(
 
     # Then nothing is stored
     assert _live_rows(mariadb_client_without_weather_tables, "current") == []
+
+
+def _seed_comfort(client: MariaDBClient, day: date, comfort_temp: float | None) -> None:
+    client.write_comfort_days(
+        [
+            ComfortDayRecord(
+                date=day,
+                comfort_temp=comfort_temp,
+                boost_starts=0,
+                counted_hours="",
+                minutes_below=None,
+                computed_at=NOW.replace(tzinfo=None),
+            )
+        ]
+    )
+
+
+def _seed_plan_inputs(client: MariaDBClient, room: float = 18.0) -> None:
+    """A fresh reading, a 7 C schedule and weather to the end of tomorrow."""
+    _seed_reading(client, NOW - timedelta(minutes=5), room=room)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 14), last=datetime(2026, 11, 19, 0)
+    )
+
+
+def test_the_plan_holds_the_rounded_up_comfort_temperature_with_the_shortest_preheat(
+    client: MariaDBClient,
+) -> None:
+    # Given a comfort temperature of 19.3 C today
+    _seed_plan_inputs(client)
+    _seed_comfort(client, NOW.date(), 19.3)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then the plan covers the same hours as the current rows
+    rows = _live_rows(client, "plan")
+    assert [row.hour_start for row in rows] == [
+        row.hour_start for row in _live_rows(client, "current")
+    ]
+    # and heats the room from 18 C in the first hour, already in today's window,
+    # up to 19.5 C (not 19.3 C): (19.5 - 18 + 0.08) / 1.3 of the hour, 73 minutes
+    # of heating, so the whole hour
+    assert rows[0].on_minutes == 60
+    assert rows[1].room_temp == pytest.approx(18.0 - 0.08 + 1.3)
+    by_hour = {row.hour_start: row for row in rows}
+    # tomorrow the room has cooled overnight and is at 19.5 C halfway through the
+    # 06:00 hour, the hour 06:30 falls in, after the shortest pre-heat
+    at_start = (
+        by_hour[datetime(2026, 11, 18, 6)].room_temp
+        + by_hour[datetime(2026, 11, 18, 7)].room_temp
+    ) / 2
+    assert at_start == pytest.approx(19.5, abs=1e-3)
+    # the pre-heat is the 06:00 hour at full heat (the room is 18.9 C at 06:00 and
+    # needs 1.2 C more by 06:30), the overnight hours before it do not heat, and
+    # 07:00 is held, not heated
+    assert by_hour[datetime(2026, 11, 18, 5)].on_minutes == 0
+    assert by_hour[datetime(2026, 11, 18, 6)].on_minutes == 60
+    assert by_hour[datetime(2026, 11, 18, 7)].on_minutes == 0
+
+
+def test_the_weekend_plan_starts_at_0745(client: MariaDBClient) -> None:
+    # Given it is Friday afternoon, so tomorrow is a Saturday, and a comfort
+    # temperature of 19 C
+    friday = datetime(2026, 11, 20, 14, 10, tzinfo=UTC)
+    _seed_reading(client, friday - timedelta(minutes=5), room=18.0)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_forecast(
+        client, first=datetime(2026, 11, 20, 14), last=datetime(2026, 11, 22, 0)
+    )
+    _seed_comfort(client, friday.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(friday)
+
+    # Then the room is at 19 C three quarters of the way through the 07:00 hour
+    # (07:45, the pre-heat's last hour) and the 08:00 hour is held
+    by_hour = {row.hour_start: row for row in _live_rows(client, "plan")}
+    saturday = datetime(2026, 11, 21)
+    seven = by_hour[saturday.replace(hour=7)].room_temp
+    eight = by_hour[saturday.replace(hour=8)].room_temp
+    assert seven + 0.75 * (eight - seven) == pytest.approx(19.0, abs=1e-3)
+    assert eight >= 19.0
+
+
+def test_a_comfort_window_from_the_config_moves_the_plan(client: MariaDBClient) -> None:
+    # Given a configured weekday window that starts at 09:00 on the hour
+    _seed_plan_inputs(client)
+    _seed_comfort(client, NOW.date(), 19.0)
+    windows = ComfortWindows.model_validate(
+        {"weekday": {"start": "09:00", "end": "00:00"}}
+    )
+
+    # When the job runs with it
+    RoomForecastJob(client, REGION, windows).refresh(NOW)
+
+    # Then tomorrow's room is 19 C at the start of the 09:00 hour, the first held
+    # hour, the pre-heat ending in the hour before
+    by_hour = {row.hour_start: row for row in _live_rows(client, "plan")}
+    assert by_hour[datetime(2026, 11, 18, 9)].room_temp == pytest.approx(19.0, abs=1e-3)
+
+
+def test_no_comfort_temperature_stores_no_plan_but_the_current_rows(
+    client: MariaDBClient,
+) -> None:
+    # Given no comfort_day row at all
+    _seed_plan_inputs(client)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then no plan rows are stored and the current rows are
+    assert _live_rows(client, "plan") == []
+    assert len(_live_rows(client, "current")) == 34
+
+
+def test_a_day_with_no_comfort_temperature_uses_the_newest_earlier_one(
+    client: MariaDBClient,
+) -> None:
+    # Given today's row has no temperature but yesterday's is 19 C
+    _seed_plan_inputs(client)
+    _seed_comfort(client, NOW.date() - timedelta(days=1), 19.0)
+    _seed_comfort(client, NOW.date(), None)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then the plan holds 19 C: the first hour heats 18 C to 19 C, 50 minutes
+    assert _live_rows(client, "plan")[0].on_minutes == 50
+
+
+def test_plan_hours_carry_kwh_and_cost_like_the_current_rows(
+    client: MariaDBClient,
+) -> None:
+    # Given the boiler measured at 6 kW and gas at 6 p per kWh
+    _seed_plan_inputs(client)
+    _seed_comfort(client, NOW.date(), 19.0)
+    _seed_measured_hours(client, count=5, kw=6.0)
+    _seed_gas_rate(client, unit_rate_p=6.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then the first plan hour, 50 minutes, is 5 kWh and 0.30 pounds
+    first = _live_rows(client, "plan")[0]
+    assert first.on_minutes == 50
+    assert first.heating_kwh == pytest.approx(5.0)
+    assert first.cost_gbp == pytest.approx(0.30)
+
+
+def test_an_unreadable_schedule_stores_the_plan_and_no_current_rows(
+    client: MariaDBClient,
+) -> None:
+    # Given a fresh reading, weather and comfort temperature, but a schedule that
+    # cannot be read
+    _seed_reading(client, NOW - timedelta(minutes=5), room=18.0)
+    _seed_schedule(client, {"monday": "not slots"})
+    _seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 14), last=datetime(2026, 11, 19, 0)
+    )
+    _seed_comfort(client, NOW.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then the plan is stored on its own inputs
+    assert _live_rows(client, "current") == []
+    assert len(_live_rows(client, "plan")) == 34
+
+
+def test_mode_off_does_not_stop_the_plan(client: MariaDBClient) -> None:
+    # Given Hive's mode is OFF
+    _seed_reading(client, NOW - timedelta(minutes=5), room=18.0, mode="OFF")
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 14), last=datetime(2026, 11, 19, 0)
+    )
+    _seed_comfort(client, NOW.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then the current rows do not heat but the plan does
+    assert {row.on_minutes for row in _live_rows(client, "current")} == {0}
+    assert _live_rows(client, "plan")[0].on_minutes == 50
+
+
+@pytest.mark.parametrize("fault", ["stale reading", "no weather", "no model"])
+def test_nothing_usable_stores_no_plan_either(
+    mariadb_client: MariaDBClient, fault: str
+) -> None:
+    # Given a comfort temperature and a fault in the forecast's own inputs
+    if fault != "no model":
+        mariadb_client.write_thermal_model(_usable_model())
+    reading_age = timedelta(minutes=45 if fault == "stale reading" else 5)
+    _seed_reading(mariadb_client, NOW - reading_age, room=18.0)
+    _seed_schedule(mariadb_client, _weekly_schedule())
+    if fault != "no weather":
+        _seed_weather_forecast(
+            mariadb_client,
+            first=datetime(2026, 11, 17, 14),
+            last=datetime(2026, 11, 19),
+        )
+    _seed_comfort(mariadb_client, NOW.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then neither scenario is stored
+    assert _live_rows(mariadb_client, "plan") == []
+    assert _live_rows(mariadb_client, "current") == []
