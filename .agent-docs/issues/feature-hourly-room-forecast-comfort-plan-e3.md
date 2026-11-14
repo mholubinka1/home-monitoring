@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature/hourly-room-forecast-comfort-plan-e3
 
 ## Room forecast under the current schedule
