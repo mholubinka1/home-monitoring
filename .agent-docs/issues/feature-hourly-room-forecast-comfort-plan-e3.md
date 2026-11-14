@@ -104,9 +104,9 @@ Run the room forecast job in the hourly chain after the thermal model, with its 
 
 ### Acceptance criteria
 
-- [ ] Given a successful heating-hour run, when the chain runs, then the room forecast runs after the thermal model with its own `room_forecast_refresh` job record.
-- [ ] Given a failed heating-hour run, when the chain runs, then the room forecast is recorded as skipped.
-- [ ] Given a failed comfort refresh, when the chain runs, then the room forecast still runs.
+- [x] Given a successful heating-hour run, when the chain runs, then the room forecast runs after the thermal model with its own `room_forecast_refresh` job record.
+- [x] Given a failed heating-hour run, when the chain runs, then the room forecast is recorded as skipped.
+- [x] Given a failed comfort refresh, when the chain runs, then the room forecast still runs.
 
 ---
 
