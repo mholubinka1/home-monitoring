@@ -248,3 +248,19 @@ class comfort_day(SQLBase):
     counted_hours = Column(String(100), nullable=False)  # e.g. "0,1,6,7,12"
     minutes_below = Column(Integer)
     computed_at = Column(DateTime, nullable=False)
+
+
+class room_forecast_hour(SQLBase):
+    __tablename__ = "room_forecast_hour"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per hour of each forecast (ADR-0035). kind is 'live' or
+    # 'day_ahead'; scenario is 'current' or 'plan'.
+    kind = Column(String(20), primary_key=True)
+    scenario = Column(String(20), primary_key=True)
+    hour_start = Column(DateTime, primary_key=True)
+    room_temp = Column(_DOUBLE)  # predicted, at the hour's start
+    on_minutes = Column(Integer)
+    heating_kwh = Column(_DOUBLE)
+    cost_gbp = Column(_DOUBLE)
+    computed_at = Column(DateTime, nullable=False)
