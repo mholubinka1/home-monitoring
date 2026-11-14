@@ -576,3 +576,42 @@ def test_nothing_usable_stores_no_plan_either(
     # Then neither scenario is stored
     assert live_rows(mariadb_client, "plan") == []
     assert live_rows(mariadb_client, "current") == []
+
+
+def test_an_unreadable_schedule_removes_the_earlier_current_rows_and_keeps_the_plan(
+    client: MariaDBClient,
+) -> None:
+    # Given both forecasts stored from a readable schedule
+    seed_plan_inputs(client)
+    seed_comfort(client, NOW.date(), 19.0)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    assert live_rows(client, "current")
+
+    # When Hive's schedule becomes unreadable and the job runs again
+    seed_schedule(client, {"monday": "not slots"})
+    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+
+    # Then the old current-schedule line is gone, not left drawn as today's, and
+    # the plan is refreshed
+    assert live_rows(client, "current") == []
+    plan = live_rows(client, "plan")
+    assert plan
+    assert plan[0].computed_at == (NOW + timedelta(minutes=10)).replace(tzinfo=None)
+
+
+def test_no_comfort_temperature_removes_the_earlier_plan_rows_and_keeps_the_current(
+    client: MariaDBClient,
+) -> None:
+    # Given both forecasts stored from a comfort temperature of 19 C
+    seed_plan_inputs(client)
+    seed_comfort(client, NOW.date(), 19.0)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    assert live_rows(client, "plan")
+
+    # When the comfort temperature is gone and the job runs again
+    seed_comfort(client, NOW.date(), None)
+    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+
+    # Then the old plan line is gone and the current-schedule line is refreshed
+    assert live_rows(client, "plan") == []
+    assert live_rows(client, "current")

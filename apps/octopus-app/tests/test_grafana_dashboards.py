@@ -638,6 +638,12 @@ def test_the_temperature_panel_draws_the_two_room_forecasts_as_dotted_lines() ->
     ):
         assert overrides[series]["custom.lineStyle"]["fill"] == "dash", series
         assert overrides[series]["displayName"] == name, series
+    for series in ("room_current", "room_plan"):
+        assert overrides[series]["custom.lineStyle"]["dash"] == [2, 6], series
+        assert (
+            overrides[series]["custom.lineStyle"]
+            != overrides["outdoor_forecast"]["custom.lineStyle"]
+        ), series
     sql = {t["refId"]: t["rawSql"] for t in _panel(TEMPERATURES)["targets"]}
     forecast_sql = " ".join(sql.values())
     assert "room_forecast_hour" in forecast_sql
@@ -670,7 +676,7 @@ def test_the_plan_panel_compares_the_two_schedules_in_minutes_and_pounds() -> No
     assert "$__timeFilter(r.hour_start)" in sql
 
 
-def test_the_plan_panel_draws_every_backtest_fit_in_celsius() -> None:
+def test_the_plan_panel_draws_the_newest_backtest_fit_in_celsius() -> None:
     sql = _plan_panel_sql()
     overrides = _panel_overrides(PLAN_PANEL)
 
@@ -678,7 +684,27 @@ def test_the_plan_panel_draws_every_backtest_fit_in_celsius() -> None:
         assert overrides[series]["unit"] == "celsius", series
         assert f"AS {series}" in sql, series
     assert "FROM thermal_model" in sql
-    assert "fitted_at AS time" in sql
+
+
+def test_the_model_queries_read_only_the_newest_fit_stamped_at_now() -> None:
+    for ref_id in ("B", "C"):
+        sql = _query(PLAN_PANEL, ref_id)
+        assert "LIMIT 1" in sql, ref_id
+        assert "ORDER BY m.fitted_at DESC, m.id DESC" in sql, ref_id
+        assert "$__timeFilter" not in sql, ref_id
+        assert "LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time" in sql, ref_id
+
+
+def test_the_backtest_errors_have_their_own_axis_apart_from_the_minutes() -> None:
+    overrides = _panel_overrides(PLAN_PANEL)
+    minutes = {
+        overrides[s].get("custom.axisPlacement")
+        for s in ("current_minutes", "plan_minutes")
+    }
+
+    for series in ("backtest_mean", "backtest_worst"):
+        assert overrides[series]["custom.axisPlacement"] not in minutes, series
+        assert "backtest" in overrides[series]["custom.axisLabel"], series
 
 
 MODEL_STATES = {

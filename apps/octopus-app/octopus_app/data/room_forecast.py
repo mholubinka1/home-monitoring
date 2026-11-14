@@ -82,6 +82,24 @@ def target_at(schedule: Schedule, moment: datetime) -> float:
     return schedule[DAY_NAMES[yesterday.weekday()]][-1][1]
 
 
+def _passive_change(
+    numbers: ThermalNumbers,
+    room: float,
+    outdoor: float,
+    radiation_kw: float,
+    previous_fraction: float,
+) -> float:
+    """The room's change over an hour with no heating in it: what it loses to
+    outdoors, what the previous hour's heating still gives, sunshine and the
+    constant gain."""
+    return (
+        numbers.loss_per_degree * (outdoor - room)
+        + numbers.carried_gain * previous_fraction
+        + numbers.sun_gain * radiation_kw
+        + numbers.constant_gain
+    )
+
+
 def hold_target(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     numbers: ThermalNumbers,
     room: float,
@@ -92,12 +110,7 @@ def hold_target(  # pylint: disable=too-many-arguments,too-many-positional-argum
 ) -> tuple[float, float]:
     """The smallest fraction of the hour's heating (0 to 1) that holds the room at
     the target, and the room at the hour's end."""
-    passive = (
-        numbers.loss_per_degree * (outdoor - room)
-        + numbers.carried_gain * previous_fraction
-        + numbers.sun_gain * radiation_kw
-        + numbers.constant_gain
-    )
+    passive = _passive_change(numbers, room, outdoor, radiation_kw, previous_fraction)
     needed = (target - room - passive) / numbers.heating_gain
     fraction = min(max(needed, 0.0), 1.0)
     return fraction, room + passive + numbers.heating_gain * fraction
@@ -141,7 +154,7 @@ def _run(
     for index, hour in enumerate(hours):
         fraction = heating_of(index, room, previous)
         planned.append(PlannedHour(room, fraction))
-        # An hour that holds nothing back: the unclamped change plus the heating.
+        # The room at the hour's end: its passive change plus the heating chosen.
         room = _end_room(numbers, room, hour, previous, fraction)
         previous = fraction
     return planned, Start(room, previous)
@@ -154,13 +167,10 @@ def _end_room(
     previous_fraction: float,
     fraction: float,
 ) -> float:
-    return room + (
-        numbers.loss_per_degree * (hour.outdoor - room)
-        + numbers.carried_gain * previous_fraction
-        + numbers.sun_gain * hour.radiation_kw
-        + numbers.constant_gain
-        + numbers.heating_gain * fraction
+    passive = _passive_change(
+        numbers, room, hour.outdoor, hour.radiation_kw, previous_fraction
     )
+    return room + passive + numbers.heating_gain * fraction
 
 
 def _hold(

@@ -230,8 +230,8 @@
                 "value": {
                   "fill": "dash",
                   "dash": [
-                    10,
-                    10
+                    2,
+                    6
                   ]
                 }
               },
@@ -259,8 +259,8 @@
                 "value": {
                   "fill": "dash",
                   "dash": [
-                    10,
-                    10
+                    2,
+                    6
                   ]
                 }
               },
@@ -1643,7 +1643,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "The live room forecast, hour by hour. Bars: minutes of heating per hour under the current schedule and under the comfort plan. Lines on the right axis: the gas cost of each, in pounds. Points: one per thermal-model fit, with the mean and worst error of its backtest in degrees, and the model state (green is usable; red names why the fit was rejected). The age of the live forecast is one point at now, in hours since it was last computed. A red model state means the forecast lines are stale: the room forecast is not recomputed while the model is unusable. A red forecast age means the hourly chain has stopped.",
+      "description": "The live room forecast, hour by hour. Bars: minutes of heating per hour under the current schedule and under the comfort plan. Lines on the right axis: the gas cost of each, in pounds. Points at now: the newest thermal-model fit, with the mean and worst error of its backtest in degrees (own axis on the right), and the model state (green is usable; red names why the fit was rejected). The age of the live forecast is one point at now, in hours since it was last computed. A red model state means the forecast lines are stale: the room forecast is not recomputed while the model is unusable. A red forecast age means the hourly chain has stopped.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1837,7 +1837,11 @@
               },
               {
                 "id": "custom.axisPlacement",
-                "value": "left"
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "backtest error (°C)"
               },
               {
                 "id": "custom.showPoints",
@@ -1868,7 +1872,11 @@
               },
               {
                 "id": "custom.axisPlacement",
-                "value": "left"
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "backtest error (°C)"
               },
               {
                 "id": "custom.showPoints",
@@ -2079,7 +2087,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  m.fitted_at AS time,\n  m.backtest_mean_error AS backtest_mean,\n  m.backtest_worst_error AS backtest_worst\nFROM thermal_model m\nWHERE $__timeFilter(m.fitted_at)\nORDER BY m.fitted_at;",
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  m.backtest_mean_error AS backtest_mean,\n  m.backtest_worst_error AS backtest_worst\nFROM thermal_model m\nORDER BY m.fitted_at DESC, m.id DESC\nLIMIT 1;",
           "refId": "B",
           "sql": {
             "columns": [
@@ -2108,7 +2116,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  m.fitted_at AS time,\n  CASE\n    WHEN m.usable = 1 THEN 0\n    WHEN m.unusable_reason = 'too_few_steps' THEN 1\n    WHEN m.unusable_reason = 'too_little_heating' THEN 2\n    WHEN m.unusable_reason = 'no_fit' THEN 3\n    WHEN m.unusable_reason = 'implausible' THEN 4\n    WHEN m.unusable_reason = 'too_few_backtest_days' THEN 5\n    WHEN m.unusable_reason = 'backtest_error_too_high' THEN 6\n  END AS model_state\nFROM thermal_model m\nWHERE $__timeFilter(m.fitted_at)\nORDER BY m.fitted_at;",
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  CASE\n    WHEN m.usable = 1 THEN 0\n    WHEN m.unusable_reason = 'too_few_steps' THEN 1\n    WHEN m.unusable_reason = 'too_little_heating' THEN 2\n    WHEN m.unusable_reason = 'no_fit' THEN 3\n    WHEN m.unusable_reason = 'implausible' THEN 4\n    WHEN m.unusable_reason = 'too_few_backtest_days' THEN 5\n    WHEN m.unusable_reason = 'backtest_error_too_high' THEN 6\n  END AS model_state\nFROM thermal_model m\nORDER BY m.fitted_at DESC, m.id DESC\nLIMIT 1;",
           "refId": "C",
           "sql": {
             "columns": [

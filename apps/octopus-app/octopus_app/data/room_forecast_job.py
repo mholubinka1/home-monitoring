@@ -72,7 +72,11 @@ class RoomForecastJob:
         stored = self._mariadb.read_latest_thermal_model()
         status = self._mariadb.read_latest_heating_status()
         numbers = None if stored is None else _numbers_of(stored.model)
-        if numbers is None or status is None or status[1] is None:
+        if numbers is None:
+            logger.info("Room forecast: no usable thermal model, nothing stored.")
+            return
+        if status is None or status[1] is None:
+            logger.info("Room forecast: no thermostat reading, nothing stored.")
             return
         if now.replace(tzinfo=None) - status[0] > MAX_READING_AGE:
             logger.info("Room forecast: the newest reading is stale, nothing stored.")
@@ -112,6 +116,8 @@ class RoomForecastJob:
                 "Room forecast: the weekly schedule is missing or unreadable, "
                 "no current-schedule forecast stored."
             )
+            # Nor is the earlier line left drawn as today's.
+            self._mariadb.replace_room_forecast(LIVE, CURRENT, [])
             return
         planned = room_forecast.hold_forecast(
             inputs.numbers,
@@ -133,6 +139,7 @@ class RoomForecastJob:
         )
         if comfort is None:
             logger.info("Room forecast: no comfort temperature, no plan stored.")
+            self._mariadb.replace_room_forecast(LIVE, PLAN, [])
             return
         planned = room_forecast.comfort_plan(
             inputs.numbers,
