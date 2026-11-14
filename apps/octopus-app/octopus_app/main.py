@@ -29,6 +29,7 @@ from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
 from octopus_app.data.pruning import DataPruner
+from octopus_app.data.room_forecast_job import RoomForecastJob
 from octopus_app.data.thermal_job import ThermalModelJob
 
 logging.config.dictConfig(config)
@@ -42,6 +43,7 @@ HEATING_MODEL_JOB = "heating_model_refresh"
 HEATING_HOUR_JOB = "heating_hour_refresh"
 COMFORT_DAY_JOB = "comfort_day_refresh"
 THERMAL_MODEL_JOB = "thermal_model_refresh"
+ROOM_FORECAST_JOB = "room_forecast_refresh"
 PRUNE_OLD_DATA_JOB = "prune_old_data"
 YEARLY_COMPARISON_BACKFILL_JOB = "yearly_comparison_backfill"
 COST_FORECAST_REFRESH_JOB = "cost_forecast_refresh"
@@ -340,20 +342,24 @@ def register_agile_forecast_refresh_job(
     )
 
 
-def register_heating_hour_job(
+def register_heating_hour_job(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     scheduler: Scheduler,
     heating_hour: HeatingHourJob,
     comfort_day: ComfortDayJob,
     thermal_model: ThermalModelJob,
+    room_forecast: RoomForecastJob,
     mariadb: MariaDBClient,
 ) -> Job:
     """Registers one hourly job that refreshes the heating hours, then -- only if
-    that succeeded -- the comfort days and then the thermal model (each skipped,
-    and recorded so, otherwise), in the same background thread. Both read the
-    stored heating hours: a comfort day is settled once from them (ADR-0034) and
-    the thermal model learns from them (ADR-0035), so neither may run while they
-    are missing or part-way through a backfill. The thermal model does not
-    depend on the comfort days, so a failed comfort refresh does not stop it."""
+    that succeeded -- the comfort days, the thermal model and the room forecast
+    (each skipped, and recorded so, otherwise), in the same background thread.
+    They read the stored heating hours: a comfort day is settled once from them
+    (ADR-0034), the thermal model learns from them and the room forecast runs it
+    forward (ADR-0035), so none may run while they are missing or part-way through
+    a backfill. The room forecast reads the comfort day and the thermal model of
+    the same cycle, so it runs last. A failed comfort refresh does not stop the
+    thermal model or the room forecast: each reads the rows already stored, and
+    the room forecast says so when it has no comfort temperature to plan from."""
     refresh_heating_hours = _with_backoff_recording(
         HEATING_HOUR_JOB, heating_hour.refresh, mariadb
     )
@@ -363,6 +369,9 @@ def register_heating_hour_job(
         ),
         THERMAL_MODEL_JOB: _with_backoff_recording(
             THERMAL_MODEL_JOB, thermal_model.refresh, mariadb
+        ),
+        ROOM_FORECAST_JOB: _with_backoff_recording(
+            ROOM_FORECAST_JOB, room_forecast.refresh, mariadb
         ),
     }
 
@@ -459,6 +468,7 @@ def main() -> None:
         HeatingHourJob(client.mariadb, client.region_code),
         ComfortDayJob(client.mariadb),
         ThermalModelJob(client.mariadb),
+        RoomForecastJob(client.mariadb, client.region_code, settings.comfort_windows),
         client.mariadb,
     )
 

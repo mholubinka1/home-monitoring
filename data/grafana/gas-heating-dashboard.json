@@ -63,7 +63,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the learned comfort temperature: the typical room temperature at which a boost is pressed, over the two years before each day, with recent boosts counting more (one value per day, so it is drawn as a step). It is not a thermostat setting, and it is absent until 5 boosts have been seen.",
+      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the learned comfort temperature: the typical room temperature at which a boost is pressed, over the two years before each day, with recent boosts counting more (one value per day, so it is drawn as a step). It is not a thermostat setting, and it is absent until 5 boosts have been seen. The two dotted room forecast lines are the predicted room temperature, hour by hour, if the Hive schedule runs as set (current schedule) and under the comfort plan with the shortest pre-heat (comfort plan).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -211,6 +211,64 @@
                 "value": "stepAfter"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "room_current"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "room forecast: current schedule"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "room_plan"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "teal",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "room forecast: comfort plan"
+              }
+            ]
           }
         ]
       },
@@ -334,6 +392,35 @@
           "rawQuery": true,
           "rawSql": "SELECT time, comfort\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    LEAST(\n      CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),\n      $__timeTo()\n    ) AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.date = (\n    SELECT MAX(l.date) FROM comfort_day l\n    WHERE l.comfort_temp IS NOT NULL\n      AND CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()\n  )\n) d\nWHERE time >= $__timeFrom() - INTERVAL 1 DAY\n  AND time <= $__timeTo()\nORDER BY time;",
           "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  r.hour_start AS time,\n  MAX(CASE WHEN r.scenario = 'current' THEN r.room_temp END) AS room_current,\n  MAX(CASE WHEN r.scenario = 'plan' THEN r.room_temp END) AS room_plan\nFROM room_forecast_hour r\nWHERE r.kind = 'live'\n  AND r.scenario IN ('current', 'plan')\n  AND $__timeFilter(r.hour_start)\nGROUP BY r.hour_start\nORDER BY r.hour_start;",
+          "refId": "E",
           "sql": {
             "columns": [
               {
@@ -1550,6 +1637,537 @@
       ],
       "type": "bargauge",
       "description": "The latest gas row of the cost forecast: cost so far against the projected total for the billing period. It shows whatever the cost forecast currently computes (since the heating model was adopted, each remaining day's expected gas comes from the model)."
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "The live room forecast, hour by hour. Bars: minutes of heating per hour under the current schedule and under the comfort plan. Lines on the right axis: the gas cost of each, in pounds. Points at now: the newest thermal-model fit, with the mean and worst error of its backtest in degrees (own axis on the right), and the model state (green is usable; red names why the fit was rejected). The age of the live forecast is one point at now, in hours since it was last computed. A red model state means the forecast lines are stale: the room forecast is not recomputed while the model is unusable. A red forecast age means the hourly chain has stopped.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "current_minutes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "displayName",
+                "value": "heating, current schedule"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "plan_minutes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "teal",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: min"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 40
+              },
+              {
+                "id": "displayName",
+                "value": "heating, comfort plan"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "current_cost"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "cost, current schedule"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "plan_cost"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "teal",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "displayName",
+                "value": "cost, comfort plan"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "backtest_mean"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "backtest error (°C)"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "displayName",
+                "value": "model backtest: mean error"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "backtest_worst"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "backtest error (°C)"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "displayName",
+                "value": "model backtest: worst error"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "model_state"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "index": 0,
+                        "text": "usable"
+                      },
+                      "1": {
+                        "index": 1,
+                        "text": "too few steps"
+                      },
+                      "2": {
+                        "index": 2,
+                        "text": "too little heating"
+                      },
+                      "3": {
+                        "index": 3,
+                        "text": "no fit"
+                      },
+                      "4": {
+                        "index": 4,
+                        "text": "implausible"
+                      },
+                      "5": {
+                        "index": 5,
+                        "text": "too few backtest days"
+                      },
+                      "6": {
+                        "index": 6,
+                        "text": "backtest error too high"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "model state"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "forecast_age_hours"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "h"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              },
+              {
+                "id": "displayName",
+                "value": "age of the live forecast"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  r.hour_start AS time,\n  MAX(CASE WHEN r.scenario = 'current' THEN r.on_minutes END) AS current_minutes,\n  MAX(CASE WHEN r.scenario = 'plan' THEN r.on_minutes END) AS plan_minutes,\n  MAX(CASE WHEN r.scenario = 'current' THEN ROUND(r.cost_gbp, 3) END) AS current_cost,\n  MAX(CASE WHEN r.scenario = 'plan' THEN ROUND(r.cost_gbp, 3) END) AS plan_cost\nFROM room_forecast_hour r\nWHERE r.kind = 'live'\n  AND r.scenario IN ('current', 'plan')\n  AND $__timeFilter(r.hour_start)\nGROUP BY r.hour_start\nORDER BY r.hour_start;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  m.backtest_mean_error AS backtest_mean,\n  m.backtest_worst_error AS backtest_worst\nFROM thermal_model m\nORDER BY m.fitted_at DESC, m.id DESC\nLIMIT 1;",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  CASE\n    WHEN m.usable = 1 THEN 0\n    WHEN m.unusable_reason = 'too_few_steps' THEN 1\n    WHEN m.unusable_reason = 'too_little_heating' THEN 2\n    WHEN m.unusable_reason = 'no_fit' THEN 3\n    WHEN m.unusable_reason = 'implausible' THEN 4\n    WHEN m.unusable_reason = 'too_few_backtest_days' THEN 5\n    WHEN m.unusable_reason = 'backtest_error_too_high' THEN 6\n  END AS model_state\nFROM thermal_model m\nORDER BY m.fitted_at DESC, m.id DESC\nLIMIT 1;",
+          "refId": "C",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  ROUND(TIMESTAMPDIFF(MINUTE, MAX(r.computed_at), UTC_TIMESTAMP()) / 60, 1) AS forecast_age_hours\nFROM room_forecast_hour r\nWHERE r.kind = 'live';",
+          "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Heating Plan and Room Model",
+      "type": "timeseries"
     }
   ],
   "refresh": "5m",

@@ -39,6 +39,7 @@ from octopus_app.data.model import (
     HeatingHourRecord,
     HeatingModelRecord,
     HourlyWeather,
+    RoomForecastRecord,
     StoredHeatingModel,
     StoredThermalModel,
     ThermalModelRecord,
@@ -119,6 +120,29 @@ heating_status_table = Table(
     Column("boost_ends_at", DateTime),
     Column("schedule", JSON),
     Column("working", Boolean),
+    schema="octopus",
+)
+
+# hive-app's weather_forecast_hour and heating_schedule, read the same way.
+weather_forecast_hour_table = Table(
+    "weather_forecast_hour",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("source", String(20)),
+    Column("location", String(20), nullable=False),
+    Column("forecast_at", DateTime, nullable=False),
+    Column("temp", Float),
+    Column("shortwave_radiation", Float),
+    Column("fetched_at", DateTime, nullable=False),
+    schema="octopus",
+)
+
+heating_schedule_table = Table(
+    "heating_schedule",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("captured_at", DateTime, nullable=False),
+    Column("schedule", JSON, nullable=False),
     schema="octopus",
 )
 
@@ -878,6 +902,101 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         except Exception as e:
             logger.error(f"Failed to replace heating hours: {e}")
             raise MariaDBError(e) from e
+
+    def replace_room_forecast(
+        self,
+        kind: str,
+        scenario: str,
+        rows: list[RoomForecastRecord],
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> None:
+        """Replaces the stored rows of the kind and scenario with rows. With
+        start and end (naive UTC), only the stored rows whose hour_start lies in
+        [start, end) are replaced."""
+        rf = model.room_forecast_hour
+        try:
+            with self.session_write_scope() as session:
+                stale = session.query(rf).filter(
+                    rf.kind == kind, rf.scenario == scenario
+                )
+                if start is not None and end is not None:
+                    stale = stale.filter(rf.hour_start >= start, rf.hour_start < end)
+                stale.delete(synchronize_session=False)
+                session.add_all(rf(**_values_of(row)) for row in rows)
+        except Exception as e:
+            logger.error(f"Failed to replace room forecast: {e}")
+            raise MariaDBError(e) from e
+
+    def read_hourly_weather_forecast(
+        self, start: datetime, end: datetime
+    ) -> dict[datetime, HourlyWeather]:
+        """The forecast outdoor temperature and radiation (W/m2) of each hour
+        stamp in [start, end] (naive UTC) for the current location. A stamp
+        without a usable temperature is absent; its radiation may be None. A
+        missing table reads as no rows."""
+        wf = weather_forecast_hour_table
+        try:
+            with self.session_read_scope() as session:
+                location = (
+                    session.query(wf.c.location)
+                    .order_by(wf.c.forecast_at.desc(), wf.c.location.desc())
+                    .first()
+                )
+                if location is None:
+                    return {}
+                rows = (
+                    session.query(wf.c.forecast_at, wf.c.temp, wf.c.shortwave_radiation)
+                    .filter(
+                        wf.c.location == location.location,
+                        wf.c.forecast_at >= start,
+                        wf.c.forecast_at <= end,
+                    )
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return {}
+        return {
+            row.forecast_at: HourlyWeather(
+                temp=row.temp, radiation=_finite_or_none(row.shortwave_radiation)
+            )
+            for row in rows
+            if _finite_or_none(row.temp) is not None
+        }
+
+    def read_latest_heating_schedule(self) -> dict[str, Any] | None:
+        """The newest stored weekly schedule, or None when there is none or
+        hive-app's table is missing."""
+        hs = heating_schedule_table
+        try:
+            with self.session_read_scope() as session:
+                row = session.query(hs.c.schedule).order_by(hs.c.id.desc()).first()
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return None
+        return None if row is None else row.schedule
+
+    def read_latest_heating_status(
+        self,
+    ) -> tuple[datetime, float | None, str | None] | None:
+        """The newest thermostat poll's (time, room temperature, mode), or None
+        when there is none or hive-app's table is missing."""
+        hs = heating_status_table
+        try:
+            with self.session_read_scope() as session:
+                row = (
+                    session.query(hs.c.polled_at, hs.c.current_temp, hs.c.mode)
+                    .order_by(hs.c.polled_at.desc(), hs.c.id.desc())
+                    .first()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return None
+        return None if row is None else (row.polled_at, row.current_temp, row.mode)
 
     def read_heating_on_hours(self, start: datetime, end: datetime) -> list[datetime]:
         """The starts (naive UTC) of the stored heating_hour rows in [start, end)

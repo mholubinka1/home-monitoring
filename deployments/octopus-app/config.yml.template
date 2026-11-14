@@ -13,6 +13,18 @@ mariadb:
 # Must match hive-app's timezone setting.
 # timezone: Europe/London
 
+# Optional: when the room forecast's comfort plan holds the comfort temperature, in
+# local time (defaults shown; weekend is Saturday and Sunday). An end of "00:00" is
+# midnight at the end of the day. Quote every time: YAML reads an unquoted 7:45 as
+# the number 465 and the app refuses to start.
+# comfort_windows:
+#   weekday:
+#     start: "06:30"
+#     end: "00:00"
+#   weekend:
+#     start: "07:45"
+#     end: "00:00"
+
 data_refresh:
   retention_days: 45
   refresh_interval_hours: 1

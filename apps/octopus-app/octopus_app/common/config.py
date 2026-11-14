@@ -1,5 +1,7 @@
 import logging.config
+import re
 import sys
+from datetime import time
 from logging import Logger, getLogger
 
 import yaml
@@ -11,6 +13,8 @@ from octopus_app.common.logging import APP_LOGGER_NAME, config
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
+
+_CLOCK_TIME = re.compile(r"(\d{1,2}):(\d{2})")
 
 
 class OctopusAPISettings(BaseModel):
@@ -25,6 +29,31 @@ class RefreshSettings(BaseModel):
     retention: int = Field(alias="retention_days")
 
 
+class ComfortWindow(BaseModel):
+    """When the room should be comfortable, in local time. An end of 00:00 is the
+    midnight at the end of the day."""
+
+    start: time
+    end: time
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _time_must_be_a_quoted_clock_time(cls, value: object) -> time:
+        # YAML 1.1 reads an unquoted 7:45 as the number 465 (base 60), so only a
+        # quoted string is a time the household meant (a time object is the default).
+        if isinstance(value, time):
+            return value
+        match = _CLOCK_TIME.fullmatch(value) if isinstance(value, str) else None
+        if match is None or int(match[1]) > 23 or int(match[2]) > 59:
+            raise ValueError('use a quoted clock time such as "07:45"')
+        return time(int(match[1]), int(match[2]))
+
+
+class ComfortWindows(BaseModel):
+    weekday: ComfortWindow = ComfortWindow(start=time(6, 30), end=time(0, 0))
+    weekend: ComfortWindow = ComfortWindow(start=time(7, 45), end=time(0, 0))
+
+
 class ApplicationSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -32,6 +61,7 @@ class ApplicationSettings(BaseModel):
     mariadb: MariaDBSettings
     refresh_settings: RefreshSettings = Field(alias="data_refresh")
     timezone: str = DEFAULT_TIMEZONE
+    comfort_windows: ComfortWindows = ComfortWindows()
 
     @field_validator("timezone")
     @classmethod

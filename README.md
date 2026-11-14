@@ -72,6 +72,12 @@ providing:
   one). This is separate from the `daily_consumption_summary` backfill, which
   fetches everything the Octopus API still serves (about 2 years) at any startup where
   the summary's counted days reach back less than 6 months, and needs no configuration.
+- Optional `comfort_windows` (`weekday` and `weekend`, each with a `start` and an `end`
+  local time): when the room forecast's comfort plan holds the comfort temperature.
+  Defaults are 06:30 to 00:00 on weekdays and 07:45 to 00:00 at weekends (Saturday and
+  Sunday); an end of `00:00` is midnight at the end of the day. Quote the times
+  (`start: "07:45"`), because YAML reads an unquoted `7:45` as a number and the app
+  stops at startup, naming the field.
 
 For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template`. Only
 the `hive` (account username and password) and `mariadb` sections are required for
