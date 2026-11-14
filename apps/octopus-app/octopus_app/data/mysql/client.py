@@ -904,15 +904,25 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             raise MariaDBError(e) from e
 
     def replace_room_forecast(
-        self, kind: str, scenario: str, rows: list[RoomForecastRecord]
+        self,
+        kind: str,
+        scenario: str,
+        rows: list[RoomForecastRecord],
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> None:
-        """Replaces the stored rows of the kind and scenario with rows."""
+        """Replaces the stored rows of the kind and scenario with rows. With
+        start and end (naive UTC), only the stored rows whose hour_start lies in
+        [start, end) are replaced."""
         rf = model.room_forecast_hour
         try:
             with self.session_write_scope() as session:
-                session.query(rf).filter(
+                stale = session.query(rf).filter(
                     rf.kind == kind, rf.scenario == scenario
-                ).delete(synchronize_session=False)
+                )
+                if start is not None and end is not None:
+                    stale = stale.filter(rf.hour_start >= start, rf.hour_start < end)
+                stale.delete(synchronize_session=False)
                 session.add_all(rf(**_values_of(row)) for row in rows)
         except Exception as e:
             logger.error(f"Failed to replace room forecast: {e}")

@@ -3,7 +3,7 @@ tomorrow and stores the hourly forecast (ADR-0035)."""
 
 import logging.config
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -28,6 +28,8 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 LIVE = "live"
+DAY_AHEAD = "day_ahead"
+ONE_DAY = timedelta(days=1)
 CURRENT = "current"
 PLAN = "plan"
 # A target no room is below: the heating fraction clamps to zero.
@@ -46,6 +48,7 @@ class _Inputs:
     weather: list[room_forecast.ForecastHour]  # the same hours, local starts
     boiler_kw: float
     now: datetime
+    tomorrow: tuple[datetime, datetime]  # [start, end) of its local day, naive UTC
 
 
 class RoomForecastJob:
@@ -65,13 +68,7 @@ class RoomForecastJob:
         tomorrow's local day."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         first = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
-        end = (
-            local_day.start_of_local_day(
-                local_day.to_local_date(now) + timedelta(days=2)
-            )
-            .astimezone(UTC)
-            .replace(tzinfo=None)
-        )
+        end = _naive_utc_start_of(local_day.to_local_date(now) + 2 * ONE_DAY)
         stored = self._mariadb.read_latest_thermal_model()
         status = self._mariadb.read_latest_heating_status()
         numbers = None if stored is None else _numbers_of(stored.model)
@@ -100,6 +97,7 @@ class RoomForecastJob:
             ],
             self._boiler_kw(now),
             now,
+            (_naive_utc_start_of(local_day.to_local_date(now) + ONE_DAY), end),
         )
         self._store_current(inputs, status[2] == OFF_MODE)
         self._store_plan(inputs, local_day.to_local_date(now))
@@ -156,6 +154,20 @@ class RoomForecastJob:
             for hour, step in zip(inputs.hours, planned)
         ]
         self._mariadb.replace_room_forecast(LIVE, scenario, rows)
+        # Tomorrow's hours are also kept as the day-ahead forecast: rewritten by
+        # each run until midnight, then no run touches them again.
+        tomorrow_start, tomorrow_end = inputs.tomorrow
+        self._mariadb.replace_room_forecast(
+            DAY_AHEAD,
+            scenario,
+            [
+                replace(row, kind=DAY_AHEAD)
+                for row in rows
+                if tomorrow_start <= row.hour_start < tomorrow_end
+            ],
+            tomorrow_start,
+            tomorrow_end,
+        )
         logger.info(f"Room forecast: stored {len(rows)} {scenario} hour(s).")
 
     def _row(
@@ -212,6 +224,11 @@ def _hours_with_weather(
         hours.append(hour)
         hour += ONE_HOUR
     return hours
+
+
+def _naive_utc_start_of(day: date) -> datetime:
+    """Midnight starting the local day, as naive UTC."""
+    return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
 
 
 def _local(hour: datetime) -> datetime:

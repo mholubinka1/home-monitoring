@@ -84,9 +84,9 @@ Store a day-ahead copy of tomorrow's forecast for both scenarios, rewritten whil
 
 ### Acceptance criteria
 
-- [ ] Given a run today, when it stores, then `day_ahead` rows are written for tomorrow's hours only, in both scenarios.
-- [ ] Given further runs while that day is still tomorrow, when they store, then tomorrow's day-ahead rows are rewritten.
-- [ ] Given midnight has passed, when the job runs, then that day's day-ahead rows are unchanged and none are written for today or the past.
+- [x] Given a run today, when it stores, then `day_ahead` rows are written for tomorrow's hours only, in both scenarios.
+- [x] Given further runs while that day is still tomorrow, when they store, then tomorrow's day-ahead rows are rewritten.
+- [x] Given midnight has passed, when the job runs, then that day's day-ahead rows are unchanged and none are written for today or the past.
 
 ---
 
