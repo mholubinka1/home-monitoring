@@ -1,3 +1,4 @@
+from datetime import time
 from pathlib import Path
 from typing import Any
 
@@ -129,3 +130,57 @@ def test_an_unknown_timezone_fails_at_load_naming_the_timezone_field(
 
     assert exit_info.value.code == 1
     assert "invalid or missing field(s): timezone" in " ".join(logged_messages)
+
+
+def test_a_configured_quoted_comfort_window_overrides_the_default(
+    tmp_path: Path,
+) -> None:
+    # Given a config file that quotes the weekend start
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekend:\n    start: "8:15"\n    end: "23:00"\n',
+        encoding="utf-8",
+    )
+
+    # When the settings load
+    windows = get_settings(str(config_file)).comfort_windows
+
+    # Then the weekend uses it and the weekday keeps its default
+    assert (windows.weekend.start, windows.weekend.end) == (time(8, 15), time(23, 0))
+    assert windows.weekday.start == time(6, 30)
+
+
+def test_an_unquoted_comfort_time_stops_startup_telling_the_user_to_quote_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given an unquoted 7:45, which YAML reads as the number 465
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + "comfort_windows:\n  weekend:\n    start: 7:45\n    end: '00:00'\n",
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.critical", logged_messages.append
+    )
+
+    # When the settings load
+    with pytest.raises(SystemExit) as exit_info:
+        get_settings(str(config_file))
+
+    # Then startup stops naming the field
+    assert exit_info.value.code == 1
+    assert "comfort_windows.weekend.start" in " ".join(logged_messages)
+
+
+def test_comfort_windows_default_to_the_household_hours() -> None:
+    # Given a config with no comfort_windows setting
+    # When the settings load
+    settings = ApplicationSettings.model_validate(VALID_CONFIG)
+
+    # Then weekdays are 06:30 to midnight and weekends 07:45 to midnight
+    windows = settings.comfort_windows
+    assert (windows.weekday.start, windows.weekday.end) == (time(6, 30), time(0, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(7, 45), time(0, 0))

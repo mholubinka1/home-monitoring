@@ -65,7 +65,7 @@ _Avoid_: customer, user
 ### Data Storage
 
 **`home_monitoring` database** (formerly `octopus`):
-The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
+The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. The heating forecast uses `weather_forecast_hour` and `heating_schedule` (hive-app) and `thermal_model` and `room_forecast_hour` (octopus-app). It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
 _Avoid_: octopus database (the old name), the database, mysql db
 
 **schema** (as in `schema_translate_map`, `__table_args__ = {"schema": ...}`):

@@ -115,7 +115,7 @@ What this cannot tell you: it is the temperature at which the household acts, no
 
 ## 12. The thermal model
 
-Everything above works in whole days of gas. The thermal model answers a different question: **how does the room's temperature change from one hour to the next?** It is the groundwork for a forecast of the room and for heating advice, which are not on the dashboard yet.
+Everything above works in whole days of gas. The thermal model answers a different question: **how does the room's temperature change from one hour to the next?** It is the groundwork for a forecast of the room and for heating advice, both described at the end of this section and drawn on the dashboard.
 
 It is five numbers, learned from the thermostat's own readings, the heating hours of section 10 and the hourly weather:
 
@@ -147,7 +147,18 @@ The average miss over all those hours, and the worst single miss, are stored wit
 - fewer than 5 of the 14 days could be tested;
 - an average miss above 0.5 °C.
 
-The forecast, when it is added, will draw nothing while the newest model is not usable.
+While the newest model is not usable, no new forecast is made. The last forecast lines stay on the dashboard, and the heating plan panel shows why the model is not trusted and how old the forecast is, so a stale line is visibly stale. An older usable model is never brought back in its place.
+
+**The room forecast.** Once an hour the model is run forward from the room's latest reading to the end of tomorrow, hour by hour, using the weather forecast. It is run twice:
+
+- **Under your Hive schedule as programmed.** The thermostat heats just enough to hold each slot's target, and nothing while Hive's mode is OFF. If the weekly schedule cannot be read, this forecast is left out for that hour and the log says so, rather than showing a house with no heating.
+- **Under the comfort plan.** This is advice only: nothing is ever sent to Hive. The plan holds your comfort temperature (section 11), rounded up to the half degree Hive accepts, from 06:30 on weekdays and 07:45 at weekends until midnight. The windows are in the octopus-app config. Before each window opens it heats for the shortest time that gets the room to the target by the start.
+
+Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C. It is a weekday, 6 °C outside, and the room has drifted to 18.9 °C at 06:00. A full hour of heating from 06:00 adds the 1.4 °C of heating gain and the 0.06 °C constant, less 0.26 °C lost (0.02 times 12.9 degrees): about 1.2 °C. The room is half way through that hour at 06:30, so at 19.5 °C. The plan starts the pre-heat at 06:00, and not earlier, because that is the least heating that gets there. From 07:00 it only tops up what the room loses.
+
+Each hour is stored with its heating minutes and cost (the minutes times the boiler's learned kW, times the gas unit rate of section 10). The dashboard draws the two room lines dotted on the temperature chart, and a separate panel shows the minutes and cost of each, the backtest error and whether the model is trusted.
+
+**Day-ahead lines.** The forecast for tomorrow is rewritten every hour until midnight and then frozen. Past days therefore keep the forecast as it stood when the day began, which can be compared with what the room really did. Today's live forecast is the freshest, tomorrow's frozen copy is the honest one.
 
 What this cannot tell you: it describes one room, the one with the thermostat. It has seen only mild weather so far (nothing colder than about 1 °C outdoors), so its numbers will move as winter arrives, which is why it is relearned and retested daily. It knows nothing about open windows, guests or a door left open, which show up as misses. And the backtest is given the heating that really happened, so it tests the house model, not anyone's ability to guess when the heating will be on.
 
@@ -161,7 +172,13 @@ What this cannot tell you: it describes one room, the one with the thermostat. I
 
 **Comfort temperature.** The typical room temperature at which a boost is pressed, over the last two years, with recent boosts counting more.
 
+**Comfort plan.** The least heating that keeps the room at the comfort temperature (rounded up to a half degree) through the comfort window, including the pre-heat before it. Advice only.
+
+**Comfort window.** The hours of a day the comfort plan keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends, set in the config.
+
 **Counted hour.** A clock hour in which the heating has been on in the last 365 days; only these count towards minutes below comfort.
+
+**Day-ahead forecast.** The room forecast for a day as it stood when that day began, never changed afterwards.
 
 **Degree-day.** One degree of difference below the threshold, for one day. A 3 °C day against a 13 °C threshold is 10 degree-days.
 
@@ -170,6 +187,8 @@ What this cannot tell you: it describes one room, the one with the thermostat. I
 **Expected gas.** The baseload plus the slope times the degree-days.
 
 **Heating day.** A day on which the heating was on at least once. Old boosts fade by heating days, not calendar days.
+
+**Room forecast.** The predicted room temperature for each hour to the end of tomorrow, made twice: under the Hive schedule as programmed and under the comfort plan.
 
 **Slope.** The extra gas each degree-day costs, in kWh.
 
