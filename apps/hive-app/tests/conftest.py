@@ -1,8 +1,10 @@
+import copy
 from collections.abc import Callable, Iterator
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from apyhiveapi.helper.hive_helper import HiveHelper
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
@@ -102,14 +104,12 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         self._sms_result = sms_result
         # As apyhiveapi exposes it: the Hive object is its own session, and
         # its product data is keyed by the device's hiveID. `product_state` is
-        # that product's `state` (empty when not given).
-        self.session = SimpleNamespace(
-            data=SimpleNamespace(
-                products={
-                    THERMOSTAT_HIVE_ID: {"state": options.get("product_state") or {}}
-                }
-            )
-        )
+        # that product's `state` (empty when not given), reloaded as a fresh
+        # copy each time a session starts, as each real poll's new Hive loads
+        # fresh JSON.
+        self._product_state = options.get("product_state") or {}
+        self.session = SimpleNamespace(data=SimpleNamespace(products={}))
+        self._load_products()
         self._registration_sets_password = registration_sets_password
         self._login_result = login_result or {
             "ChallengeName": "SMS_MFA",
@@ -125,7 +125,10 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
             device_registration=self._device_registration,
         )
         self.api = SimpleNamespace(getAll=self._get_all)
-        self.heating = self._heating_namespace(heating_working)
+        self.heating = self._heating_namespace(
+            heating_working, options.get("heating_mode", "SCHEDULE")
+        )
+        self.heating.getScheduleNowNextLater = self._schedule_now_next_later
         self.deviceList: dict[str, Any] = {}
         self.call_order: list[str] = []
         self.submitted_codes: list[str] = []
@@ -135,10 +138,30 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
     async def _get_all(self) -> dict[str, Any]:
         return {}
 
+    async def _schedule_now_next_later(
+        self, device: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """As apyhiveapi's heating.getScheduleNowNextLater: in SCHEDULE mode
+        the library's own helper parses the product schedule, writing
+        datetimes into its slots in place; a KeyError gives None."""
+        if await self.heating.getMode(device) != "SCHEDULE":
+            return None
+        try:
+            state = self.session.data.products[device["hiveID"]]["state"]
+            return HiveHelper().getScheduleNNL(state["schedule"])
+        except KeyError:
+            return None
+
+    def _load_products(self) -> None:
+        self.session.data.products = {
+            THERMOSTAT_HIVE_ID: {"state": copy.deepcopy(self._product_state)}
+        }
+
     @staticmethod
-    def _heating_namespace(working: Any) -> SimpleNamespace:
+    def _heating_namespace(working: Any, mode: str) -> SimpleNamespace:
         """The heating getters a poll calls; `working` is whatever
-        getCurrentOperation reports (None when the API omits the key)."""
+        getCurrentOperation reports (None when the API omits the key) and
+        `mode` is what getMode reports."""
 
         def constant(value: Any) -> Any:
             async def getter(_device: dict[str, Any]) -> Any:
@@ -149,10 +172,9 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         return SimpleNamespace(
             getCurrentTemperature=constant(19.5),
             getTargetTemperature=constant(21.0),
-            getMode=constant("SCHEDULE"),
+            getMode=constant(mode),
             getState=constant("ON"),
             getBoostStatus=constant("OFF"),
-            getScheduleNowNextLater=constant({}),
             getCurrentOperation=constant(working),
         )
 
@@ -203,6 +225,7 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
     async def startSession(self, config: dict[str, Any] | None = None) -> None:
         self.call_order.append("startSession")
         self.start_session_configs.append(config)
+        self._load_products()
         self.deviceList = {
             "climate": [{"id": "thermostat-1", "hiveID": THERMOSTAT_HIVE_ID}]
         }

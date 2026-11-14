@@ -46,8 +46,13 @@ def _source(
     mariadb_client: MariaDBClient,
     tmp_path: Path,
     product_state: dict[str, Any],
+    heating_mode: str = "SCHEDULE",
 ) -> HiveApiSource:
-    install_fake_hive(login_result=_LOGGED_IN, product_state=product_state)
+    install_fake_hive(
+        login_result=_LOGGED_IN,
+        product_state=product_state,
+        heating_mode=heating_mode,
+    )
     settings = HiveSettings(
         username="user@example.com",
         password="hunter2",
@@ -68,6 +73,22 @@ def test_a_poll_carries_hives_weekly_schedule(
     assert source.fetch_heating_status().weekly_schedule == _weekly_schedule()
 
 
+def test_each_poll_reads_the_schedule_hive_sent_not_one_an_earlier_poll_changed(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+) -> None:
+    # Each poll starts a new Hive session, which loads fresh product data.
+    source = _source(
+        install_fake_hive, mariadb_client, tmp_path, {"schedule": _weekly_schedule()}
+    )
+    first = source.fetch_heating_status().weekly_schedule
+    assert first is not None
+    first["monday"][0]["added_by_an_earlier_poll"] = True
+
+    assert source.fetch_heating_status().weekly_schedule == _weekly_schedule()
+
+
 def _poll_and_persist(source: HiveApiSource) -> HeatingStatus:
     status = source.fetch_heating_status()
     source.persist_heating_status(status)
@@ -81,6 +102,46 @@ def _stored_schedules(mariadb_client: MariaDBClient) -> list[Any]:
             .order_by(model.heating_schedule.id)
             .all()
         )
+
+
+def test_a_schedule_mode_poll_stores_the_weekly_schedule_without_the_librarys_datetimes(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # In SCHEDULE mode the library's now/next/later parse writes
+    # Start_DateTime and End_DateTime into the product schedule's slots.
+    source = _source(
+        install_fake_hive, mariadb_client, tmp_path, {"schedule": _weekly_schedule()}
+    )
+
+    with caplog.at_level(logging.WARNING):
+        _poll_and_persist(source)
+
+    assert [row.schedule for row in _stored_schedules(mariadb_client)] == [
+        _weekly_schedule()
+    ]
+    assert not any(
+        "weekly schedule not stored" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_the_weekly_schedule_is_the_same_in_schedule_mode_and_manual_mode(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+) -> None:
+    programmed = {"schedule": _weekly_schedule()}
+
+    in_schedule_mode = _source(
+        install_fake_hive, mariadb_client, tmp_path, programmed, "SCHEDULE"
+    ).fetch_heating_status()
+    in_manual_mode = _source(
+        install_fake_hive, mariadb_client, tmp_path, programmed, "MANUAL"
+    ).fetch_heating_status()
+
+    assert in_schedule_mode.weekly_schedule == in_manual_mode.weekly_schedule
 
 
 def test_the_first_weekly_schedule_is_stored_with_the_time_of_its_poll(
@@ -145,8 +206,13 @@ def test_a_changed_weekly_schedule_adds_a_row_and_keeps_the_earlier_one(
 
 
 @pytest.mark.parametrize(
-    "product_state",
-    [{}, {"schedule": ["not", "a", "dict"]}, {"schedule": {}}],
+    ("product_state", "heating_mode"),
+    [
+        ({}, "SCHEDULE"),
+        # In SCHEDULE mode the library itself fails on a list schedule.
+        ({"schedule": ["not", "a", "dict"]}, "MANUAL"),
+        ({"schedule": {}}, "SCHEDULE"),
+    ],
     ids=["missing", "not-a-dictionary", "empty"],
 )
 def test_a_poll_without_a_usable_weekly_schedule_is_stored_without_a_schedule_row(
@@ -154,8 +220,11 @@ def test_a_poll_without_a_usable_weekly_schedule_is_stored_without_a_schedule_ro
     mariadb_client: MariaDBClient,
     tmp_path: Path,
     product_state: dict[str, Any],
+    heating_mode: str,
 ) -> None:
-    source = _source(install_fake_hive, mariadb_client, tmp_path, product_state)
+    source = _source(
+        install_fake_hive, mariadb_client, tmp_path, product_state, heating_mode
+    )
 
     _poll_and_persist(source)
 
@@ -171,9 +240,10 @@ def test_a_weekly_schedule_that_cannot_be_written_is_logged_and_does_not_fail_th
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # A set is a dictionary value the JSON column cannot store.
+    # A set is a dictionary value the JSON column cannot store. MANUAL mode,
+    # because in SCHEDULE mode the library would parse it on a Monday and fail.
     unstorable = {"schedule": {"monday": {390, 435}}}
-    source = _source(install_fake_hive, mariadb_client, tmp_path, unstorable)
+    source = _source(install_fake_hive, mariadb_client, tmp_path, unstorable, "MANUAL")
 
     with caplog.at_level(logging.WARNING):
         _poll_and_persist(source)

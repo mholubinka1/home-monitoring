@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import logging.config
 import os
@@ -431,6 +432,8 @@ class HiveApiSource:
             self.persist_auth_state(self._auth_state_from_session(hive))
 
             device = self._climate_device(hive)
+            # Before any getter: getScheduleNowNextLater mutates this data.
+            weekly_schedule = self._weekly_schedule(hive, device)
             current_temp = await hive.heating.getCurrentTemperature(device)
             target_temp = await hive.heating.getTargetTemperature(device)
             mode = await hive.heating.getMode(device)
@@ -440,7 +443,6 @@ class HiveApiSource:
             working = self._as_working_flag(
                 await hive.heating.getCurrentOperation(device)
             )
-            weekly_schedule = self._weekly_schedule(hive, device)
 
         return HeatingStatus(
             polled_at=datetime.now(UTC),
@@ -464,9 +466,9 @@ class HiveApiSource:
 
     @staticmethod
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
-        """Hive's seven-day schedule from the product data the library already
-        holds, or None (logged at DEBUG) when it is missing, empty or not a
-        dict. An empty one would read as "no heating all week"."""
+        """A copy of Hive's seven-day schedule from the product data the
+        library already holds, or None (logged at DEBUG) when it is missing,
+        empty or not a dict. An empty one would read as "no heating all week"."""
         try:
             schedule = hive.session.data.products[device["hiveID"]]["state"]["schedule"]
         except (AttributeError, KeyError, TypeError):
@@ -474,7 +476,8 @@ class HiveApiSource:
         if not isinstance(schedule, dict) or not schedule:
             logger.debug("Hive product data has no usable weekly schedule.")
             return None
-        return schedule
+        # The library's now/next/later parse adds datetimes to these slots.
+        return copy.deepcopy(schedule)
 
     def _as_working_flag(self, reported: object) -> bool | None:
         """The thermostat's own "heating is working" report, or None (logged)
