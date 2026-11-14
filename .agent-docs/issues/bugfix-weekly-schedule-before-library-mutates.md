@@ -1,5 +1,7 @@
 # Issues: bugfix/weekly-schedule-before-library-mutates
 
+> Work complete — PR ready to merge.
+
 ## Prefactor: the Hive test fake gives each poll fresh product data
 
 **GitHub issue**: #771
