@@ -377,6 +377,43 @@ def test_the_horizon_ends_at_the_last_hour_of_tomorrows_local_day(
     assert len(rows) == rows_stored
 
 
+@pytest.mark.parametrize(
+    ("now", "rows_stored", "window_hour"),
+    [
+        # Saturday 24 October to Sunday 25 October, 25 hours: 07:45 is 07:45 UTC
+        (datetime(2026, 10, 24, 14, 10, tzinfo=UTC), 34, datetime(2026, 10, 25, 7)),
+        # Saturday 28 March to Sunday 29 March, 23 hours: 07:45 BST is 06:45 UTC
+        (datetime(2026, 3, 28, 14, 10, tzinfo=UTC), 33, datetime(2026, 3, 29, 6)),
+    ],
+    ids=["25-hour day", "23-hour day"],
+)
+def test_the_plan_reaches_its_target_at_the_local_window_start_across_a_clock_change(
+    client: MariaDBClient, now: datetime, rows_stored: int, window_hour: datetime
+) -> None:
+    # Given London time, a comfort temperature of 19 C and the day before a clock
+    # change; both days are weekend days, so the window opens at 07:45 local
+    set_local_timezone("Europe/London")
+    first = now.replace(minute=0, tzinfo=None)
+    seed_reading(client, now - timedelta(minutes=5), room=18.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(client, first=first, last=first + ONE_HOUR * 40)
+    seed_comfort(client, now.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(now)
+
+    # Then the plan covers the same hours as the current rows, and the room is at
+    # 19 C three quarters of the way through the UTC hour holding 07:45 local
+    rows = live_rows(client, "plan")
+    assert len(rows) == rows_stored
+    assert rows[-1].hour_start == live_rows(client, "current")[-1].hour_start
+    by_hour = {row.hour_start: row for row in rows}
+    at_start = by_hour[window_hour].room_temp + 0.75 * (
+        by_hour[window_hour + ONE_HOUR].room_temp - by_hour[window_hour].room_temp
+    )
+    assert at_start == pytest.approx(19.0, abs=1e-3)
+
+
 def test_missing_hive_tables_store_nothing_and_do_not_raise(
     mariadb_client_without_weather_tables: MariaDBClient,
 ) -> None:

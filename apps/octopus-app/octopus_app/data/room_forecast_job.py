@@ -161,21 +161,26 @@ class RoomForecastJob:
             for hour, step in zip(inputs.hours, planned)
         ]
         self._mariadb.replace_room_forecast(LIVE, scenario, rows)
-        # Tomorrow's hours are also kept as the day-ahead forecast: rewritten by
-        # each run until midnight, then no run touches them again.
-        tomorrow_start, tomorrow_end = inputs.tomorrow
-        self._mariadb.replace_room_forecast(
-            DAY_AHEAD,
-            scenario,
-            [
-                replace(row, kind=DAY_AHEAD)
-                for row in rows
-                if tomorrow_start <= row.hour_start < tomorrow_end
-            ],
-            tomorrow_start,
-            tomorrow_end,
-        )
         logger.info(f"Room forecast: stored {len(rows)} {scenario} hour(s).")
+        # Tomorrow's hours are also kept as the day-ahead forecast: rewritten by
+        # each run until midnight, then no run touches them again. A run cut short
+        # by a weather gap leaves the earlier rows, so a frozen day is never
+        # shortened.
+        tomorrow_start, tomorrow_end = inputs.tomorrow
+        tomorrow = [
+            replace(row, kind=DAY_AHEAD)
+            for row in rows
+            if tomorrow_start <= row.hour_start < tomorrow_end
+        ]
+        if len(tomorrow) < (tomorrow_end - tomorrow_start) // ONE_HOUR:
+            logger.info(
+                f"Room forecast: {scenario} does not cover all of tomorrow, "
+                "day-ahead rows left as they were."
+            )
+            return
+        self._mariadb.replace_room_forecast(
+            DAY_AHEAD, scenario, tomorrow, tomorrow_start, tomorrow_end
+        )
 
     def _row(
         self,

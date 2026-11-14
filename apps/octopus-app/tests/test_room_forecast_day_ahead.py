@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from octopus_app.data.mysql import model
-from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.mysql.client import MariaDBClient, weather_forecast_hour_table
 from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
@@ -143,3 +143,36 @@ def test_a_skipped_run_leaves_the_day_ahead_rows_untouched(
         for row in day_ahead_rows(client, "current")
     ] == before
     assert len(before) == 24
+
+
+def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
+    client: MariaDBClient,
+) -> None:
+    # Given a full day-ahead stored for Wednesday by a run on Tuesday
+    seed_plan_inputs(client)
+    seed_comfort(client, NOW.date(), 19.0)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    before = [
+        (row.hour_start, row.room_temp, row.computed_at)
+        for row in day_ahead_rows(client, "plan")
+    ]
+    assert len(before) == 24
+
+    # When the weather forecast now stops at 18:00 on Wednesday and the job runs
+    # again
+    with client.session_write_scope() as session:
+        session.execute(
+            weather_forecast_hour_table.delete().where(
+                weather_forecast_hour_table.c.forecast_at > datetime(2026, 11, 18, 18)
+            )
+        )
+    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+
+    # Then the live forecast stops at the gap, but the frozen comparison is not
+    # shortened, in either scenario
+    assert live_rows(client, "plan")[-1].hour_start == datetime(2026, 11, 18, 17)
+    assert [
+        (row.hour_start, row.room_temp, row.computed_at)
+        for row in day_ahead_rows(client, "plan")
+    ] == before
+    assert len(day_ahead_rows(client, "current")) == 24
