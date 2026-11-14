@@ -357,9 +357,9 @@ def register_heating_hour_job(  # pylint: disable=too-many-arguments,too-many-po
     (ADR-0034), the thermal model learns from them and the room forecast runs it
     forward (ADR-0035), so none may run while they are missing or part-way through
     a backfill. The room forecast reads the comfort day and the thermal model of
-    the same cycle, so it runs last. Neither the thermal model nor the room
-    forecast stops because an earlier step failed: each reads the stored rows
-    that exist, and says so when it has nothing to forecast from."""
+    the same cycle, so it runs last. A failed comfort refresh does not stop the
+    thermal model or the room forecast: each reads the rows already stored, and
+    the room forecast says so when it has no comfort temperature to plan from."""
     refresh_heating_hours = _with_backoff_recording(
         HEATING_HOUR_JOB, heating_hour.refresh, mariadb
     )
