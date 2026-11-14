@@ -145,7 +145,7 @@ Explain the room forecast and the comfort plan in plain language in the heating 
 
 ### Acceptance criteria
 
-- [ ] Given `docs/heating-model.md`, when read, then section 12 explains the forecast and the plan in plain language.
-- [ ] Given the glossary, when read, then the `home_monitoring` database entry lists `room_forecast_hour`.
+- [x] Given `docs/heating-model.md`, when read, then section 12 explains the forecast and the plan in plain language.
+- [x] Given the glossary, when read, then the `home_monitoring` database entry lists `room_forecast_hour`.
 
 ---
