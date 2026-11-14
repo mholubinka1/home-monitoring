@@ -31,6 +31,7 @@ CURRENT = "current"
 # A target no room is below: the heating fraction clamps to zero.
 NO_TARGET = -math.inf
 OFF_MODE = "OFF"
+MAX_READING_AGE = timedelta(minutes=30)
 
 
 class RoomForecastJob:
@@ -54,6 +55,9 @@ class RoomForecastJob:
         status = self._mariadb.read_latest_heating_status()
         numbers = None if stored is None else _numbers_of(stored.model)
         if numbers is None or status is None or status[1] is None:
+            return
+        if now.replace(tzinfo=None) - status[0] > MAX_READING_AGE:
+            logger.info("Room forecast: the newest reading is stale, nothing stored.")
             return
         weather = self._mariadb.read_hourly_weather_forecast(first, end)
         schedule = room_forecast.parse_schedule(
@@ -80,6 +84,11 @@ class RoomForecastJob:
             end,
             now,
         )
+        if not rows:
+            # No weather for the first hour: keep the earlier rows, not replace
+            # them with none.
+            logger.info("Room forecast: no weather for the first hour, nothing stored.")
+            return
         self._mariadb.replace_room_forecast(LIVE, CURRENT, rows)
         logger.info(f"Room forecast: stored {len(rows)} current hour(s).")
 

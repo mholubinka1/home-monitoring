@@ -37,13 +37,13 @@ Make the forecast silent, and never wrong, when its inputs are not good enough: 
 
 ### Acceptance criteria
 
-- [ ] Given the newest `thermal_model` is unusable and an older one is usable, when the job runs, then nothing is stored, the existing live rows are left as they are, and the older model is not used.
-- [ ] Given the newest reading is more than 30 minutes old, when the job runs, then nothing is stored.
-- [ ] Given no hourly weather for the first hour, when the job runs, then nothing is stored; and given a gap later, then the forecast stops at the gap.
-- [ ] Given a NULL radiation for an hour, when it is forecast, then sunshine gain is zero and the hour is kept.
-- [ ] Given radiation, when an hour is forecast, then the temperature at stamp `h` is paired with the radiation at stamp `h + 1`.
-- [ ] Given tomorrow is a 23- or 25-hour local day, when the job runs, then the horizon covers exactly those hours.
-- [ ] Given a missing hive-app table, when the job runs, then it reads as no rows and does not raise.
+- [x] Given the newest `thermal_model` is unusable and an older one is usable, when the job runs, then nothing is stored, the existing live rows are left as they are, and the older model is not used.
+- [x] Given the newest reading is more than 30 minutes old, when the job runs, then nothing is stored.
+- [x] Given no hourly weather for the first hour, when the job runs, then nothing is stored; and given a gap later, then the forecast stops at the gap.
+- [x] Given a NULL radiation for an hour, when it is forecast, then sunshine gain is zero and the hour is kept.
+- [x] Given radiation, when an hour is forecast, then the temperature at stamp `h` is paired with the radiation at stamp `h + 1`.
+- [x] Given tomorrow is a 23- or 25-hour local day, when the job runs, then the horizon covers exactly those hours.
+- [x] Given a missing hive-app table, when the job runs, then it reads as no rows and does not raise.
 
 ---
 

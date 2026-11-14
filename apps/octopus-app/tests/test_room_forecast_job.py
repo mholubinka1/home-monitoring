@@ -4,11 +4,13 @@ reading to the end of tomorrow, under the Hive schedule and under the Comfort Pl
 
 London is on GMT in November, so local time is UTC."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
+from common.local_day import set_local_timezone
 from octopus_app.data.model import ThermalModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import (
@@ -331,3 +333,234 @@ def test_cost_is_empty_without_a_gas_rate(client: MariaDBClient) -> None:
     first = _live_rows(client, "current")[0]
     assert first.heating_kwh == pytest.approx(10.0)
     assert first.cost_gbp is None
+
+
+def test_a_reading_more_than_30_minutes_old_stores_nothing(
+    client: MariaDBClient,
+) -> None:
+    # Given a forecast stored from a fresh reading at 14:05
+    _seed_heating_forecast_inputs(client)
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # When the job runs an hour later and no newer reading has arrived, so the
+    # newest is 65 minutes old
+    RoomForecastJob(client, REGION).refresh(NOW + ONE_HOUR)
+
+    # Then nothing new is stored and the earlier rows are left as they were
+    rows = _live_rows(client, "current")
+    assert rows[0].hour_start == datetime(2026, 11, 17, 14)
+    assert len(rows) == 34
+
+
+def test_a_reading_exactly_30_minutes_old_is_fresh(client: MariaDBClient) -> None:
+    # Given the newest reading is exactly 30 minutes old
+    _seed_reading(client, NOW - timedelta(minutes=30), room=18.0)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 14), last=datetime(2026, 11, 19, 0)
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then it counts as fresh and the forecast is stored
+    assert len(_live_rows(client, "current")) == 34
+
+
+def test_an_unusable_newest_model_stores_nothing_and_never_falls_back(
+    client: MariaDBClient,
+) -> None:
+    # Given a forecast stored under the usable model, then a newer model that is
+    # not usable
+    _seed_heating_forecast_inputs(client)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    unusable = replace(
+        _usable_model(),
+        fitted_at=NOW - timedelta(hours=1),
+        usable=False,
+        unusable_reason="too few heating steps",
+    )
+    client.write_thermal_model(unusable)
+    _seed_reading(client, NOW + timedelta(minutes=9), room=21.0)
+
+    # When the job runs again
+    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+
+    # Then the older usable model is not used and the earlier rows are as they were
+    rows = _live_rows(client, "current")
+    assert len(rows) == 34
+    assert rows[0].room_temp == pytest.approx(18.0)
+
+
+def test_no_model_at_all_stores_nothing(mariadb_client: MariaDBClient) -> None:
+    # Given a fresh reading, a schedule and weather, but no thermal model
+    _seed_heating_forecast_inputs(mariadb_client)
+
+    # When the job runs
+    RoomForecastJob(mariadb_client, REGION).refresh(NOW)
+
+    # Then nothing is stored
+    assert _live_rows(mariadb_client, "current") == []
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        datetime(2026, 11, 19, 0, 10, tzinfo=UTC),
+        datetime(2026, 11, 19, 1, 10, tzinfo=UTC),
+    ],
+    ids=["no radiation stamp for the first hour", "no stamp for the first hour"],
+)
+def test_no_weather_for_the_first_hour_leaves_the_earlier_rows(
+    client: MariaDBClient, later: datetime
+) -> None:
+    # Given a forecast stored earlier, and weather that ends at 00:00 on the 19th
+    _seed_heating_forecast_inputs(client)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    _seed_reading(client, later - timedelta(minutes=1), room=20.0)
+
+    # When the job runs at a time whose first hour (or its radiation) has no weather
+    RoomForecastJob(client, REGION).refresh(later)
+
+    # Then the earlier rows are not deleted or replaced
+    rows = _live_rows(client, "current")
+    assert len(rows) == 34
+    assert rows[0].room_temp == pytest.approx(18.0)
+
+
+def test_a_weather_gap_later_in_the_horizon_stops_the_forecast_there(
+    client: MariaDBClient,
+) -> None:
+    # Given a forecast stored earlier, then weather only to 20:00 for the next run
+    _seed_heating_forecast_inputs(client)
+    RoomForecastJob(client, REGION).refresh(NOW)
+    _seed_reading(client, NOW + timedelta(minutes=9), room=20.0)
+    with client.session_write_scope() as session:
+        session.execute(
+            weather_forecast_hour_table.delete().where(
+                weather_forecast_hour_table.c.forecast_at > datetime(2026, 11, 17, 20)
+            )
+        )
+
+    # When the job runs again
+    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+
+    # Then the rows run up to the last hour whose radiation is known, replacing
+    # the earlier ones
+    rows = _live_rows(client, "current")
+    assert rows[-1].hour_start == datetime(2026, 11, 17, 19)
+    assert len(rows) == 6
+    assert rows[0].room_temp == pytest.approx(20.0)
+
+
+def _seed_weather_stamps(
+    client: MariaDBClient, stamps: list[tuple[datetime, float, float | None]]
+) -> None:
+    """(stamp, outdoor temperature, shortwave radiation) rows of the forecast."""
+    with client.session_write_scope() as session:
+        session.execute(
+            weather_forecast_hour_table.insert(),
+            [
+                {
+                    "source": "open-meteo",
+                    "location": LOCATION,
+                    "forecast_at": stamp,
+                    "temp": temp,
+                    "shortwave_radiation": radiation,
+                    "fetched_at": NOW.replace(tzinfo=None),
+                }
+                for stamp, temp, radiation in stamps
+            ],
+        )
+
+
+def test_an_unknown_radiation_counts_as_no_sunshine_and_keeps_the_hour(
+    client: MariaDBClient,
+) -> None:
+    # Given a forecast whose radiation is unknown
+    _seed_reading(client, NOW - timedelta(minutes=5), room=18.0)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_stamps(
+        client,
+        [
+            (datetime(2026, 11, 17, 14) + ONE_HOUR * index, 10.0, None)
+            for index in range(36)
+        ],
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then every hour is kept and the room cools as with no sunshine
+    rows = _live_rows(client, "current")
+    assert len(rows) == 34
+    assert rows[1].room_temp == pytest.approx(17.92)
+
+
+def test_an_hours_temperature_pairs_with_the_next_stamps_radiation(
+    client: MariaDBClient,
+) -> None:
+    # Given 10 C and no sunshine at 14:00, and 14 C and 1000 W/m2 at 15:00
+    _seed_reading(client, NOW - timedelta(minutes=5), room=18.0)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_stamps(
+        client,
+        [
+            (datetime(2026, 11, 17, 14), 10.0, 0.0),
+            (datetime(2026, 11, 17, 15), 14.0, 1000.0),
+        ]
+        + [
+            (datetime(2026, 11, 17, 16) + ONE_HOUR * index, 10.0, 0.0)
+            for index in range(34)
+        ],
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW)
+
+    # Then 14:00 uses its own 10 C with 15:00's 1 kW/m2:
+    # 0.02 * (10 - 18) + 0.4 * 1 + 0.08 = 0.32 C
+    rows = _live_rows(client, "current")
+    assert rows[1].room_temp == pytest.approx(18.32)
+
+
+@pytest.mark.parametrize(
+    ("now", "rows_stored", "last_hour"),
+    [
+        # tomorrow, Sunday 25 October, has 25 hours (clocks go back)
+        (datetime(2026, 10, 24, 14, 10, tzinfo=UTC), 34, datetime(2026, 10, 25, 23)),
+        # tomorrow, Sunday 29 March, has 23 hours (clocks go forward)
+        (datetime(2026, 3, 28, 14, 10, tzinfo=UTC), 33, datetime(2026, 3, 29, 22)),
+    ],
+    ids=["25-hour day", "23-hour day"],
+)
+def test_the_horizon_ends_at_the_last_hour_of_tomorrows_local_day(
+    client: MariaDBClient, now: datetime, rows_stored: int, last_hour: datetime
+) -> None:
+    # Given London time and the day before a clock change
+    set_local_timezone("Europe/London")
+    first = now.replace(minute=0, tzinfo=None)
+    _seed_reading(client, now - timedelta(minutes=5), room=18.0)
+    _seed_schedule(client, _weekly_schedule())
+    _seed_weather_forecast(client, first=first, last=first + ONE_HOUR * 40)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(now)
+
+    # Then the rows end at the last hour of tomorrow's local day
+    rows = _live_rows(client, "current")
+    assert rows[-1].hour_start == last_hour
+    assert len(rows) == rows_stored
+
+
+def test_missing_hive_tables_store_nothing_and_do_not_raise(
+    mariadb_client_without_weather_tables: MariaDBClient,
+) -> None:
+    # Given hive-app has never run, so its tables do not exist
+    mariadb_client_without_weather_tables.write_thermal_model(_usable_model())
+
+    # When the job runs
+    RoomForecastJob(mariadb_client_without_weather_tables, REGION).refresh(NOW)
+
+    # Then nothing is stored
+    assert _live_rows(mariadb_client_without_weather_tables, "current") == []
