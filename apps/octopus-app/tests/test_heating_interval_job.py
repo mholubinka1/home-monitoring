@@ -175,6 +175,32 @@ def test_a_half_hour_with_too_few_polls_gets_no_row_and_loses_an_existing_one(
     assert not _heating_intervals(mariadb_client)
 
 
+def test_minutes_on_never_exceed_the_half_hour_when_a_retried_poll_adds_one(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 16 polls in the half-hour, 110 seconds apart, all with the heating on
+    rows = [
+        {
+            "polled_at": START + timedelta(seconds=110 * index),
+            "current_temp": 19.0,
+            "target_temp": 21.0,
+            "mode": "SCHEDULE",
+            "state": "ON",
+            "boost_active": False,
+        }
+        for index in range(16)
+    ]
+    with mariadb_client.session_write_scope() as session:
+        session.execute(heating_status_table.insert(), rows)
+
+    _job(mariadb_client).refresh(NOW)
+
+    # Then 30 minutes are on, not 32
+    [row] = _heating_intervals(mariadb_client)
+    assert row.poll_count == 16
+    assert row.on_minutes == 30
+
+
 def test_a_half_hour_with_twelve_polls_gets_a_row(
     mariadb_client: MariaDBClient,
 ) -> None:

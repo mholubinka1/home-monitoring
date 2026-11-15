@@ -8,7 +8,8 @@ from statistics import median
 
 from common import local_day
 
-INTERVAL = timedelta(minutes=30)
+INTERVAL_MINUTES = 30
+INTERVAL = timedelta(minutes=INTERVAL_MINUTES)
 POLL_MINUTES = 2
 MIN_POLLS_PER_INTERVAL = 12  # of the 15 a 2-minute poll interval gives
 DEFAULT_BOILER_KW = 12.0
@@ -35,7 +36,8 @@ def interval_start_of(moment: datetime) -> datetime:
 
 def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
     """Per half-hour start, (poll count, minutes the heating was on), for
-    half-hours with enough polls."""
+    half-hours with enough polls. A retried poll can give a half-hour more polls
+    than usual; the heating cannot have been on for longer than the half-hour."""
     counts: dict[datetime, int] = defaultdict(int)
     on: dict[datetime, int] = defaultdict(int)
     for polled_at, state, boost_active in polls:
@@ -43,7 +45,7 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
         counts[start] += 1
         on[start] += poll_is_on(state, boost_active)
     return {
-        start: (count, POLL_MINUTES * on[start])
+        start: (count, min(INTERVAL_MINUTES, POLL_MINUTES * on[start]))
         for start, count in counts.items()
         if count >= MIN_POLLS_PER_INTERVAL
     }

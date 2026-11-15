@@ -122,7 +122,7 @@ It is five numbers, learned from the thermostat's own readings and the hourly we
 
 - **Loss.** How much the room falls in an hour for each degree it is warmer than outdoors. On the first six weeks of data it was about 0.02 °C. A room at 17 °C with 7 °C outside loses about 0.2 °C an hour.
 - **Heating gain.** How much the room rises per hour of heating: about 1.4 °C. The 45-minute morning slot is worth about 1 °C.
-- **Carried gain.** Radiators stay hot after the boiler stops, so some of the rise arrives afterwards: about 0.2 °C per hour of heating, spread over the 10 minutes that follow it.
+- **Carried gain.** Radiators stay hot after the boiler stops, so some of the rise arrives afterwards: about 0.2 °C per hour of heating on the hourly fit (the figure for the 10 minutes that follow it is not comparable, and not measured yet).
 - **Sunshine gain.** How much a bright hour adds: about 0.1 °C in an hour of strong winter sun. Sunshine is used here and nowhere on the dashboard.
 - **Constant gain.** A small steady gain from people, cooking and appliances, about 0.06 °C an hour. It is why an unheated house settles a few degrees above outdoors and not at the outdoor temperature.
 
