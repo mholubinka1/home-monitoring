@@ -273,8 +273,7 @@ def _simulate(  # pylint: disable=too-many-locals
         else:
             target = target_of(_label(hours, (first + demanded_at) * STEP_MINUTES))
             heat = _arrival_needed(model, room, target, passive)
-            if demanded_at < count:
-                demand[demanded_at] = heat
+            demand[demanded_at] = heat
         arrived[step] = heat
         if step < count:
             room_at_start.append(room)

@@ -16,8 +16,8 @@ from octopus_app.data.thermal import ThermalFit
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# The newest room reading a step's end can use comes this long after the end.
-# (the tolerance, and one more poll so the poll just inside it is read).
+# The newest room reading a step's end can use comes this long after the end: the
+# reading tolerance, and one more poll so the poll just inside it is read.
 READING_MARGIN = thermal.READING_TOLERANCE + timedelta(
     minutes=heating_intervals.POLL_MINUTES
 )
