@@ -52,6 +52,7 @@ def test_the_schedule_table_reads_the_slots_of_the_local_day() -> None:
         p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["type"] == "table"
     )
 
+    assert table["title"] == "Schedule Today"
     (target,) = table["targets"]
     assert target["dataset"] == "home_monitoring"
     assert "FROM room_forecast_slot" in target["rawSql"]
@@ -818,3 +819,5 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     assert "INTERVAL 1 DAY" in sql
     assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
     assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2
+    # the cost row lists its columns as the slot rows do: sort key first
+    assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql

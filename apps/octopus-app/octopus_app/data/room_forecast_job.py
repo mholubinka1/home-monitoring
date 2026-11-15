@@ -168,13 +168,10 @@ class RoomForecastJob:
             self._mariadb.replace_room_forecast(LIVE, PLAN, [])
             self._mariadb.replace_room_forecast_slots(PLAN, [])
             return
-        self._store_plan_slots(inputs, room_forecast.round_up_to_half(comfort))
+        target = room_forecast.round_up_to_half(comfort)
+        self._store_plan_slots(inputs, target)
         planned = room_forecast.comfort_plan(
-            inputs.numbers,
-            inputs.start,
-            inputs.weather,
-            room_forecast.round_up_to_half(comfort),
-            self._windows,
+            inputs.numbers, inputs.start, inputs.weather, target, self._windows
         )
         self._store(PLAN, inputs, planned)
 
@@ -188,9 +185,9 @@ class RoomForecastJob:
         ):
             starts_at = _utc_of(slot.start)
             # One plan slot a day, so at most one is stored.
-            for stored in self._mariadb.read_room_forecast_slots(PLAN, day)[:1]:
-                if stored.starts_at <= naive_now:
-                    starts_at = stored.starts_at
+            stored = next(iter(self._mariadb.read_room_forecast_slots(PLAN, day)), None)
+            if stored is not None and stored.starts_at <= naive_now:
+                starts_at = stored.starts_at
             rows.append(
                 RoomForecastSlotRecord(
                     day,

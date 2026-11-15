@@ -16,7 +16,9 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     REGION,
     SLOT_END,
     SLOT_START,
+    live_rows,
     seed_comfort,
+    seed_gas_rate,
     seed_plan_inputs,
     seed_reading,
     seed_schedule,
@@ -126,12 +128,14 @@ def test_the_slots_are_stored_when_the_mode_is_off(client: MariaDBClient) -> Non
     # Given Hive's mode is OFF
     seed_inputs(client, tuesday_slot_schedule())
     seed_reading(client, NOW - timedelta(minutes=1), room=16.0, mode="OFF")
+    seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
     RoomForecastJob(client, REGION).refresh(NOW)
 
-    # Then today's slots are still stored
+    # Then today's slots are still stored, and no hour costs anything
     assert len([row for row in slot_rows(client, "current") if row.day.day == 17]) == 3
+    assert all(row.cost_gbp == 0 for row in live_rows(client, "current"))
 
 
 def test_the_stored_times_are_the_correct_instants_on_a_clock_change_day(
