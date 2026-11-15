@@ -35,16 +35,27 @@ def test_panel_ids_are_unique_within_the_gas_heating_dashboard() -> None:
     assert len(set(ids)) == len(ids)
 
 
-def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
+def test_the_gas_heating_dashboard_has_only_charts_one_bar_gauge_and_one_table() -> (
+    None
+):
     # House style: every panel is a chart. The billing-period predictor is a
-    # bar gauge, the one non-chart exception.
-    types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
+    # bar gauge and the schedule is a table, the two non-chart exceptions.
+    types = [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))]
 
-    assert types
-    assert types <= {"timeseries", "bargauge"}
-    assert [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))].count(
-        "bargauge"
-    ) == 1
+    assert set(types) <= {"timeseries", "bargauge", "table"}
+    assert types.count("bargauge") == 1
+    assert types.count("table") == 1
+
+
+def test_the_schedule_table_reads_the_slots_of_the_local_day() -> None:
+    table = next(
+        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["type"] == "table"
+    )
+
+    (target,) = table["targets"]
+    assert target["dataset"] == "home_monitoring"
+    assert "FROM room_forecast_slot" in target["rawSql"]
+    assert "CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')" in target["rawSql"]
 
 
 @pytest.mark.parametrize("path", DASHBOARD_FILES, ids=lambda p: p.name)

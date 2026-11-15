@@ -13,6 +13,7 @@ from octopus_app.data import heating_hours, room_forecast
 from octopus_app.data.model import (
     HourlyWeather,
     RoomForecastRecord,
+    RoomForecastSlotRecord,
     ThermalModelRecord,
 )
 from octopus_app.data.mysql.client import MariaDBClient
@@ -120,7 +121,9 @@ class RoomForecastJob:
             )
             # Nor is the earlier line left drawn as today's.
             self._mariadb.replace_room_forecast(LIVE, CURRENT, [])
+            self._mariadb.replace_room_forecast_slots(CURRENT, [])
             return
+        self._store_slots(schedule, local_day.to_local_date(inputs.now), inputs.now)
         planned = room_forecast.hold_forecast(
             inputs.numbers,
             inputs.start,
@@ -133,6 +136,25 @@ class RoomForecastJob:
             ),
         )
         self._store(CURRENT, inputs, planned)
+
+    def _store_slots(
+        self, schedule: room_forecast.Schedule, today: date, now: datetime
+    ) -> None:
+        """Today's and tomorrow's current slots, whatever the thermostat's mode."""
+        rows = [
+            RoomForecastSlotRecord(
+                day,
+                CURRENT,
+                position,
+                _utc_of(slot.start),
+                _utc_of(slot.end),
+                slot.target,
+                now.replace(tzinfo=None),
+            )
+            for day in (today, today + ONE_DAY)
+            for position, slot in enumerate(room_forecast.schedule_slots(schedule, day))
+        ]
+        self._mariadb.replace_room_forecast_slots(CURRENT, rows)
 
     def _store_plan(self, inputs: _Inputs, today: date) -> None:
         # The newest comfort temperature up to today's; tomorrow has no row yet, so
@@ -252,6 +274,15 @@ def _hours_with_weather(
 def _naive_utc_start_of(day: date) -> datetime:
     """Midnight starting the local day, as naive UTC."""
     return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
+
+
+def _utc_of(local: datetime) -> datetime:
+    """A naive local wall-clock time as naive UTC."""
+    return (
+        local.replace(tzinfo=local_day.get_local_timezone())
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
 
 
 def _local(hour: datetime) -> datetime:

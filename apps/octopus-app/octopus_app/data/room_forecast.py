@@ -88,6 +88,35 @@ def target_at(schedule: Schedule, moment: datetime) -> float:
 
 
 @dataclass(frozen=True)
+class Slot:
+    """A span of a local day held at one target (naive local times)."""
+
+    start: datetime
+    end: datetime
+    target: float
+
+
+def schedule_slots(schedule: Schedule, day: date) -> list[Slot]:
+    """The day's slots: each runs to the next one's start and the last to 00:00
+    next day. Before the day's first start the previous day's last target holds,
+    and consecutive equal targets merge."""
+    midnight = datetime(day.year, day.month, day.day)
+    changes = [(0, target_at(schedule, midnight))]
+    for start, target in schedule[DAY_NAMES[day.weekday()]]:
+        if start > 0 and target != changes[-1][1]:
+            changes.append((start, target))
+    ends = [start for start, _ in changes[1:]] + [24 * MINUTES_PER_HOUR]
+    return [
+        Slot(
+            midnight + timedelta(minutes=begin),
+            midnight + timedelta(minutes=end),
+            target,
+        )
+        for (begin, target), end in zip(changes, ends)
+    ]
+
+
+@dataclass(frozen=True)
 class Part:
     """A share of an hour (0 to 1) held at one target, or at NO_TARGET."""
 

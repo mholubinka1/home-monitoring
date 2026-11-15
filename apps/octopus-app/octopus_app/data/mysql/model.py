@@ -264,3 +264,18 @@ class room_forecast_hour(SQLBase):
     heating_kwh = Column(_DOUBLE)
     cost_gbp = Column(_DOUBLE)
     computed_at = Column(DateTime, nullable=False)
+
+
+class room_forecast_slot(SQLBase):
+    __tablename__ = "room_forecast_slot"
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
+
+    # One row per schedule slot of a local day, for the dashboard's schedule
+    # table (feature-schedule-table-panel). scenario is 'current'.
+    day = Column(Date, primary_key=True)
+    scenario = Column(String(20), primary_key=True)
+    position = Column(Integer, primary_key=True)
+    starts_at = Column(DateTime, nullable=False)
+    ends_at = Column(DateTime, nullable=False)
+    target = Column(_DOUBLE, nullable=False)
+    computed_at = Column(DateTime, nullable=False)

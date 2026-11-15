@@ -124,6 +124,20 @@ class ThermalModelRecord:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass(frozen=True)
+class RoomForecastSlotRecord:
+    """One schedule slot of a local day as stored (naive UTC stamps); position
+    orders the day's slots."""
+
+    day: date
+    scenario: str
+    position: int
+    starts_at: datetime
+    ends_at: datetime
+    target: float
+    computed_at: datetime
+
+
+@dataclass(frozen=True)
 class RoomForecastRecord:
     """One forecast hour as stored (naive UTC stamps). room_temp is the predicted
     room at the hour's start; cost_gbp is None without a gas rate."""
