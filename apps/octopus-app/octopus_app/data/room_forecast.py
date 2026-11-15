@@ -360,20 +360,24 @@ def _held_spans(
     hours: list[ForecastHour],
     target: float,
     windows: ComfortWindows,
-) -> tuple[list[tuple[datetime, datetime]], list[datetime]]:
+) -> tuple[list[tuple[datetime, datetime]], list[datetime], list[date]]:
     """Per comfort window still open at the forecast's start, the span held:
-    (opening minus its lead, closing); and the windows' openings. The window that
+    (opening minus its lead, closing); the windows' openings; and the day each held
+    span's window opens on, aligned with the spans. The window that
     began the day before is included: an overnight window can still be open when
     the forecast starts."""
     days = list(dict.fromkeys(hour.start.date() for hour in hours))
-    spans = [comfort_window(windows, day) for day in [days[0] - ONE_DAY, *days]]
+    window_days = [days[0] - ONE_DAY, *days]
+    spans = [comfort_window(windows, day) for day in window_days]
     splits = [opening for opening, _ in spans]
     held: list[tuple[datetime, datetime]] = []
-    for window in spans:
+    opening_days: list[date] = []
+    for day, window in zip(window_days, spans):
         if window[1] > hours[0].start:
             lead = _lead(numbers, start, hours, held, splits, target, window)
             held.append((window[0] - lead, window[1]))
-    return held, splits
+            opening_days.append(day)
+    return held, splits, opening_days
 
 
 def comfort_plan(
@@ -388,7 +392,7 @@ def comfort_plan(
     that has the room at the target then, and no heating elsewhere."""
     if not hours:
         return []
-    held, splits = _held_spans(numbers, start, hours, target, windows)
+    held, splits, _ = _held_spans(numbers, start, hours, target, windows)
     return hold_forecast(
         numbers,
         start,
@@ -409,16 +413,10 @@ def plan_slots(
     with the local date its window opens on (naive local times)."""
     if not hours:
         return []
-    held, _ = _held_spans(numbers, start, hours, target, windows)
+    held, _, opening_days = _held_spans(numbers, start, hours, target, windows)
     first = datetime.combine(hours[0].start.date(), datetime.min.time())
-    opening_days = {
-        comfort_window(windows, day)[1]: day
-        for day in dict.fromkeys(
-            [first.date() - ONE_DAY, *(hour.start.date() for hour in hours)]
-        )
-    }
     return [
-        (opening_days[closes], Slot(opens, closes, target))
-        for opens, closes in held
+        (day, Slot(opens, closes, target))
+        for day, (opens, closes) in zip(opening_days, held)
         if first < closes and opens < first + 2 * ONE_DAY
     ]

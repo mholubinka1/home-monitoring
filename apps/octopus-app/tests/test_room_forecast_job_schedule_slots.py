@@ -5,6 +5,7 @@ London is on GMT in November, so local time is UTC. The schedule is made up: 7 C
 all week, except Tuesday's slot at 19 C from 05:40 to 06:25."""
 
 from datetime import UTC, datetime, time, timedelta
+from itertools import pairwise
 
 from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.model import RoomForecastSlotRecord
@@ -167,6 +168,37 @@ def test_the_stored_times_are_the_correct_instants_on_a_clock_change_day(
     ]
 
 
+def test_a_slot_boundary_in_the_spring_forward_gap_never_ends_before_it_starts(
+    client: MariaDBClient,
+) -> None:
+    # Given 29 March 2026, when local 01:00-02:00 does not exist, and a slot from
+    # 01:45 to 02:15
+    now = datetime(2026, 3, 29, 5, 10, tzinfo=UTC)
+    schedule = weekly_schedule()
+    schedule["sunday"] = [
+        {"start": 0, "value": {"target": 7.0}},
+        {"start": 105, "value": {"target": 19.0}},
+        {"start": 135, "value": {"target": 7.0}},
+    ]
+    seed_reading(client, now - timedelta(minutes=5), room=16.0)
+    seed_schedule(client, schedule)
+    seed_weather_forecast(
+        client, first=datetime(2026, 3, 29, 5), last=datetime(2026, 3, 31, 0)
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(now)
+
+    # Then no stored slot ends before it starts or has no length, and the
+    # positions run from 0
+    sunday = [row for row in slot_rows(client, "current") if row.day.day == 29]
+    assert sunday
+    assert all(row.ends_at > row.starts_at for row in sunday)
+    assert [row.position for row in sunday] == list(range(len(sunday)))
+    # and the slots do not overlap
+    assert all(a.ends_at <= b.starts_at for a, b in pairwise(sunday))
+
+
 def test_the_plan_slot_ends_at_the_correct_instant_on_a_clock_change_day(
     client: MariaDBClient,
 ) -> None:
@@ -320,4 +352,58 @@ def test_each_plan_slot_is_stored_under_the_day_its_window_opens(
     assert [(row.day.day, row.position, row.ends_at) for row in rows] == [
         (20, 0, datetime(2026, 11, 21, 3, 0)),
         (21, 0, datetime(2026, 11, 21, 22, 0)),
+    ]
+
+
+def test_two_windows_closing_at_the_same_instant_each_get_a_plan_slot(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday's window runs 22:00 to 06:00 (Saturday) and Saturday's 00:00 to
+    # 06:00, so both close Saturday 06:00
+    now = datetime(2026, 11, 20, 20, 10, tzinfo=UTC)
+    windows = ComfortWindows(
+        weekday=ComfortWindow(start=time(22, 0), end=time(6, 0)),
+        weekend=ComfortWindow(start=time(0, 0), end=time(6, 0)),
+    )
+    seed_reading(client, now - timedelta(minutes=5), room=14.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 20, 20), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, now.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION, comfort_windows=windows).refresh(now)
+
+    # Then one plan slot is stored under each opening day
+    rows = slot_rows(client, "plan")
+    assert [(row.day.day, row.position) for row in rows] == [(20, 0), (21, 0)]
+    assert rows[0].ends_at == datetime(2026, 11, 21, 6, 0)
+    assert rows[1].ends_at == datetime(2026, 11, 21, 6, 0)
+
+
+def test_a_plan_slot_is_kept_after_its_window_has_closed_until_the_day_ends(
+    client: MariaDBClient,
+) -> None:
+    # Given today's stored plan slot ends 22:00 and the window is 06:30 to 22:00
+    now = datetime(2026, 11, 17, 22, 30, tzinfo=UTC)
+    windows = ComfortWindows(
+        weekday=ComfortWindow(start=time(6, 30), end=time(22, 0)),
+        weekend=ComfortWindow(start=time(6, 30), end=time(22, 0)),
+    )
+    seed_reading(client, now - timedelta(minutes=5), room=14.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 22), last=datetime(2026, 11, 20, 0)
+    )
+    seed_comfort(client, now.date(), 19.3)
+    store_plan_slot(client, 17, datetime(2026, 11, 17, 5, 50), 19.5)
+
+    # When the job runs after the window has closed
+    RoomForecastJob(client, REGION, comfort_windows=windows).refresh(now)
+
+    # Then today's slot is still stored with the same start and end
+    today = [row for row in slot_rows(client, "plan") if row.day.day == 17]
+    assert [(row.starts_at, row.ends_at) for row in today] == [
+        (datetime(2026, 11, 17, 5, 50), datetime(2026, 11, 17, 22, 0))
     ]

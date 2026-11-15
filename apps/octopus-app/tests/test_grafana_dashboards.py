@@ -819,5 +819,7 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     assert "INTERVAL 1 DAY" in sql
     assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
     assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2
+    # a total only when every hour to midnight is present and priced
+    assert sql.count("HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR") == 2
     # the cost row lists its columns as the slot rows do: sort key first
     assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql
