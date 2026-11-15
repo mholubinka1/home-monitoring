@@ -200,10 +200,14 @@ def test_weekdays_start_at_0630_and_weekends_at_0745_both_ending_at_midnight() -
     assert comfort_window(windows, date(2026, 11, 23))[0].time() == time(6, 30)
 
 
-def test_the_preheat_is_the_shortest_run_that_reaches_the_target_at_the_start() -> None:
-    # Room 17 C at 05:00, plan target 18.5 C, window start 06:30. Heating a
-    # fraction a of the 05:00 hour and all of the 06:00 hour leaves, at 06:30
-    # (halfway through the 06:00 hour), 17.5606 + 1.437 a C, which is 18.5 C for
+def test_the_room_is_at_the_target_at_the_opening_minute_with_no_preheat_after_it() -> (
+    None
+):
+    # Room 17 C at 05:00, plan target 18.5 C, window opening 06:30, 10 C outside.
+    # The 05:00 hour drifts 0.02 * (10 - 17) + 0.08 = -0.06 C. Heating the last
+    # share a of it and the first half of the 06:00 hour, the room at 06:30 is
+    # 17 - 0.06 + 1.3 a, then half the 06:00 drift, 0.5 * (-0.0588 + 0.274 a),
+    # and 0.65 C of heating: 17.5606 + 1.437 a, which is 18.5 C for
     # a = 0.9394 / 1.437 = 0.653723.
     plan = comfort_plan(
         NUMBERS,
@@ -213,14 +217,35 @@ def test_the_preheat_is_the_shortest_run_that_reaches_the_target_at_the_start() 
         ComfortWindows(),
     )
 
-    assert [step.fraction for step in plan[:2]] == pytest.approx(
-        [0.653723, 1.0], abs=1e-5
+    # The 06:00 hour heats only its first half: no pre-heat minute after 06:30,
+    # and the held second half needs none
+    assert [step.fraction for step in plan[:3]] == pytest.approx(
+        [0.653723, 0.5, 0.0], abs=1e-5
     )
-    # the room at 06:30, halfway through the 06:00 hour, is just the target
-    assert (plan[1].room + plan[2].room) / 2 == pytest.approx(18.5, abs=1e-4)
-    # the hour 06:30 falls in is the pre-heat's last, so 07:00 is the first held:
-    # the room is already above 18.5 C, so it does not heat
-    assert plan[2].fraction == 0.0
+    # The second half drifts 0.5 * (-0.0588 + 0.274 * 0.653723) = +0.060163 C from
+    # 18.5 C at 06:30, so the room at 07:00 is 18.560163 C only if it was at 18.5
+    assert plan[2].room == pytest.approx(18.560163, abs=1e-5)
+
+
+def test_the_preheat_ends_at_the_opening_minute_and_the_target_is_held_from_it() -> (
+    None
+):
+    # Given a room at 18 C at 06:00, a plan target of 18.5 C and a window opening
+    # at 06:30, with 10 C outside: the hour drifts 0.02 * (10 - 18) + 0.08 = -0.08 C
+    plan = comfort_plan(
+        NUMBERS,
+        Start(room=18.0, previous_fraction=0.0),
+        _hours(datetime(2026, 11, 17, 6), 3),
+        18.5,
+        ComfortWindows(),
+    )
+
+    # Then the pre-heat is the shortest run ending at 06:30 that has the room at
+    # 18.5 C there: 18 - 0.04 + 1.3 * lead = 18.5, so the lead is 0.54 / 1.3 =
+    # 0.415385 of the hour (about 25 minutes), none of it after 06:30. From 06:30 the
+    # target is held: 0.04 / 1.3 = 0.030769 of the hour keeps 18.5 C to 07:00.
+    assert plan[0].fraction == pytest.approx(0.415385 + 0.030769, abs=1e-5)
+    assert plan[1].room == pytest.approx(18.5, abs=1e-4)
 
 
 def test_a_room_already_warm_at_the_start_needs_no_preheat() -> None:
@@ -272,10 +297,18 @@ def test_the_weekend_window_starts_later_than_the_weekday_one() -> None:
         NUMBERS, cold, _hours(datetime(2026, 11, 21, 5), 5), target, ComfortWindows()
     )
 
-    # 07:00 is held (not heating) before a 06:30 start, but is still pre-heat, the
-    # hour 07:45 falls in, at the weekend
-    assert tuesday[2].fraction == 0.0
-    assert saturday[2].fraction > 0.0
+    # Tuesday opens at 06:30: the 05:00 hour heats 0.653723 (see the test of the
+    # opening minute) and 07:00 needs nothing. Saturday opens at 07:45: the 05:00
+    # hour drifts to 16.94 C unheated, the 06:00 hour (drift -0.0588 C) heats its
+    # last share b, and the 07:00 hour (drift -0.057624 + 0.274 b) heats its first
+    # 45 minutes: 16.8812 + 1.3 b + 0.75 * (-0.057624 + 0.274 b) + 0.975 = 18.5
+    # for b = 0.687018 / 1.5055 = 0.456339, and the held quarter hour needs none
+    assert [step.fraction for step in tuesday[:3]] == pytest.approx(
+        [0.653723, 0.5, 0.0], abs=1e-5
+    )
+    assert [step.fraction for step in saturday[:3]] == pytest.approx(
+        [0.0, 0.456339, 0.75], abs=1e-5
+    )
 
 
 def test_an_overnight_window_is_still_held_when_the_forecast_starts_after_midnight() -> (
@@ -302,7 +335,7 @@ def test_an_overnight_window_is_still_held_when_the_forecast_starts_after_midnig
     assert [step.fraction for step in plan[4:]] == [0.0, 0.0]
 
 
-def test_the_hour_a_window_closes_in_is_left_unheated() -> None:
+def test_the_target_is_held_to_the_closing_minute_and_nothing_after() -> None:
     # Given a window ending at 23:30 and a cold night (-10 C outside), room at the
     # target of 19 C at 21:00
     ending_early = ComfortWindow(start=time(6, 30), end=time(23, 30))
@@ -319,14 +352,21 @@ def test_the_hour_a_window_closes_in_is_left_unheated() -> None:
         ComfortWindows(weekday=ending_early, weekend=ending_early),
     )
 
-    # Then the whole hours inside the window heat to hold it, and the 23:00 hour,
-    # which the window leaves part-way through, does not heat through midnight
-    assert plan[0].fraction > 0.0
-    assert plan[1].fraction > 0.0
-    assert plan[2].fraction == 0.0
+    # Then each hour holds 19 C: drift 0.02 * (-10 - 19) + 0.08 = -0.5 C, plus 0.3
+    # of the hour before's heating. 21:00 heats 0.5 / 1.3 = 0.384615, 22:00 heats
+    # (0.5 - 0.3 * 0.384615) / 1.3 = 0.295858, and 23:00, with drift
+    # -0.5 + 0.3 * 0.295858 = -0.411243 C, holds only until 23:30: half of that,
+    # 0.205621 C, is made up by 0.158170 of the hour
+    assert [step.fraction for step in plan[:3]] == pytest.approx(
+        [0.384615, 0.295858, 0.158170], abs=1e-5
+    )
+    # the other half hour drifts by another -0.205621 C and nothing heats it, nor
+    # anything after midnight (the next window opens beyond the forecast)
+    assert plan[3].room == pytest.approx(19.0 - 0.205621, abs=1e-5)
+    assert plan[3].fraction == 0.0
 
 
-def test_a_forecast_that_starts_in_the_hour_the_window_closes_in_does_not_heat() -> (
+def test_a_forecast_that_starts_in_the_hour_the_window_closes_in_stops_at_the_close() -> (
     None
 ):
     # Given a window ending at 23:30, and a forecast whose first hour is 23:00 in a
@@ -340,5 +380,7 @@ def test_a_forecast_that_starts_in_the_hour_the_window_closes_in_does_not_heat()
         ComfortWindows(weekday=ending_early, weekend=ending_early),
     )
 
-    # Then the closing hour is not heated
-    assert plan[0].fraction == 0.0
+    # Then the first half hour heats flat out, since the room is 2 C short and the
+    # hour's drift is 0.02 * (-10 - 17) + 0.08 = -0.46 C, and nothing heats after
+    # the close: the whole hour's heating is 0.5
+    assert plan[0].fraction == 0.5

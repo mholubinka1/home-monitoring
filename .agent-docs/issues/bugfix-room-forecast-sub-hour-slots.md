@@ -37,12 +37,12 @@ Make the comfort plan use the same parts: each window's target is held from its 
 
 ### Acceptance criteria
 
-- [ ] Given a window opening at 06:30 and a cold room, when the plan is made, then the room is at the target at 06:30 and no pre-heat minute falls after 06:30.
-- [ ] Given the window has opened, when the plan is made, then the target is held from 06:30, within the 06:00 hour.
-- [ ] Given a window closing at 23:30, when the plan is made, then the 23:00 hour holds the target until 23:30 and heats nothing after.
-- [ ] Given a room already at the target at the opening, when the plan is made, then there is no pre-heat.
-- [ ] Given a target out of reach, when the plan is made, then heating runs from the forecast's start.
-- [ ] Given a window on whole hours, an overnight window after midnight, and weekday and weekend days, when the plan is made, then each behaves as before.
+- [x] Given a window opening at 06:30 and a cold room, when the plan is made, then the room is at the target at 06:30 and no pre-heat minute falls after 06:30.
+- [x] Given the window has opened, when the plan is made, then the target is held from 06:30, within the 06:00 hour.
+- [x] Given a window closing at 23:30, when the plan is made, then the 23:00 hour holds the target until 23:30 and heats nothing after.
+- [x] Given a room already at the target at the opening, when the plan is made, then there is no pre-heat.
+- [x] Given a target out of reach, when the plan is made, then heating runs from the forecast's start.
+- [x] Given a window on whole hours, an overnight window after midnight, and weekday and weekend days, when the plan is made, then each behaves as before.
 
 ---
 

@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 from octopus_app.common.config import ComfortWindows
@@ -15,6 +16,7 @@ SATURDAY = 5
 # Halvings of the pre-heat search: far below a minute.
 BISECTIONS = 40
 ONE_DAY = timedelta(days=1)
+ZERO = timedelta(0)
 # A target no room is below: the heating fraction clamps to zero.
 NO_TARGET = -math.inf
 
@@ -175,55 +177,6 @@ class Start:
     previous_fraction: float
 
 
-def _run(
-    numbers: ThermalNumbers,
-    start: Start,
-    hours: list[ForecastHour],
-    heating_of: Callable[[int, float, float], float],
-) -> tuple[list[PlannedHour], Start]:
-    """The hours stepped, each heating the fraction `heating_of(index, room,
-    previous fraction)` gives, and where they leave the room."""
-    planned = []
-    room, previous = start.room, start.previous_fraction
-    for index, hour in enumerate(hours):
-        fraction = heating_of(index, room, previous)
-        planned.append(PlannedHour(room, fraction))
-        # The room at the hour's end: its passive change plus the heating chosen.
-        room = _end_room(numbers, room, hour, previous, fraction)
-        previous = fraction
-    return planned, Start(room, previous)
-
-
-def _end_room(
-    numbers: ThermalNumbers,
-    room: float,
-    hour: ForecastHour,
-    previous_fraction: float,
-    fraction: float,
-) -> float:
-    passive = _passive_change(
-        numbers, room, hour.outdoor, hour.radiation_kw, previous_fraction
-    )
-    return room + passive + numbers.heating_gain * fraction
-
-
-def _hold(
-    numbers: ThermalNumbers,
-    start: Start,
-    hours: list[ForecastHour],
-    parts_of: Callable[[datetime], list[Part]],
-) -> tuple[list[PlannedHour], Start]:
-    planned = []
-    room, previous = start.room, start.previous_fraction
-    for hour in hours:
-        fraction, end_room = step_hour(
-            numbers, room, hour, previous, parts_of(hour.start)
-        )
-        planned.append(PlannedHour(room, fraction))
-        room, previous = end_room, fraction
-    return planned, Start(room, previous)
-
-
 def hold_forecast(
     numbers: ThermalNumbers,
     start: Start,
@@ -232,7 +185,15 @@ def hold_forecast(
 ) -> list[PlannedHour]:
     """Each hour stepped through the parts that `parts_of` gives for its local
     start."""
-    return _hold(numbers, start, hours, parts_of)[0]
+    planned = []
+    room, previous = start.room, start.previous_fraction
+    for hour in hours:
+        fraction, end_room = step_hour(
+            numbers, room, hour, previous, parts_of(hour.start)
+        )
+        planned.append(PlannedHour(room, fraction))
+        room, previous = end_room, fraction
+    return planned
 
 
 def round_up_to_half(temperature: float) -> float:
@@ -251,51 +212,93 @@ def comfort_window(windows: ComfortWindows, day: date) -> tuple[datetime, dateti
     return start, end if end > start else end + timedelta(days=1)
 
 
-def _with_fractions(
+def _hour_parts(
+    hour_start: datetime,
+    held: list[tuple[datetime, datetime]],
+    splits: list[datetime],
+    target: float,
+    upto: float = 1.0,
+) -> list[Part]:
+    """The first `upto` of the hour as parts: the target inside a held interval,
+    none outside, and a new part wherever an interval or a split moment falls."""
+    moments = [*splits, *(moment for interval in held for moment in interval)]
+    marks = {0.0, upto}
+    for moment in moments:
+        mark = (moment - hour_start) / ONE_HOUR
+        if 0.0 < mark < upto:
+            marks.add(mark)
+    ordered = sorted(marks)
+    parts = []
+    for begin, end in pairwise(ordered):
+        middle = hour_start + (begin + end) / 2 * ONE_HOUR
+        inside = any(opens <= middle < closes for opens, closes in held)
+        parts.append(Part(end - begin, target if inside else NO_TARGET))
+    return parts
+
+
+def _room_at(
     numbers: ThermalNumbers,
     start: Start,
     hours: list[ForecastHour],
-    fractions: list[float],
-) -> tuple[list[PlannedHour], Start]:
-    return _run(numbers, start, hours, lambda index, _room, _previous: fractions[index])
+    parts_until: Callable[[datetime, float], list[Part]],
+    moment: datetime,
+) -> float:
+    """The room at the moment: the hours before it stepped, and the hour it falls
+    in stepped through the parts up to it."""
+    room, previous = start.room, start.previous_fraction
+    for hour in hours:
+        if hour.start >= moment:
+            break
+        upto = min((moment - hour.start) / ONE_HOUR, 1.0)
+        previous, room = step_hour(
+            numbers, room, hour, previous, parts_until(hour.start, upto)
+        )
+    return room
 
 
-def _preheat_fractions(
+def _lead(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     numbers: ThermalNumbers,
     start: Start,
-    run_up: list[ForecastHour],
-    window_start: datetime,
+    hours: list[ForecastHour],
+    held: list[tuple[datetime, datetime]],
+    splits: list[datetime],
     target: float,
-) -> list[float]:
-    """The heating of the hours leading to the window: the shortest run of full
-    heating, ending with the last of these hours, that brings the room to the target
-    at the window's start (read by linear interpolation inside that last hour).
-    The earliest hour of the run is fractional; if even heating throughout cannot
-    get there, every hour heats."""
-    count = len(run_up)
+    window: tuple[datetime, datetime],
+) -> timedelta:
+    """The shortest time before the window's opening, holding the target from then,
+    that has the room at the target at the opening: none when it is already there
+    or the window opens outside the forecast, all the time from the forecast's
+    start when the target is out of reach."""
+    opening, closing = window
+    first = hours[0].start
+    if not first < opening <= hours[-1].start + ONE_HOUR:
+        return ZERO
+    cap = opening - first
 
-    def fractions_for(length: float) -> list[float]:
-        return [
-            min(max(length - (count - 1 - index), 0.0), 1.0) for index in range(count)
-        ]
+    def room_at_opening(share: float) -> float:
+        interval = [*held, (opening - share * cap, closing)]
+        return _room_at(
+            numbers,
+            start,
+            hours,
+            lambda hour_start, upto: _hour_parts(
+                hour_start, interval, splits, target, upto
+            ),
+            opening,
+        )
 
-    def room_at_window(length: float) -> float:
-        planned, after = _with_fractions(numbers, start, run_up, fractions_for(length))
-        inside = min((window_start - run_up[-1].start) / ONE_HOUR, 1.0)
-        return planned[-1].room + inside * (after.room - planned[-1].room)
-
-    if room_at_window(0.0) >= target:
-        return fractions_for(0.0)
-    if room_at_window(float(count)) < target:
-        return fractions_for(float(count))
-    low, high = 0.0, float(count)
+    if room_at_opening(0.0) >= target:
+        return ZERO
+    if room_at_opening(1.0) < target:
+        return cap
+    low, high = 0.0, 1.0
     for _ in range(BISECTIONS):
         middle = (low + high) / 2
-        if room_at_window(middle) >= target:
+        if room_at_opening(middle) >= target:
             high = middle
         else:
             low = middle
-    return fractions_for(high)
+    return high * cap
 
 
 def comfort_plan(
@@ -305,57 +308,24 @@ def comfort_plan(
     target: float,
     windows: ComfortWindows,
 ) -> list[PlannedHour]:
-    """The forecast under heating that holds the target inside each day's comfort
-    window, with the shortest pre-heat that gets there by its start, and none
-    elsewhere. The hour a window starts in is the pre-heat's last, so it is not
-    held, and the hour it ends in is left unheated. When the first hour is already
-    in the window there is no pre-heat. The window that began the day before is
-    planned first: an overnight window can still be open when the forecast starts."""
-    days = list(dict.fromkeys(hour.start.date() for hour in hours))
-    if not days:
+    """The forecast under heating that holds the target from each comfort window's
+    opening minute to its closing minute, with the shortest lead before the opening
+    that has the room at the target then, and no heating elsewhere. The window that
+    began the day before is planned too: an overnight window can still be open when
+    the forecast starts."""
+    if not hours:
         return []
-    planned: list[PlannedHour] = []
-    state = start
-    for day in [days[0] - ONE_DAY, *days]:
-        ran, state = _plan_day(
-            numbers,
-            state,
-            hours[len(planned) :],
-            target,
-            comfort_window(windows, day),
-        )
-        planned += ran
-    rest = hours[len(planned) :]
-    return planned + _with_fractions(numbers, state, rest, [0.0] * len(rest))[0]
-
-
-def _plan_day(
-    numbers: ThermalNumbers,
-    state: Start,
-    remaining: list[ForecastHour],
-    target: float,
-    window: tuple[datetime, datetime],
-) -> tuple[list[PlannedHour], Start]:
-    """The pre-heat and the held hours of one window, from the hours not yet
-    planned: the hours before the window are the pre-heat (heating or not)."""
-    window_start, window_end = window
-    first_held = next(
-        (index for index, hour in enumerate(remaining) if hour.start >= window_start),
-        len(remaining),
+    days = list(dict.fromkeys(hour.start.date() for hour in hours))
+    spans = [comfort_window(windows, day) for day in [days[0] - ONE_DAY, *days]]
+    splits = [opening for opening, _ in spans]
+    held: list[tuple[datetime, datetime]] = []
+    for window in spans:
+        if window[1] > hours[0].start:
+            lead = _lead(numbers, start, hours, held, splits, target, window)
+            held.append((window[0] - lead, window[1]))
+    return hold_forecast(
+        numbers,
+        start,
+        hours,
+        lambda hour_start: _hour_parts(hour_start, held, splits, target),
     )
-    run_up = remaining[:first_held]
-    # A window beyond the hours we have weather for gets no pre-heat.
-    reachable = bool(run_up) and window_start - run_up[-1].start <= ONE_HOUR
-    fractions = (
-        _preheat_fractions(numbers, state, run_up, window_start, target)
-        if reachable
-        else [0.0] * len(run_up)
-    )
-    before, state = _with_fractions(numbers, state, run_up, fractions)
-    # Whole hours only: the hour the window closes in starts at the target and
-    # drifts little before it closes, and heating it all would overstate the cost.
-    held = [
-        hour for hour in remaining[first_held:] if hour.start + ONE_HOUR <= window_end
-    ]
-    during, state = _hold(numbers, state, held, lambda _start: [Part(1.0, target)])
-    return before + during, state

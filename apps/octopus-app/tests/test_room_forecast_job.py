@@ -377,6 +377,21 @@ def test_the_horizon_ends_at_the_last_hour_of_tomorrows_local_day(
     assert len(rows) == rows_stored
 
 
+def _assert_room_at_the_target_three_quarters_through(
+    by_hour: dict[datetime, Any], hour: datetime, target: float
+) -> None:
+    """A window opening 45 minutes into `hour` has the room at the target then, so
+    the last quarter of the hour drifts a quarter of the hour's drift without
+    heating, 0.02 * (10 - room) + 0.08 + 0.3 * the previous hour's heating, and
+    holds the target: the room at the hour's end is the target plus a quarter of
+    the drift when it is positive, and the target itself when heating holds it."""
+    previous = by_hour[hour - ONE_HOUR].on_minutes / 60
+    drift = 0.02 * (10 - by_hour[hour].room_temp) + 0.08 + 0.3 * previous
+    assert by_hour[hour + ONE_HOUR].room_temp == pytest.approx(
+        target + 0.25 * max(drift, 0.0), abs=2e-3
+    )
+
+
 @pytest.mark.parametrize(
     ("now", "rows_stored", "window_hour"),
     [
@@ -403,15 +418,13 @@ def test_the_plan_reaches_its_target_at_the_local_window_start_across_a_clock_ch
     RoomForecastJob(client, REGION).refresh(now)
 
     # Then the plan covers the same hours as the current rows, and the room is at
-    # 19 C three quarters of the way through the UTC hour holding 07:45 local
+    # 19 C at 07:45 local, three quarters of the way through the UTC hour
     rows = live_rows(client, "plan")
     assert len(rows) == rows_stored
     assert rows[-1].hour_start == live_rows(client, "current")[-1].hour_start
-    by_hour = {row.hour_start: row for row in rows}
-    at_start = by_hour[window_hour].room_temp + 0.75 * (
-        by_hour[window_hour + ONE_HOUR].room_temp - by_hour[window_hour].room_temp
+    _assert_room_at_the_target_three_quarters_through(
+        {row.hour_start: row for row in rows}, window_hour, 19.0
     )
-    assert at_start == pytest.approx(19.0, abs=1e-3)
 
 
 def test_missing_hive_tables_store_nothing_and_do_not_raise(
@@ -448,18 +461,21 @@ def test_the_plan_holds_the_rounded_up_comfort_temperature_with_the_shortest_pre
     assert rows[0].on_minutes == 60
     assert rows[1].room_temp == pytest.approx(18.0 - 0.08 + 1.3)
     by_hour = {row.hour_start: row for row in rows}
-    # tomorrow the room has cooled overnight and is at 19.5 C halfway through the
-    # 06:00 hour, the hour 06:30 falls in, after the shortest pre-heat
-    at_start = (
-        by_hour[datetime(2026, 11, 18, 6)].room_temp
-        + by_hour[datetime(2026, 11, 18, 7)].room_temp
-    ) / 2
-    assert at_start == pytest.approx(19.5, abs=1e-3)
-    # the pre-heat is the 06:00 hour at full heat (the room is 18.9 C at 06:00 and
-    # needs 1.2 C more by 06:30), the overnight hours before it do not heat, and
-    # 07:00 is held, not heated
+    # tomorrow the room cools overnight (held at 19.5 C to midnight, then 10 C
+    # outside: 19.41, 19.30, 19.20, 19.09, 18.99 C at 01:00 to 05:00) to 18.89 C at
+    # 06:00. The first half of the 06:00 hour heats flat out and reaches only 19.49
+    # C at 06:30, 0.0081 C short, so the pre-heat starts 0.34 minutes before 06:00
+    # (0.0081 / 1.437 of the 05:00 hour, which stores 0 minutes) and ends with the
+    # room at 19.5 C at 06:30. The held second half then loses 0.0481 C, which takes
+    # 0.0481 / 1.3 = 0.037 of the hour: 30 + 2 = 32 minutes in the 06:00 hour
+    assert by_hour[datetime(2026, 11, 18, 6)].room_temp == pytest.approx(
+        18.89, abs=1e-2
+    )
     assert by_hour[datetime(2026, 11, 18, 5)].on_minutes == 0
-    assert by_hour[datetime(2026, 11, 18, 6)].on_minutes == 60
+    assert by_hour[datetime(2026, 11, 18, 6)].on_minutes == 32
+    # and the 07:00 hour starts at the held 19.5 C and, with the heating carried
+    # on, needs none
+    assert by_hour[datetime(2026, 11, 18, 7)].room_temp == pytest.approx(19.5, abs=1e-3)
     assert by_hour[datetime(2026, 11, 18, 7)].on_minutes == 0
 
 
@@ -477,14 +493,12 @@ def test_the_weekend_plan_starts_at_0745(client: MariaDBClient) -> None:
     # When the job runs
     RoomForecastJob(client, REGION).refresh(friday)
 
-    # Then the room is at 19 C three quarters of the way through the 07:00 hour
-    # (07:45, the pre-heat's last hour) and the 08:00 hour is held
+    # Then the room is at 19 C at 07:45, three quarters of the way through the
+    # 07:00 hour, where the pre-heat ends
     by_hour = {row.hour_start: row for row in live_rows(client, "plan")}
-    saturday = datetime(2026, 11, 21)
-    seven = by_hour[saturday.replace(hour=7)].room_temp
-    eight = by_hour[saturday.replace(hour=8)].room_temp
-    assert seven + 0.75 * (eight - seven) == pytest.approx(19.0, abs=1e-3)
-    assert eight >= 19.0
+    _assert_room_at_the_target_three_quarters_through(
+        by_hour, datetime(2026, 11, 21, 7), 19.0
+    )
 
 
 def test_a_comfort_window_from_the_config_moves_the_plan(client: MariaDBClient) -> None:
