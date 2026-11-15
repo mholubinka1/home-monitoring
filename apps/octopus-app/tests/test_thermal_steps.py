@@ -68,6 +68,21 @@ def test_a_step_with_three_polls_in_its_heating_span_is_left_out() -> None:
     assert _steps(polls) == 0
 
 
+def test_heating_minutes_never_exceed_the_step_when_a_span_holds_extra_polls() -> None:
+    # Given a catch-up poll that gives the step 6 polls, all with the heating on
+    polls: list[Poll] = [
+        (at, 18.0, "ON", False) for at in (MARK + POLL * index for index in range(5))
+    ]
+    polls += [(MARK + timedelta(minutes=9), 18.0, "ON", False)]
+    polls += _polls(MARK - timedelta(minutes=10), MARK - POLL)
+    polls += _polls(MARK + timedelta(minutes=10), MARK + timedelta(minutes=30))
+
+    steps = build_steps(polls, WEATHER, MARK, MARK + timedelta(minutes=10), (0,))
+
+    # Then it counts 10 minutes of heating, not 12
+    assert steps[0].on_minutes == (10,)
+
+
 def test_a_step_whose_first_poll_has_no_temperature_is_left_out() -> None:
     polls = _polls(MARK - timedelta(minutes=10), MARK + timedelta(minutes=30))
     polls[5] = (polls[5][0], None, "OFF", False)  # the poll at the mark

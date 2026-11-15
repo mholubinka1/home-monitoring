@@ -200,8 +200,10 @@ def _heating_minutes(
         ]
         if any(count < MIN_POLLS_PER_SPAN for count, _ in counts):
             return None
-        on_minutes.append(POLL_MINUTES * counts[0][1])
-        carried_minutes.append(POLL_MINUTES * counts[1][1])
+        # A retried poll can give a span more than five; the heating cannot have
+        # been on for longer than the span.
+        on_minutes.append(min(STEP_MINUTES, POLL_MINUTES * counts[0][1]))
+        carried_minutes.append(min(STEP_MINUTES, POLL_MINUTES * counts[1][1]))
     return tuple(on_minutes), tuple(carried_minutes)
 
 
