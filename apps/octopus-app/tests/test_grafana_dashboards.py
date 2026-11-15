@@ -896,6 +896,15 @@ def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None
     assert "$__timeFilter" not in sql
     assert "INTERVAL 30 DAY" in sql
     assert "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))" in sql
+    # the window starts at London midnight 30 days ago and ends at London
+    # midnight today, with nothing added to it, so the current day never gets in
+    bounds = sql[: sql.index("hours AS (")]
+    london_today = "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))"
+    assert f"DATE_SUB({london_today}, INTERVAL 30 DAY)" in bounds
+    to_utc = bounds[bounds.index("CONVERT_TZ(CAST(" + london_today + " AS DATETIME)") :]
+    to_expression, _, _ = to_utc.partition("AS to_utc")
+    assert to_expression.endswith(", '${timezone}', 'UTC') ")
+    assert "INTERVAL" not in to_expression
     # every hour is taken from the window start up to, not including, today
     assert sql.count(".hour_start >= b.from_utc") == 3
     assert sql.count(".hour_start < b.to_utc") == 3
