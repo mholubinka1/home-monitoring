@@ -588,3 +588,69 @@ ORDER BY sort_order;
 ```
 
 Not yet run against MariaDB: it is checked in the single end-of-plan dashboard review.
+
+### Daily Cost: Schedules vs Actual (time series)
+
+Three lines of daily gas cost of the heating, in pounds, for the last 30 completed London days; today is never shown. All three are heating only at the gas unit rate with no standing charge, so they are comparable and the gaps between them are about the schedule, not the bill. **Current Schedule (estimated)** and **Comfort Schedule (estimated)** are the sums of `room_forecast_hour.cost_gbp` for the `day_ahead` rows of the `current` and `plan` scenarios: the [Day-Ahead Forecast](../../../.agent-docs/context.md) as the last run before each day began left it (the job rewrites tomorrow's rows every run until midnight), never the `live` rows, which are replaced every hour. **Actual** is the sum of `heating_hour.cost_gbp` over both sources (measured and estimated), so a day whose gas has not arrived yet is still drawn from the minutes on. Off hours are rows with a cost of zero and count towards the day's hours.
+
+A line has a point for a London day only when its count of priced hours equals the hours in that day (23, 24 or 25 across clock changes), so a day with a missing hour (too few Hive readings for `heating_hour`) or an unpriced hour (no gas rate) is a gap in that line, never a partial total and never a zero. The rule is applied per line, so one line can be a gap while another is drawn. The estimated lines start with the first stored `day_ahead` rows (about 2026-11-16) and fill in one day at a time; nothing is backfilled, while Actual shows every day that has a priced `heating_hour` row for each of its hours (its history starts where the hourly heating job first ran).
+
+The window is fixed in the query, from London midnight 30 days ago up to, not including, London midnight today, so changing a relative dashboard time range never changes it. The panel's relative time override of 31 days only makes the axis long enough: each day's point sits at London noon, and the oldest day's noon is always less than 31 days before now. The query therefore uses no `$__timeFilter`. **Limit:** Grafana applies that override only while the dashboard range is relative. If the dashboard is zoomed or set to an absolute from and to, the override is ignored and the axis follows the selected range, so only the days inside it are drawn (the query itself still returns the same 30 days). Go back to a relative range such as the default to see the whole window. It reads only the two small tables `room_forecast_hour` (at most about 1,500 `day_ahead` rows in the window) and `heating_hour` (about 24 rows a day), so it does no heavy work on the Pi.
+
+```sql
+WITH bounds AS (
+  SELECT
+    CONVERT_TZ(CAST(DATE_SUB(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 30 DAY) AS DATETIME), '${timezone}', 'UTC') AS from_utc,
+    CONVERT_TZ(CAST(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) AS DATETIME), '${timezone}', 'UTC') AS to_utc
+),
+hours AS (
+  SELECT 'current' AS series, r.hour_start, r.cost_gbp
+  FROM room_forecast_hour r
+  CROSS JOIN bounds b
+  WHERE r.kind = 'day_ahead'
+    AND r.scenario = 'current'
+    AND r.hour_start >= b.from_utc
+    AND r.hour_start < b.to_utc
+
+  UNION ALL
+
+  SELECT 'plan' AS series, r.hour_start, r.cost_gbp
+  FROM room_forecast_hour r
+  CROSS JOIN bounds b
+  WHERE r.kind = 'day_ahead'
+    AND r.scenario = 'plan'
+    AND r.hour_start >= b.from_utc
+    AND r.hour_start < b.to_utc
+
+  UNION ALL
+
+  SELECT 'actual' AS series, h.hour_start, h.cost_gbp
+  FROM heating_hour h
+  CROSS JOIN bounds b
+  WHERE h.hour_start >= b.from_utc
+    AND h.hour_start < b.to_utc
+),
+daily AS (
+  SELECT
+    series,
+    DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}')) AS day,
+    SUM(cost_gbp) AS cost
+  FROM hours
+  GROUP BY series, DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}'))
+  HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(
+    HOUR,
+    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),
+    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
+  )
+)
+SELECT
+  CONVERT_TZ(CAST(day AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,
+  MAX(CASE WHEN series = 'current' THEN ROUND(cost, 4) END) AS current_cost,
+  MAX(CASE WHEN series = 'plan' THEN ROUND(cost, 4) END) AS plan_cost,
+  MAX(CASE WHEN series = 'actual' THEN ROUND(cost, 4) END) AS actual_cost
+FROM daily
+GROUP BY day
+ORDER BY day;
+```
+
+**Not yet checked against the Pi.** Checked once, read-only, on a throwaway copy of the database in the final dashboard review (never on the live MariaDB, which has a 512 MB limit). The tables are filled by octopus-app's hourly jobs, so no app deploy is needed; import the dashboard.
