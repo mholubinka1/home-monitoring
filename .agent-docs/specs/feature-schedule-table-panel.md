@@ -12,7 +12,8 @@ Example with a made-up schedule:
 
 ```text
 Current schedule              Comfort plan
-05:40 - 06:25 | 19 degrees    05:10 - 00:00 | 19.5 degrees
+00:00 - 05:40 | 7 degrees     05:10 - 00:00 | 19.5 degrees
+05:40 - 06:25 | 19 degrees
 06:25 - 00:00 | 7 degrees
 Cost to midnight: £0.84       Cost to midnight: £1.12
 ```
