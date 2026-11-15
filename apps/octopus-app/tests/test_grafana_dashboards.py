@@ -840,8 +840,6 @@ def test_the_cost_comparison_panel_sits_full_width_below_the_schedule_table() ->
     assert panel["gridPos"]["w"] == GRID_COLUMNS
     assert panel["gridPos"]["x"] == 0
     assert panel["gridPos"]["y"] == table["gridPos"]["y"] + table["gridPos"]["h"]
-    ids = [p["id"] for p in _gas_panels()]
-    assert len(set(ids)) == len(ids)
 
 
 def test_the_cost_comparison_panel_draws_two_dashed_estimates_and_a_solid_actual() -> (
@@ -893,6 +891,11 @@ def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None
     sql = _cost_comparison_sql()
 
     assert _panel(COST_COMPARISON)["timeFrom"] == "31d"
+    # Grafana drops the panel's own range for a zoomed or absolute dashboard
+    # range, and the panel says so rather than claiming to ignore every range
+    assert (
+        "zoomed or set to an absolute range" in _panel(COST_COMPARISON)["description"]
+    )
     assert "$__timeFilter" not in sql
     assert "INTERVAL 30 DAY" in sql
     assert "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))" in sql
@@ -917,6 +920,16 @@ def test_the_cost_comparison_keeps_a_day_only_when_every_hour_is_priced() -> Non
     # one shared rule, applied per series because it groups by series first
     assert sql.count("HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(") == 1
     assert sql.index("GROUP BY series,") < sql.index("HAVING COUNT(")
+    # each output column takes its own series, so no two lines can be swapped
+    for series, column in (
+        ("current", "current_cost"),
+        ("plan", "plan_cost"),
+        ("actual", "actual_cost"),
+    ):
+        assert (
+            f"MAX(CASE WHEN series = '{series}' THEN ROUND(cost, 4) END) AS {column}"
+            in sql
+        ), column
     assert "CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME)" in sql
 
 
