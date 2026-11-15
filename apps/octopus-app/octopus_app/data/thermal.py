@@ -396,8 +396,10 @@ def search_delay(
     ledger: StepLedger, start: datetime, end: datetime
 ) -> tuple[int, ThermalFit] | None:
     """The searched delay, as an index, whose fit misses the readings least over a
-    window (the smaller on a tie), with that fit; None when no delay can be fitted
-    (too few steps, too little heating or no fit at any)."""
+    window (the smaller on a tie), with that fit. The best fit is kept even when its
+    numbers make no physical sense: a worse delay is never chosen to hide an
+    implausible model. None when no delay can be fitted (too few steps, too little
+    heating or no fit at any)."""
     best: tuple[int, ThermalFit] | None = None
     best_misses = math.inf
     for index in range(len(ledger.delays)):

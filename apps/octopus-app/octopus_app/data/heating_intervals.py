@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime, timedelta
 from statistics import median
 
 from common import local_day
-from octopus_app.data.model import HeatingIntervalRecord
 
 INTERVAL = timedelta(minutes=30)
 POLL_MINUTES = 2
@@ -53,17 +52,6 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
         for start, count in counts.items()
         if count >= MIN_POLLS_PER_INTERVAL
     }
-
-
-def hourly_on_minutes(
-    intervals: Iterable[HeatingIntervalRecord],
-) -> dict[datetime, int]:
-    """Per hour start, the minutes on, for hours whose two half-hours are both
-    stored."""
-    halves: dict[datetime, list[int]] = defaultdict(list)
-    for row in intervals:
-        halves[row.starts_at.replace(minute=0)].append(row.on_minutes)
-    return {hour: sum(minutes) for hour, minutes in halves.items() if len(minutes) == 2}
 
 
 def learned_boiler_kw(measured_intervals: Iterable[tuple[int, float]]) -> float:
