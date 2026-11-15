@@ -29,7 +29,6 @@ WATTS_PER_KILOWATT = 1000
 STEP_MINUTES = 10
 STEP = timedelta(minutes=STEP_MINUTES)
 STEPS_PER_HOUR = MINUTES_PER_HOUR // STEP_MINUTES
-POLLS_PER_STEP = STEP_MINUTES // POLL_MINUTES
 MIN_POLLS_PER_SPAN = 4  # of the 5 a 2-minute poll interval gives in 10 minutes
 # A room reading counts as a step's start (or end) when it comes this soon after
 # the mark: a couple of polls at hive-app's 2-minute interval.

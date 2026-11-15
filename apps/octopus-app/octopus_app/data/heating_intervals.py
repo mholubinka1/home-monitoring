@@ -28,11 +28,6 @@ def poll_is_on(state: str | None, boost_active: bool | None) -> bool:
     return state == "ON" or bool(boost_active)
 
 
-def on_poll_minutes(polls: list[Poll]) -> int:
-    """The minutes the polls cover while on, whatever their number."""
-    return POLL_MINUTES * sum(poll_is_on(state, boost) for _, state, boost in polls)
-
-
 def interval_start_of(moment: datetime) -> datetime:
     """The start of the half-hour holding a moment (naive UTC)."""
     return moment.replace(minute=moment.minute // 30 * 30, second=0, microsecond=0)
