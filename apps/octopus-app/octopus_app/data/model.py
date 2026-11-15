@@ -121,6 +121,8 @@ class ThermalModelRecord:  # pylint: disable=too-many-instance-attributes
     backtest_days: int | None
     backtest_mean_error: float | None
     backtest_worst_error: float | None
+    # The step the numbers were fitted on; None on rows fitted hourly (read as 60).
+    step_minutes: int | None = None
 
 
 @dataclass(frozen=True)

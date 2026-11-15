@@ -19,7 +19,12 @@ from octopus_app.data.model import (
 )
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast import STEP, STEP_MINUTES
-from octopus_app.data.thermal import ONE_HOUR, WATTS_PER_KILOWATT, ThermalNumbers
+from octopus_app.data.thermal import (
+    MINUTES_PER_HOUR,
+    ONE_HOUR,
+    WATTS_PER_KILOWATT,
+    ThermalNumbers,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -397,4 +402,7 @@ def _room_model_of(record: ThermalModelRecord) -> room_forecast.RoomModel | None
     ]
     if not record.usable or any(number is None for number in numbers):
         return None
-    return room_forecast.RoomModel(ThermalNumbers(*numbers))  # type: ignore[arg-type]
+    return room_forecast.RoomModel(
+        ThermalNumbers(*numbers),  # type: ignore[arg-type]
+        step_minutes=record.step_minutes or MINUTES_PER_HOUR,
+    )

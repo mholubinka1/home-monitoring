@@ -205,6 +205,7 @@ class thermal_model(SQLBase):
     backtest_days = Column(Integer)
     backtest_mean_error = Column(_DOUBLE)
     backtest_worst_error = Column(_DOUBLE)
+    step_minutes = Column(Integer)  # NULL on rows fitted hourly, read as 60
 
 
 class heating_forecast_day(SQLBase):

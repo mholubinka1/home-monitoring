@@ -802,6 +802,24 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         )
         return [(row.polled_at, row.state, row.boost_active) for row in rows]
 
+    def read_thermostat_polls(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float | None, str | None, bool | None]]:
+        """The (time, room temperature, state, boost) of the thermostat polls in
+        [start, end) (naive UTC), oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.current_temp,
+            hs.c.state,
+            hs.c.boost_active,
+            where=(hs.c.polled_at >= start, hs.c.polled_at < end),
+        )
+        return [
+            (row.polled_at, row.current_temp, row.state, row.boost_active)
+            for row in rows
+        ]
+
     def read_boost_polls(
         self, start: datetime, end: datetime
     ) -> list[tuple[datetime, float | None]]:

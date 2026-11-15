@@ -62,12 +62,12 @@ Fit the Thermal Model on 10-minute room changes read straight from the thermosta
 
 ### Acceptance criteria
 
-- [ ] Given 60 days of polls from a made-up house, when the model is fitted, then its five numbers, in per-hour units, match the house's.
-- [ ] Given a step with no room reading within 4 minutes of its start, when the model is fitted, then that step is left out.
-- [ ] Given under a week of complete steps, when the model is fitted, then it is stored unusable with the reason too few steps.
-- [ ] Given under 30 heating steps, when the model is fitted, then it is stored unusable with the reason too little heating.
-- [ ] Given the newest stored model was fitted hourly, when the job runs, then it refits at once and stores `step_minutes` 10.
-- [ ] Given a backtest mean miss above 0.5 C, when the model is stored, then it is unusable and no new forecast is made.
+- [x] Given 60 days of polls from a made-up house, when the model is fitted, then its five numbers, in per-hour units, match the house's.
+- [x] Given a step with no room reading within 4 minutes of its start, when the model is fitted, then that step is left out.
+- [x] Given under a week of complete steps, when the model is fitted, then it is stored unusable with the reason too few steps.
+- [x] Given under 30 heating steps, when the model is fitted, then it is stored unusable with the reason too little heating.
+- [x] Given the newest stored model was fitted hourly, when the job runs, then it refits at once and stores `step_minutes` 10.
+- [x] Given a backtest mean miss above 0.5 C, when the model is stored, then it is unusable and no new forecast is made.
 
 ---
 

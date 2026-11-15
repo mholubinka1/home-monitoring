@@ -1,4 +1,5 @@
-"""Fits the thermal model once a local day and stores each fit (ADR-0035)."""
+"""Fits the thermal model once a local day and stores each fit (ADR-0035,
+ADR-0036)."""
 
 import logging.config
 from datetime import UTC, date, datetime, timedelta
@@ -6,7 +7,7 @@ from logging import Logger, getLogger
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import heating_intervals, thermal
+from octopus_app.data import thermal
 from octopus_app.data.model import ThermalModelRecord
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.thermal import ThermalFit
@@ -14,16 +15,20 @@ from octopus_app.data.thermal import ThermalFit
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
+# The newest room reading a step's end can use comes this long after the end.
+READING_MARGIN = thermal.READING_TOLERANCE + timedelta(minutes=2)
+
 
 class ThermalModelJob:
     def __init__(self, mariadb: MariaDBClient) -> None:
         self._mariadb = mariadb
 
     def refresh(self, now: datetime | None = None) -> None:
-        """Fits the model over the hourly steps of the 60 days before now and
-        stores one row, usable or not. Does nothing when a fit was already made
-        today, or when hive-app has stored no hourly weather or no thermostat
-        readings to learn from."""
+        """Fits the model over the 10-minute steps of the 60 days before now and
+        stores one row, usable or not. Does nothing when a 10-minute fit was
+        already made today, or when hive-app has stored no hourly weather or no
+        thermostat readings to learn from. A model fitted on any other step is
+        refitted at once."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         if self._fitted_today(now):
             return
@@ -37,21 +42,18 @@ class ThermalModelJob:
         if not weather:
             logger.info("Thermal model: no hourly weather, nothing fitted.")
             return
-        readings = self._mariadb.read_room_temperatures(first, end + thermal.ONE_HOUR)
-        if not readings:
+        history = timedelta(minutes=max(thermal.SEARCHED_DELAYS)) + thermal.STEP
+        polls = self._mariadb.read_thermostat_polls(
+            first - history, end + READING_MARGIN
+        )
+        if not polls:
             logger.info("Thermal model: no thermostat readings, nothing fitted.")
             return
-        evidence = thermal.HourlyEvidence.from_readings(
-            readings,
-            heating_intervals.hourly_on_minutes(
-                self._mariadb.read_heating_intervals(first - thermal.ONE_HOUR, end)
-            ),
-            weather,
-        )
-        fit = thermal.fit_thermal_model(thermal.hourly_steps(evidence, start, end))
+        ledger = thermal.StepLedger(thermal.build_steps(polls, weather, first, end))
+        fit = thermal.fit_window(ledger.window(0, start, end))
         result = None
         if fit.reason is None:
-            result = thermal.backtest(evidence, days)
+            result = thermal.backtest(ledger, days)
             fit = thermal.with_backtest(fit, result)
         self._mariadb.write_thermal_model(_record(fit, result, now, start, end))
         logger.info(
@@ -61,16 +63,19 @@ class ThermalModelJob:
 
     def _fitted_today(self, now: datetime) -> bool:
         latest = self._mariadb.read_latest_thermal_model()
-        return latest is not None and local_day.to_local_date(
-            latest.model.fitted_at
-        ) == local_day.to_local_date(now)
+        return (
+            latest is not None
+            and latest.model.step_minutes == thermal.STEP_MINUTES
+            and local_day.to_local_date(latest.model.fitted_at)
+            == local_day.to_local_date(now)
+        )
 
 
-def _backtest_days(now: datetime) -> list[thermal.DayHours]:
+def _backtest_days(now: datetime) -> list[thermal.DayWindow]:
     """The 14 local days before the day of `now`, oldest first."""
     today = local_day.to_local_date(now)
     return [
-        thermal.DayHours(
+        thermal.DayWindow(
             _naive_start_of(today - timedelta(days=ago)),
             _naive_start_of(today - timedelta(days=ago - 1)),
         )
@@ -93,8 +98,8 @@ def _record(
     return ThermalModelRecord(
         fitted_at=now,
         window_start=local_day.to_local_date(start),
-        # `end` is exclusive: the last fitted hour starts an hour before it.
-        window_end=local_day.to_local_date(end - thermal.ONE_HOUR),
+        # `end` is exclusive: the last fitted step starts a step before it.
+        window_end=local_day.to_local_date(end - thermal.STEP),
         usable=fit.reason is None,
         unusable_reason=None if fit.reason is None else fit.reason.value,
         steps_used=fit.steps_used,
@@ -107,4 +112,5 @@ def _record(
         carried_gain=numbers.carried_gain if numbers else None,
         sun_gain=numbers.sun_gain if numbers else None,
         constant_gain=numbers.constant_gain if numbers else None,
+        step_minutes=thermal.STEP_MINUTES,
     )

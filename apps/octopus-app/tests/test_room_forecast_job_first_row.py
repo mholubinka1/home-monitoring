@@ -5,7 +5,8 @@ had already asked for (ADR-0035, ADR-0036).
 London is on GMT in November, so local time is UTC. The slot is the made-up one:
 19 C from 05:40 to 06:25 on a Tuesday, 7 C otherwise."""
 
-from datetime import UTC, date, datetime
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -13,6 +14,7 @@ from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
+    NOW,
     REGION,
     live_rows,
     seed_comfort,
@@ -22,6 +24,7 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     seed_weather_forecast,
     thermal_model_client,
     tuesday_slot_schedule,
+    usable_model,
     weekly_schedule,
 )
 
@@ -102,6 +105,31 @@ def test_heating_asked_for_before_the_reading_still_warms_the_room_afterwards(
     assert {row.on_minutes for row in by_start.values()} == {0}
     assert by_start[datetime(2026, 11, 17, 8, 20)].room_temp == pytest.approx(
         UNHEATED_AFTER_TWO_HOURS + 0.082, abs=0.005
+    )
+
+
+def test_a_model_fitted_on_10_minutes_carries_the_heat_seen_for_10_minutes(
+    client: MariaDBClient,
+) -> None:
+    # Given a newer model fitted on 10-minute steps, the same 20 minutes of heating
+    # from 06:00 and a reading of 18 C at 06:20
+    client.write_thermal_model(
+        replace(usable_model(), fitted_at=NOW + timedelta(hours=1), step_minutes=10)
+    )
+    seed_heating_polls(client, datetime(2026, 11, 17, 6), count=10)
+    seed_reading(client, datetime(2026, 11, 17, 6, 20, tzinfo=UTC), room=18.0)
+    seed_schedule(client, weekly_schedule())
+    _seed_weather(client, 6)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 25, tzinfo=UTC))
+
+    # Then only the last 10 minutes of that heating still count, as 0.3 C an hour of
+    # heating for the 10 minutes after each: in the 2-minute steps from 06:20 the
+    # heat arrived in the 5 steps before each is 10, 8, 6, 4 and 2 minutes, which
+    # add 0.3 * (2 / 10) * 30 / 60 = 0.03 C by 06:30
+    assert _by_start(client)[datetime(2026, 11, 17, 8, 20)].room_temp == pytest.approx(
+        UNHEATED_AFTER_TWO_HOURS + 0.029, abs=0.005
     )
 
 
