@@ -88,6 +88,35 @@ def target_at(schedule: Schedule, moment: datetime) -> float:
 
 
 @dataclass(frozen=True)
+class Slot:
+    """A span of a local day held at one target (naive local times)."""
+
+    start: datetime
+    end: datetime
+    target: float
+
+
+def schedule_slots(schedule: Schedule, day: date) -> list[Slot]:
+    """The day's slots: each runs to the next one's start and the last to 00:00
+    next day. Before the day's first start the previous day's last target holds,
+    and consecutive equal targets merge."""
+    midnight = datetime(day.year, day.month, day.day)
+    changes = [(0, target_at(schedule, midnight))]
+    for start, target in schedule[DAY_NAMES[day.weekday()]]:
+        if start > 0 and target != changes[-1][1]:
+            changes.append((start, target))
+    ends = [start for start, _ in changes[1:]] + [24 * MINUTES_PER_HOUR]
+    return [
+        Slot(
+            midnight + timedelta(minutes=begin),
+            midnight + timedelta(minutes=end),
+            target,
+        )
+        for (begin, target), end in zip(changes, ends)
+    ]
+
+
+@dataclass(frozen=True)
 class Part:
     """A share of an hour (0 to 1) held at one target, or at NO_TARGET."""
 
@@ -325,6 +354,32 @@ def _lead(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     return high * cap
 
 
+def _held_spans(
+    numbers: ThermalNumbers,
+    start: Start,
+    hours: list[ForecastHour],
+    target: float,
+    windows: ComfortWindows,
+) -> tuple[list[tuple[datetime, datetime]], list[datetime], list[date]]:
+    """Per comfort window still open at the forecast's start, the span held:
+    (opening minus its lead, closing); the windows' openings; and the day each held
+    span's window opens on, aligned with the spans. The window that
+    began the day before is included: an overnight window can still be open when
+    the forecast starts."""
+    days = list(dict.fromkeys(hour.start.date() for hour in hours))
+    window_days = [days[0] - ONE_DAY, *days]
+    spans = [comfort_window(windows, day) for day in window_days]
+    splits = [opening for opening, _ in spans]
+    held: list[tuple[datetime, datetime]] = []
+    opening_days: list[date] = []
+    for day, window in zip(window_days, spans):
+        if window[1] > hours[0].start:
+            lead = _lead(numbers, start, hours, held, splits, target, window)
+            held.append((window[0] - lead, window[1]))
+            opening_days.append(day)
+    return held, splits, opening_days
+
+
 def comfort_plan(
     numbers: ThermalNumbers,
     start: Start,
@@ -334,22 +389,34 @@ def comfort_plan(
 ) -> list[PlannedHour]:
     """The forecast under heating that holds the target from each comfort window's
     opening minute to its closing minute, with the shortest lead before the opening
-    that has the room at the target then, and no heating elsewhere. The window that
-    began the day before is planned too: an overnight window can still be open when
-    the forecast starts."""
+    that has the room at the target then, and no heating elsewhere."""
     if not hours:
         return []
-    days = list(dict.fromkeys(hour.start.date() for hour in hours))
-    spans = [comfort_window(windows, day) for day in [days[0] - ONE_DAY, *days]]
-    splits = [opening for opening, _ in spans]
-    held: list[tuple[datetime, datetime]] = []
-    for window in spans:
-        if window[1] > hours[0].start:
-            lead = _lead(numbers, start, hours, held, splits, target, window)
-            held.append((window[0] - lead, window[1]))
+    held, splits, _ = _held_spans(numbers, start, hours, target, windows)
     return hold_forecast(
         numbers,
         start,
         hours,
         lambda hour_start: _hour_parts(hour_start, held, splits, target),
     )
+
+
+def plan_slots(
+    numbers: ThermalNumbers,
+    start: Start,
+    hours: list[ForecastHour],
+    target: float,
+    windows: ComfortWindows,
+) -> list[tuple[date, Slot]]:
+    """The comfort plan's held span (pre-heat start to window close) of each window
+    overlapping the forecast's first day or the next, at the target as given, each
+    with the local date its window opens on (naive local times)."""
+    if not hours:
+        return []
+    held, _, opening_days = _held_spans(numbers, start, hours, target, windows)
+    first = datetime.combine(hours[0].start.date(), datetime.min.time())
+    return [
+        (day, Slot(opens, closes, target))
+        for day, (opens, closes) in zip(opening_days, held)
+        if first < closes and opens < first + 2 * ONE_DAY
+    ]

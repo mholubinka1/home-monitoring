@@ -181,6 +181,17 @@ def live_rows(client: MariaDBClient, scenario: str) -> list[Any]:
         )
 
 
+def slot_rows(client: MariaDBClient, scenario: str) -> list[Any]:
+    rows = model.room_forecast_slot
+    with client.session_read_scope() as session:
+        return (
+            session.query(rows)
+            .filter(rows.scenario == scenario)
+            .order_by(rows.day, rows.position)
+            .all()
+        )
+
+
 def seed_gas_rate(client: MariaDBClient, unit_rate_p: float) -> None:
     valid_from = datetime(2026, 4, 1)
     with client.session_write_scope() as session:

@@ -13,6 +13,7 @@ from octopus_app.data import heating_hours, room_forecast
 from octopus_app.data.model import (
     HourlyWeather,
     RoomForecastRecord,
+    RoomForecastSlotRecord,
     ThermalModelRecord,
 )
 from octopus_app.data.mysql.client import MariaDBClient
@@ -120,7 +121,9 @@ class RoomForecastJob:
             )
             # Nor is the earlier line left drawn as today's.
             self._mariadb.replace_room_forecast(LIVE, CURRENT, [])
+            self._mariadb.replace_room_forecast_slots(CURRENT, [])
             return
+        self._store_slots(schedule, local_day.to_local_date(inputs.now), inputs.now)
         planned = room_forecast.hold_forecast(
             inputs.numbers,
             inputs.start,
@@ -134,6 +137,38 @@ class RoomForecastJob:
         )
         self._store(CURRENT, inputs, planned)
 
+    def _store_slots(
+        self, schedule: room_forecast.Schedule, today: date, now: datetime
+    ) -> None:
+        """Today's and tomorrow's current slots, whatever the thermostat's mode."""
+        naive_now = now.replace(tzinfo=None)
+        rows: list[RoomForecastSlotRecord] = []
+        for day in (today, today + ONE_DAY):
+            # A slot inside a clock change's skipped hour can have no length: dropped.
+            instants = [
+                (slot, *_instants_of(slot))
+                for slot in room_forecast.schedule_slots(schedule, day)
+            ]
+            kept = [item for item in instants if item[2] > item[1]]
+            # and the slot before it ends where the next begins, not after it.
+            rows.extend(
+                RoomForecastSlotRecord(
+                    day,
+                    CURRENT,
+                    position,
+                    starts,
+                    (
+                        min(ends, kept[position + 1][1])
+                        if position + 1 < len(kept)
+                        else ends
+                    ),
+                    slot.target,
+                    naive_now,
+                )
+                for position, (slot, starts, ends) in enumerate(kept)
+            )
+        self._mariadb.replace_room_forecast_slots(CURRENT, rows)
+
     def _store_plan(self, inputs: _Inputs, today: date) -> None:
         # The newest comfort temperature up to today's; tomorrow has no row yet, so
         # it serves both days.
@@ -143,15 +178,49 @@ class RoomForecastJob:
         if comfort is None:
             logger.info("Room forecast: no comfort temperature, no plan stored.")
             self._mariadb.replace_room_forecast(LIVE, PLAN, [])
+            self._mariadb.replace_room_forecast_slots(PLAN, [])
             return
+        target = room_forecast.round_up_to_half(comfort)
+        self._store_plan_slots(inputs, target)
         planned = room_forecast.comfort_plan(
-            inputs.numbers,
-            inputs.start,
-            inputs.weather,
-            room_forecast.round_up_to_half(comfort),
-            self._windows,
+            inputs.numbers, inputs.start, inputs.weather, target, self._windows
         )
         self._store(PLAN, inputs, planned)
+
+    def _store_plan_slots(self, inputs: _Inputs, target: float) -> None:
+        """The plan's slot of each local day, its start kept once it has passed."""
+        naive_now = inputs.now.replace(tzinfo=None)
+        rows: list[RoomForecastSlotRecord] = []
+        # Each slot belongs to the day its window opened on.
+        for day, slot in room_forecast.plan_slots(
+            inputs.numbers, inputs.start, inputs.weather, target, self._windows
+        ):
+            starts_at, ends_at = _instants_of(slot)
+            if ends_at <= starts_at:
+                continue
+            # One plan slot a day, so at most one is stored.
+            stored = next(iter(self._mariadb.read_room_forecast_slots(PLAN, day)), None)
+            if stored is not None and stored.starts_at <= naive_now:
+                starts_at = stored.starts_at
+            rows.append(
+                RoomForecastSlotRecord(
+                    day,
+                    PLAN,
+                    0,
+                    starts_at,
+                    ends_at,
+                    slot.target,
+                    naive_now,
+                )
+            )
+        # A day's window that has closed is no longer held, so it has no new slot:
+        # the stored one stays until the local day rolls over.
+        today = local_day.to_local_date(inputs.now)
+        computed = {row.day for row in rows}
+        for day in (today, today + ONE_DAY):
+            if day not in computed:
+                rows.extend(self._mariadb.read_room_forecast_slots(PLAN, day)[:1])
+        self._mariadb.replace_room_forecast_slots(PLAN, rows)
 
     def _store(
         self,
@@ -252,6 +321,23 @@ def _hours_with_weather(
 def _naive_utc_start_of(day: date) -> datetime:
     """Midnight starting the local day, as naive UTC."""
     return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
+
+
+def _utc_of(local: datetime) -> datetime:
+    """A naive local wall-clock time as naive UTC."""
+    return (
+        local.replace(tzinfo=local_day.get_local_timezone())
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
+
+
+def _instants_of(slot: room_forecast.Slot) -> tuple[datetime, datetime]:
+    """A slot's naive local start and end as naive UTC, the end never before the
+    start (a boundary inside a clock change's skipped hour maps to an earlier
+    instant)."""
+    starts = _utc_of(slot.start)
+    return starts, max(starts, _utc_of(slot.end))
 
 
 def _local(hour: datetime) -> datetime:

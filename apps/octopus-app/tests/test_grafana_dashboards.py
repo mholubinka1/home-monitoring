@@ -35,16 +35,34 @@ def test_panel_ids_are_unique_within_the_gas_heating_dashboard() -> None:
     assert len(set(ids)) == len(ids)
 
 
-def test_the_gas_heating_dashboard_has_only_chart_panels() -> None:
+def test_the_gas_heating_dashboard_has_only_charts_one_bar_gauge_and_one_table() -> (
+    None
+):
     # House style: every panel is a chart. The billing-period predictor is a
-    # bar gauge, the one non-chart exception.
-    types = {p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))}
+    # bar gauge and the schedule is a table, the two non-chart exceptions.
+    types = [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))]
 
-    assert types
-    assert types <= {"timeseries", "bargauge"}
-    assert [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))].count(
-        "bargauge"
-    ) == 1
+    assert set(types) <= {"timeseries", "bargauge", "table"}
+    assert types.count("bargauge") == 1
+    assert types.count("table") == 1
+
+
+def test_the_schedule_table_reads_the_slots_of_the_local_day() -> None:
+    table = next(
+        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["type"] == "table"
+    )
+
+    assert table["title"] == "Schedule Today"
+    (target,) = table["targets"]
+    assert target["dataset"] == "home_monitoring"
+    assert "FROM room_forecast_slot" in target["rawSql"]
+    assert "scenario = 'current'" in target["rawSql"]
+    assert "scenario = 'plan'" in target["rawSql"]
+    # the slot rows come from the positions of either scenario
+    assert "scenario IN ('current', 'plan')" in target["rawSql"]
+    assert "AS `Current schedule`" in target["rawSql"]
+    assert "AS `Comfort plan`" in target["rawSql"]
+    assert "CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')" in target["rawSql"]
 
 
 @pytest.mark.parametrize("path", DASHBOARD_FILES, ids=lambda p: p.name)
@@ -782,3 +800,26 @@ def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None
     }
     for heavy in ("weather_observation", "daily_consumption_summary", "heating_status"):
         assert heavy not in sql, heavy
+
+
+def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
+    table = next(
+        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["type"] == "table"
+    )
+
+    (target,) = table["targets"]
+    sql = target["rawSql"]
+    # the rest of the local day, from the live forecast hours of each scenario,
+    # and nothing for a column that has no slots
+    assert sql.count("Cost to midnight") == 2
+    assert "FROM room_forecast_hour" in sql
+    assert "r.kind = 'live'" in sql
+    assert "r.scenario = 'current'" in sql
+    assert "r.scenario = 'plan'" in sql
+    assert "INTERVAL 1 DAY" in sql
+    assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
+    assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2
+    # a total only when every hour to midnight is present and priced
+    assert sql.count("HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR") == 2
+    # the cost row lists its columns as the slot rows do: sort key first
+    assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql

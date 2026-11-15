@@ -40,6 +40,7 @@ from octopus_app.data.model import (
     HeatingModelRecord,
     HourlyWeather,
     RoomForecastRecord,
+    RoomForecastSlotRecord,
     StoredHeatingModel,
     StoredThermalModel,
     ThermalModelRecord,
@@ -926,6 +927,35 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 session.add_all(rf(**_values_of(row)) for row in rows)
         except Exception as e:
             logger.error(f"Failed to replace room forecast: {e}")
+            raise MariaDBError(e) from e
+
+    def read_room_forecast_slots(
+        self, scenario: str, day: date
+    ) -> list[RoomForecastSlotRecord]:
+        """The stored slots of the scenario for the local day, in order."""
+        rs = model.room_forecast_slot
+        with self.session_read_scope() as session:
+            rows = (
+                session.query(rs)
+                .filter(rs.scenario == scenario, rs.day == day)
+                .order_by(rs.position)
+                .all()
+            )
+            return [_record_of(RoomForecastSlotRecord, row) for row in rows]
+
+    def replace_room_forecast_slots(
+        self, scenario: str, rows: list[RoomForecastSlotRecord]
+    ) -> None:
+        """Replaces every stored slot of the scenario with rows."""
+        rs = model.room_forecast_slot
+        try:
+            with self.session_write_scope() as session:
+                session.query(rs).filter(rs.scenario == scenario).delete(
+                    synchronize_session=False
+                )
+                session.add_all(rs(**_values_of(row)) for row in rows)
+        except Exception as e:
+            logger.error(f"Failed to replace room forecast slots: {e}")
             raise MariaDBError(e) from e
 
     def read_hourly_weather_forecast(
