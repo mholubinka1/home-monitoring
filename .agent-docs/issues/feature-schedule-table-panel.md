@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature/schedule-table-panel
 
 ## Current-schedule slots in a new table panel
