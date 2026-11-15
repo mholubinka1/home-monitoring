@@ -664,7 +664,8 @@ def test_the_temperature_panel_draws_the_two_room_forecasts_as_dotted_lines() ->
         ), series
     sql = {t["refId"]: t["rawSql"] for t in _panel(TEMPERATURES)["targets"]}
     forecast_sql = " ".join(sql.values())
-    assert "room_forecast_hour" in forecast_sql
+    assert "FROM room_forecast_interval" in forecast_sql
+    assert "room_forecast_hour" not in forecast_sql
     assert "'live'" in forecast_sql
 
 
@@ -691,7 +692,7 @@ def test_the_plan_panel_compares_the_two_schedules_in_minutes_and_pounds() -> No
     assert "r.on_minutes" in sql
     assert "ROUND(r.cost_gbp, 3)" in sql
     assert "kind = 'live'" in sql
-    assert "$__timeFilter(r.hour_start)" in sql
+    assert "$__timeFilter(r.starts_at)" in sql
 
 
 def test_the_plan_panel_draws_the_newest_backtest_fit_in_celsius() -> None:
@@ -795,7 +796,7 @@ def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None
     sql = _plan_panel_sql()
 
     assert set(re.findall(r"\bFROM (\w+)", sql)) == {
-        "room_forecast_hour",
+        "room_forecast_interval",
         "thermal_model",
     }
     for heavy in ("weather_observation", "daily_consumption_summary", "heating_status"):
@@ -812,15 +813,18 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     # the rest of the local day, from the live forecast hours of each scenario,
     # and nothing for a column that has no slots
     assert sql.count("Cost to midnight") == 2
-    assert "FROM room_forecast_hour" in sql
+    assert "FROM room_forecast_interval" in sql
     assert "r.kind = 'live'" in sql
     assert "r.scenario = 'current'" in sql
     assert "r.scenario = 'plan'" in sql
     assert "INTERVAL 1 DAY" in sql
     assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
-    assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2
-    # a total only when every hour to midnight is present and priced
-    assert sql.count("HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR") == 2
+    assert sql.count("r.ends_at > UTC_TIMESTAMP()") == 2
+    assert sql.count("HAVING MIN(r.starts_at) <= UTC_TIMESTAMP()") == 2
+    # a total only when priced rows cover every minute to midnight, whatever
+    # length each row has
+    assert sql.count("SUM(IF(r.cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE") == 2
+    assert "COUNT(r.cost_gbp)" not in sql
     # the cost row lists its columns as the slot rows do: sort key first
     assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql
 
@@ -872,7 +876,8 @@ def test_the_cost_comparison_panel_draws_two_dashed_estimates_and_a_solid_actual
 def test_the_cost_comparison_estimates_are_the_frozen_day_ahead_forecast() -> None:
     sql = _cost_comparison_sql()
 
-    assert "FROM room_forecast_hour" in sql
+    assert "FROM room_forecast_interval" in sql
+    assert "room_forecast_hour" not in sql
     assert sql.count("r.kind = 'day_ahead'") == 2  # both estimate branches
     assert "'live'" not in sql
     # each series label sits in the branch that reads its own scenario
@@ -940,14 +945,37 @@ def test_the_cost_comparison_reads_only_the_small_forecast_and_heating_tables() 
 
     ctes = set(re.findall(r"\b(\w+) AS \(", sql))
     tables = set(re.findall(r"\b(?:FROM|JOIN) (\w+)", sql)) - ctes
-    assert tables == {"room_forecast_hour", "heating_interval"}
+    assert tables == {"room_forecast_interval", "heating_interval"}
 
 
 QUERIES_DOCUMENT = GRAFANA_DIR / "mariadb" / "gas-heating-queries.md"
 
 
-@pytest.mark.parametrize("title", [HEATING_COST, COST_COMPARISON])
-def test_a_changed_panels_query_is_the_one_in_the_queries_document(title: str) -> None:
-    sql = _panel(title)["targets"][0]["rawSql"].strip()
+@pytest.mark.parametrize(
+    ("title", "ref"),
+    [
+        (HEATING_COST, "A"),
+        (COST_COMPARISON, "A"),
+        (TEMPERATURES, "E"),
+        (PLAN_PANEL, "A"),
+        (PLAN_PANEL, "D"),
+        ("Schedule Today", "A"),
+    ],
+)
+def test_a_changed_panels_query_is_the_one_in_the_queries_document(
+    title: str, ref: str
+) -> None:
+    target = next(t for t in _panel(title)["targets"] if t["refId"] == ref)
 
-    assert sql in QUERIES_DOCUMENT.read_text(encoding="utf-8")
+    assert target["rawSql"].strip() in QUERIES_DOCUMENT.read_text(encoding="utf-8")
+
+
+def test_no_panel_reads_a_retired_hourly_table() -> None:
+    sql = " ".join(
+        target.get("rawSql", "")
+        for panel in _gas_panels()
+        for target in panel.get("targets", [])
+    )
+
+    assert "room_forecast_hour" not in sql
+    assert "heating_hour" not in sql

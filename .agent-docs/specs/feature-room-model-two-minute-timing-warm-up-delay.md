@@ -90,7 +90,7 @@ The forecast maths is rewritten as a simulation in 2-minute steps on even clock 
 - **Day-ahead.** Tomorrow's rows are rewritten each run and freeze at midnight, written only when they cover every minute of tomorrow.
 - **Slots.** The current slots are stored as today; the plan's slot starts at `opening - lead`, kept once it has passed.
 
-Example (made-up schedule, delay 14 minutes): a slot at 19 C from 05:40 to 06:25. Gas is counted from 05:40. The room line follows its unheated course until 05:54, then climbs. Demand stops at 06:25; heat keeps arriving until 06:39. For the plan, if a 06:30 opening needs 42 minutes of arriving heat, the plan switches on at 05:34 (06:30 less 42 less 14).
+Example (made-up schedule, delay 14 minutes): a slot at 19 C from 05:40 to 06:25. Gas is counted from 05:40. The room line follows its unheated course until 05:54, then climbs. Demand stops at 06:24, because the 7 C slot that starts at 06:25, an odd minute, takes effect from the 06:24 step; heat keeps arriving until 06:38. For the plan, if a 06:30 opening needs 42 minutes of arriving heat, the plan switches on at 05:34 (06:30 less 42 less 14).
 
 ### Thermal Model on 10-minute steps
 
@@ -236,7 +236,7 @@ The queries document is updated with each query in the same PR as the JSON.
 
 ### Delivery
 
-Five PRs, each deployable on its own, in this order: actual heating in half-hours; the forecast in 2-minute steps stored every 10 minutes; the model learned on 10-minute steps; the Warm-Up Delay learned, used and shown; the guide and the retired tables. Deploy octopus-app before importing a dashboard that reads a new table. After the dashboard review, `heating_hour` and `room_forecast_hour` are dropped by hand.
+One PR with five commits, one per slice, in this order: actual heating in half-hours; the forecast in 2-minute steps stored every 10 minutes; the model learned on 10-minute steps; the Warm-Up Delay learned, used and shown; the guide and the retired tables. Each commit passes the tests on its own, so the branch can still be cut into separate PRs if review asks for it. Deploy octopus-app before importing a dashboard that reads a new table. After the dashboard review, `heating_hour` and `room_forecast_hour` are dropped by hand.
 
 ## Testing Decisions
 

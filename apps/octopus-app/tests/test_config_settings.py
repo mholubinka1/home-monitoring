@@ -139,7 +139,7 @@ def test_a_configured_quoted_comfort_window_overrides_the_default(
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekend:\n    start: "8:15"\n    end: "23:00"\n',
+        + 'comfort_windows:\n  weekend:\n    start: "8:16"\n    end: "23:00"\n',
         encoding="utf-8",
     )
 
@@ -147,7 +147,7 @@ def test_a_configured_quoted_comfort_window_overrides_the_default(
     windows = get_settings(str(config_file)).comfort_windows
 
     # Then the weekend uses it and the weekday keeps its default
-    assert (windows.weekend.start, windows.weekend.end) == (time(8, 15), time(23, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(8, 16), time(23, 0))
     assert windows.weekday.start == time(6, 30)
 
 
@@ -180,7 +180,52 @@ def test_comfort_windows_default_to_the_household_hours() -> None:
     # When the settings load
     settings = ApplicationSettings.model_validate(VALID_CONFIG)
 
-    # Then weekdays are 06:30 to midnight and weekends 07:45 to midnight
+    # Then weekdays are 06:30 to midnight and weekends 07:44 to midnight, the
+    # household's 07:45 rounded earlier to a 2-minute mark
     windows = settings.comfort_windows
     assert (windows.weekday.start, windows.weekday.end) == (time(6, 30), time(0, 0))
-    assert (windows.weekend.start, windows.weekend.end) == (time(7, 45), time(0, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(0, 0))
+
+
+def test_a_comfort_time_on_an_odd_minute_is_rounded_earlier_and_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a weekend window configured at 07:45, an odd minute
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekend:\n    start: "07:45"\n    end: "23:59"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.warning", logged_messages.append
+    )
+
+    # When the settings load
+    windows = get_settings(str(config_file)).comfort_windows
+
+    # Then the window opens at 07:44 and closes at 23:58, and the log says so
+    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(23, 58))
+    assert any("07:45" in message and "07:44" in message for message in logged_messages)
+    assert any("23:59" in message and "23:58" in message for message in logged_messages)
+
+
+def test_a_comfort_time_on_an_even_minute_is_kept_and_not_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekend:\n    start: "08:16"\n    end: "23:00"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.warning", logged_messages.append
+    )
+
+    windows = get_settings(str(config_file)).comfort_windows
+
+    assert windows.weekend.start == time(8, 16)
+    assert not logged_messages

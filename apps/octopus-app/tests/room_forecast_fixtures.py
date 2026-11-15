@@ -172,12 +172,12 @@ def seed_weather_stamps(
 
 
 def live_rows(client: MariaDBClient, scenario: str) -> list[Any]:
-    rows = model.room_forecast_hour
+    rows = model.room_forecast_interval
     with client.session_read_scope() as session:
         return (
             session.query(rows)
             .filter(rows.kind == "live", rows.scenario == scenario)
-            .order_by(rows.hour_start)
+            .order_by(rows.starts_at)
             .all()
         )
 

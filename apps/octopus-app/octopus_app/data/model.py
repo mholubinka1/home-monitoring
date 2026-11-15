@@ -138,15 +138,17 @@ class RoomForecastSlotRecord:
 
 
 @dataclass(frozen=True)
-class RoomForecastRecord:
-    """One forecast hour as stored (naive UTC stamps). room_temp is the predicted
-    room at the hour's start; cost_gbp is None without a gas rate."""
+class RoomForecastIntervalRecord:  # pylint: disable=too-many-instance-attributes
+    """One forecast span as stored (naive UTC stamps). room_temp is the predicted
+    room at the span's start; cost_gbp is None without a gas rate. Each row
+    carries its own end, so no reader may assume the span's length."""
 
     kind: str
     scenario: str
-    hour_start: datetime
+    starts_at: datetime
+    ends_at: datetime
     room_temp: float
-    on_minutes: int
+    on_minutes: float
     heating_kwh: float
     cost_gbp: float | None
     computed_at: datetime

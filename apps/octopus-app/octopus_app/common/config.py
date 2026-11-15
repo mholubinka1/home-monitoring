@@ -15,6 +15,7 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 _CLOCK_TIME = re.compile(r"(\d{1,2}):(\d{2})")
+COMFORT_TIME_STEP_MINUTES = 2
 
 
 class OctopusAPISettings(BaseModel):
@@ -42,16 +43,29 @@ class ComfortWindow(BaseModel):
         # YAML 1.1 reads an unquoted 7:45 as the number 465 (base 60), so only a
         # quoted string is a time the household meant (a time object is the default).
         if isinstance(value, time):
-            return value
+            return _earlier_even_minute(value)
         match = _CLOCK_TIME.fullmatch(value) if isinstance(value, str) else None
         if match is None or int(match[1]) > 23 or int(match[2]) > 59:
             raise ValueError('use a quoted clock time such as "07:45"')
-        return time(int(match[1]), int(match[2]))
+        return _earlier_even_minute(time(int(match[1]), int(match[2])))
+
+
+def _earlier_even_minute(clock_time: time) -> time:
+    """The room forecast steps in 2 minutes, so a comfort time on an odd minute
+    is rounded earlier to the 2-minute mark."""
+    if clock_time.minute % COMFORT_TIME_STEP_MINUTES == 0:
+        return clock_time
+    rounded = clock_time.replace(minute=clock_time.minute - 1)
+    logger.warning(
+        f"Comfort window time {clock_time:%H:%M} is not on a 2-minute mark; "
+        f"using {rounded:%H:%M}."
+    )
+    return rounded
 
 
 class ComfortWindows(BaseModel):
     weekday: ComfortWindow = ComfortWindow(start=time(6, 30), end=time(0, 0))
-    weekend: ComfortWindow = ComfortWindow(start=time(7, 45), end=time(0, 0))
+    weekend: ComfortWindow = ComfortWindow(start=time(7, 44), end=time(0, 0))
 
 
 class ApplicationSettings(BaseModel):

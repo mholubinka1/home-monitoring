@@ -39,7 +39,7 @@ from octopus_app.data.model import (
     HeatingIntervalRecord,
     HeatingModelRecord,
     HourlyWeather,
-    RoomForecastRecord,
+    RoomForecastIntervalRecord,
     RoomForecastSlotRecord,
     StoredHeatingModel,
     StoredThermalModel,
@@ -909,21 +909,21 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         self,
         kind: str,
         scenario: str,
-        rows: list[RoomForecastRecord],
+        rows: list[RoomForecastIntervalRecord],
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> None:
         """Replaces the stored rows of the kind and scenario with rows. With
-        start and end (naive UTC), only the stored rows whose hour_start lies in
+        start and end (naive UTC), only the stored rows whose starts_at lies in
         [start, end) are replaced."""
-        rf = model.room_forecast_hour
+        rf = model.room_forecast_interval
         try:
             with self.session_write_scope() as session:
                 stale = session.query(rf).filter(
                     rf.kind == kind, rf.scenario == scenario
                 )
                 if start is not None and end is not None:
-                    stale = stale.filter(rf.hour_start >= start, rf.hour_start < end)
+                    stale = stale.filter(rf.starts_at >= start, rf.starts_at < end)
                 stale.delete(synchronize_session=False)
                 session.add_all(rf(**_values_of(row)) for row in rows)
         except Exception as e:

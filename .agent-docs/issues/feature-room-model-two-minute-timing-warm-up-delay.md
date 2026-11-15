@@ -37,14 +37,14 @@ Rewrite the room forecast as a simulation in 2-minute steps on even clock minute
 
 ### Acceptance criteria
 
-- [ ] Given a slot at 19 C from 05:40 to 06:25 and a cold room, when the job runs, then the 05:40 to 06:20 rows each store 10 minutes of heating, the 06:20 row 5, and no other row any.
-- [ ] Given a cold room and a window opening at 06:30, when the plan is made, then its slot starts on a 2-minute mark and the room is at the target at 06:30.
-- [ ] Given a comfort window configured at 07:45, when the app starts, then the window opens at 07:44 and the log says so.
-- [ ] Given a model fitted hourly, when the job runs, then a schedule on whole hours forecasts the same room at each hour as before.
-- [ ] Given a full day of weather for tomorrow, when the job runs, then day-ahead rows cover every minute of tomorrow.
-- [ ] Given a weather gap inside tomorrow, when the job runs, then the earlier day-ahead rows are left as they were.
-- [ ] Given the dashboard, when read, then the Temperatures, Heating Plan and Room Model, Schedule Today and Daily Cost panels read `room_forecast_interval`.
-- [ ] Given live rows that do not cover every minute to local midnight, when the Schedule Today query is read, then its cost to midnight is blank by a minutes-covered check.
+- [x] Given a slot at 19 C from 05:40 to 06:25 and a cold room, when the job runs, then the 05:40 to 06:10 rows each store 10 minutes of heating, the 06:20 row 4 (the 7 C slot starting at 06:25 takes effect from the 06:24 step), and no other row any.
+- [x] Given a cold room and a window opening at 06:30, when the plan is made, then its slot starts on a 2-minute mark and the room is at the target at 06:30.
+- [x] Given a comfort window configured at 07:45, when the app starts, then the window opens at 07:44 and the log says so.
+- [x] Given a model fitted hourly, when the job runs, then a schedule on whole hours forecasts the same room at each hour as before.
+- [x] Given a full day of weather for tomorrow, when the job runs, then day-ahead rows cover every minute of tomorrow.
+- [x] Given a weather gap inside tomorrow, when the job runs, then the earlier day-ahead rows are left as they were.
+- [x] Given the dashboard, when read, then the Temperatures, Heating Plan and Room Model, Schedule Today and Daily Cost panels read `room_forecast_interval`.
+- [x] Given live rows that do not cover every minute to local midnight, when the Schedule Today query is read, then its cost to midnight is blank by a minutes-covered check.
 
 ---
 
@@ -88,7 +88,7 @@ Learn the Warm-Up Delay at each refit: try delays of 0 to 40 minutes in 2-minute
 - [ ] Given polls from a made-up house whose room responds 14 minutes after heating starts, and at least 10 Heating Starts, when the model is fitted, then the stored delay is 14 and its source learned.
 - [ ] Given fewer than 10 Heating Starts and an earlier stored delay of 14, when the model is fitted, then the delay is 14 and its source carried.
 - [ ] Given fewer than 10 Heating Starts and no earlier delay, when the model is fitted, then the delay is 0 and its source none.
-- [ ] Given a delay of 14 and a slot from 05:40 to 06:25, when the job runs, then heating minutes are stored from 05:40, the room follows its unheated course until 05:54, and heat keeps arriving until 06:39.
+- [ ] Given a delay of 14 and a slot from 05:40 to 06:25, when the job runs, then heating minutes are stored from 05:40, the room follows its unheated course until 05:54, and heat keeps arriving until 06:38.
 - [ ] Given a delay of 14, when the plan is made, then its slot starts 14 minutes earlier than with no delay and the room is at the target at the opening.
 - [ ] Given the dashboard, when read, then the Heating Plan and Room Model panel shows the delay in minutes and whether it is learned, carried or not learned yet.
 
