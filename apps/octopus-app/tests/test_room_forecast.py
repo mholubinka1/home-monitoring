@@ -8,12 +8,14 @@ import pytest
 from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.room_forecast import (
     ForecastHour,
+    Part,
     Start,
     comfort_plan,
     comfort_window,
-    hold_target,
     parse_schedule,
     round_up_to_half,
+    schedule_parts,
+    step_hour,
     target_at,
 )
 from octopus_app.data.thermal import ThermalNumbers
@@ -39,10 +41,13 @@ def _raw_schedule(**slots_by_day: list[tuple[int, float]]) -> dict[str, list[dic
     }
 
 
+COLD_HOUR = ForecastHour(datetime(2026, 11, 17, 5), outdoor=10.0, radiation_kw=0.0)
+
+
 def test_the_heating_fraction_is_the_least_that_holds_the_target() -> None:
     # Passive change at 18 C with 10 C outside and nothing carried: -0.08 C.
     # To reach 19 C needs (19 - 18 + 0.08) / 1.3 of the hour's heating.
-    fraction, end_room = hold_target(NUMBERS, 18.0, 19.0, 10.0, 0.0, 0.0)
+    fraction, end_room = step_hour(NUMBERS, 18.0, COLD_HOUR, 0.0, [Part(1.0, 19.0)])
 
     assert fraction == pytest.approx(1.08 / 1.3)
     assert end_room == pytest.approx(19.0)
@@ -50,14 +55,66 @@ def test_the_heating_fraction_is_the_least_that_holds_the_target() -> None:
 
 def test_the_heating_fraction_is_clamped_to_the_hour() -> None:
     # A target the room cannot reach in an hour heats flat out and falls short
-    full, short_room = hold_target(NUMBERS, 18.0, 25.0, 10.0, 0.0, 0.0)
+    full, short_room = step_hour(NUMBERS, 18.0, COLD_HOUR, 0.0, [Part(1.0, 25.0)])
     # A target already exceeded needs no heating, and the room drifts down
-    none, drifted_room = hold_target(NUMBERS, 18.0, 10.0, 10.0, 0.0, 0.0)
+    none, drifted_room = step_hour(NUMBERS, 18.0, COLD_HOUR, 0.0, [Part(1.0, 10.0)])
 
     assert full == 1.0
     assert short_room == pytest.approx(18.0 - 0.08 + 1.3)
     assert none == 0.0
     assert drifted_room == pytest.approx(17.92)
+
+
+def test_each_part_heats_for_at_most_its_own_share_of_the_hour() -> None:
+    # Room 16 C, 10 C outside, nothing carried: the hour's drift is
+    # 0.02 * (10 - 16) + 0.08 = -0.04 C, spread evenly. The first two thirds
+    # have a 7 C target and drift -0.04 * 2/3 to 15.97333 C. The last third
+    # wants 19 C, far out of reach, so heats its whole third and gains
+    # 1.3 / 3 - 0.04 / 3 = 0.42 C: 16.39333 C.
+    parts = [Part(2 / 3, 7.0), Part(1 / 3, 19.0)]
+
+    fraction, end_room = step_hour(NUMBERS, 16.0, COLD_HOUR, 0.0, parts)
+
+    assert fraction == pytest.approx(1 / 3)
+    assert end_room == pytest.approx(16.39333, abs=1e-5)
+
+
+def test_an_hour_is_split_wherever_a_slot_starts_inside_it() -> None:
+    # Tuesday 2026-11-17: 7 C from midnight, 19 C from 05:40 (minute 340), 7 C
+    # from 06:25 (minute 385)
+    schedule = parse_schedule(
+        _raw_schedule(tuesday=[(0, 7.0), (340, 19.0), (385, 7.0)])
+    )
+    assert schedule is not None
+
+    # 05:00: 40 minutes at 7 C, then 20 at 19 C
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 5)) == [
+        Part(40 / 60, 7.0),
+        Part(20 / 60, 19.0),
+    ]
+    # 06:00: 25 minutes at 19 C, then 35 at 7 C
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 6)) == [
+        Part(25 / 60, 19.0),
+        Part(35 / 60, 7.0),
+    ]
+
+
+def test_an_hour_with_no_slot_starting_inside_it_is_one_part() -> None:
+    schedule = parse_schedule(
+        _raw_schedule(tuesday=[(0, 7.0), (340, 19.0), (385, 7.0)])
+    )
+    assert schedule is not None
+
+    # 04:00 sits in the 7 C slot; 07:00 is after the last slot
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 4)) == [Part(1.0, 7.0)]
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 7)) == [Part(1.0, 7.0)]
+
+
+def test_a_slot_starting_on_the_hour_does_not_split_it() -> None:
+    schedule = parse_schedule(_raw_schedule(tuesday=[(0, 7.0), (300, 19.0)]))
+    assert schedule is not None
+
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 5)) == [Part(1.0, 19.0)]
 
 
 def test_the_target_is_the_slot_in_force_at_the_moment() -> None:

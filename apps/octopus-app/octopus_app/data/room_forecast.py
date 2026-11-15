@@ -9,12 +9,14 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from octopus_app.common.config import ComfortWindows
-from octopus_app.data.thermal import ONE_HOUR, ThermalNumbers
+from octopus_app.data.thermal import MINUTES_PER_HOUR, ONE_HOUR, ThermalNumbers
 
 SATURDAY = 5
 # Halvings of the pre-heat search: far below a minute.
 BISECTIONS = 40
 ONE_DAY = timedelta(days=1)
+# A target no room is below: the heating fraction clamps to zero.
+NO_TARGET = -math.inf
 
 DAY_NAMES = (
     "monday",
@@ -83,6 +85,31 @@ def target_at(schedule: Schedule, moment: datetime) -> float:
     return schedule[DAY_NAMES[yesterday.weekday()]][-1][1]
 
 
+@dataclass(frozen=True)
+class Part:
+    """A share of an hour (0 to 1) held at one target, or at NO_TARGET."""
+
+    share: float
+    target: float
+
+
+def schedule_parts(schedule: Schedule, hour_start: datetime) -> list[Part]:
+    """The parts of the local hour at its start: the slot in force then, and a new
+    part at each slot that starts strictly inside the hour."""
+    first = hour_start.hour * 60 + hour_start.minute
+    inside = [
+        (start, target)
+        for start, target in schedule[DAY_NAMES[hour_start.weekday()]]
+        if first < start < first + MINUTES_PER_HOUR
+    ]
+    starts = [first, *(start for start, _ in inside), first + MINUTES_PER_HOUR]
+    targets = [target_at(schedule, hour_start), *(target for _, target in inside)]
+    return [
+        Part((end - begin) / MINUTES_PER_HOUR, target)
+        for begin, end, target in zip(starts, starts[1:], targets)
+    ]
+
+
 def _passive_change(
     numbers: ThermalNumbers,
     room: float,
@@ -101,22 +128,6 @@ def _passive_change(
     )
 
 
-def hold_target(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    numbers: ThermalNumbers,
-    room: float,
-    target: float,
-    outdoor: float,
-    radiation_kw: float,
-    previous_fraction: float,
-) -> tuple[float, float]:
-    """The smallest fraction of the hour's heating (0 to 1) that holds the room at
-    the target, and the room at the hour's end."""
-    passive = _passive_change(numbers, room, outdoor, radiation_kw, previous_fraction)
-    needed = (target - room - passive) / numbers.heating_gain
-    fraction = min(max(needed, 0.0), 1.0)
-    return fraction, room + passive + numbers.heating_gain * fraction
-
-
 @dataclass(frozen=True)
 class ForecastHour:
     """One forecast hour: its local wall-clock start and its weather."""
@@ -124,6 +135,28 @@ class ForecastHour:
     start: datetime
     outdoor: float
     radiation_kw: float
+
+
+def step_hour(
+    numbers: ThermalNumbers,
+    room: float,
+    hour: ForecastHour,
+    previous_fraction: float,
+    parts: list[Part],
+) -> tuple[float, float]:
+    """The hour's heating fraction and the room at its end. The drift without
+    heating is worked out once from the room at the hour's start and spread evenly;
+    each part in turn heats the least that reaches its target, at most its share."""
+    drift = _passive_change(
+        numbers, room, hour.outdoor, hour.radiation_kw, previous_fraction
+    )
+    fraction = 0.0
+    for part in parts:
+        needed = (part.target - room - part.share * drift) / numbers.heating_gain
+        heated = min(max(needed, 0.0), part.share)
+        room += part.share * drift + numbers.heating_gain * heated
+        fraction += heated
+    return fraction, room
 
 
 @dataclass(frozen=True)
@@ -178,31 +211,28 @@ def _hold(
     numbers: ThermalNumbers,
     start: Start,
     hours: list[ForecastHour],
-    target_of: Callable[[datetime], float],
+    parts_of: Callable[[datetime], list[Part]],
 ) -> tuple[list[PlannedHour], Start]:
-    return _run(
-        numbers,
-        start,
-        hours,
-        lambda index, room, previous: hold_target(
-            numbers,
-            room,
-            target_of(hours[index].start),
-            hours[index].outdoor,
-            hours[index].radiation_kw,
-            previous,
-        )[0],
-    )
+    planned = []
+    room, previous = start.room, start.previous_fraction
+    for hour in hours:
+        fraction, end_room = step_hour(
+            numbers, room, hour, previous, parts_of(hour.start)
+        )
+        planned.append(PlannedHour(room, fraction))
+        room, previous = end_room, fraction
+    return planned, Start(room, previous)
 
 
 def hold_forecast(
     numbers: ThermalNumbers,
     start: Start,
     hours: list[ForecastHour],
-    target_of: Callable[[datetime], float],
+    parts_of: Callable[[datetime], list[Part]],
 ) -> list[PlannedHour]:
-    """Each hour held at the target that `target_of` gives for its local start."""
-    return _hold(numbers, start, hours, target_of)[0]
+    """Each hour stepped through the parts that `parts_of` gives for its local
+    start."""
+    return _hold(numbers, start, hours, parts_of)[0]
 
 
 def round_up_to_half(temperature: float) -> float:
@@ -327,5 +357,5 @@ def _plan_day(
     held = [
         hour for hour in remaining[first_held:] if hour.start + ONE_HOUR <= window_end
     ]
-    during, state = _hold(numbers, state, held, lambda _start: target)
+    during, state = _hold(numbers, state, held, lambda _start: [Part(1.0, target)])
     return before + during, state

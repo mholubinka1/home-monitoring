@@ -2,7 +2,6 @@
 tomorrow and stores the hourly forecast (ADR-0035)."""
 
 import logging.config
-import math
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
@@ -32,8 +31,6 @@ DAY_AHEAD = "day_ahead"
 ONE_DAY = timedelta(days=1)
 CURRENT = "current"
 PLAN = "plan"
-# A target no room is below: the heating fraction clamps to zero.
-NO_TARGET = -math.inf
 OFF_MODE = "OFF"
 MAX_READING_AGE = timedelta(minutes=30)
 
@@ -124,9 +121,10 @@ class RoomForecastJob:
             inputs.start,
             inputs.weather,
             lambda local: (
-                NO_TARGET  # the thermostat will not heat
+                # the thermostat will not heat
+                [room_forecast.Part(1.0, room_forecast.NO_TARGET)]
                 if heating_off
-                else room_forecast.target_at(schedule, local)
+                else room_forecast.schedule_parts(schedule, local)
             ),
         )
         self._store(CURRENT, inputs, planned)
