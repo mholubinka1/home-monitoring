@@ -2265,7 +2265,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily gas cost of the heating over the last 30 completed London days (today is never shown), in pounds, heating only at the gas unit rate with no standing charge. 'Current Schedule (estimated)' and 'Comfort Schedule (estimated)' are the day-ahead forecast frozen when each day began, for the Hive schedule as programmed and for the comfort plan. 'Actual' is the cost of the heating hours as they happened. A day is drawn only when every hour of it is present and priced, so a gap is missing data, never a zero. The estimated lines start with the first stored day-ahead forecast and fill in one day at a time; nothing before that is backfilled. The panel ignores the dashboard time range.",
+      "description": "Daily gas cost of the heating over the last 30 completed London days (today is never shown), in pounds, heating only at the gas unit rate with no standing charge. 'Current Schedule (estimated)' and 'Comfort Schedule (estimated)' are the day-ahead forecast as the last run before each day began left it, for the Hive schedule as programmed and for the comfort plan. 'Actual' is the cost of the heating hours as they happened. A day is drawn only when every hour of it is present and priced, so a gap is missing data, never a zero. The estimated lines start with the first stored day-ahead forecast and fill in one day at a time; nothing before that is backfilled. The panel ignores the dashboard time range.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2286,7 +2286,7 @@
               "tooltip": false,
               "viz": false
             },
-            "insertNulls": false,
+            "insertNulls": 93600000,
             "lineInterpolation": "linear",
             "lineWidth": 2,
             "pointSize": 5,

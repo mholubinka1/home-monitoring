@@ -864,6 +864,9 @@ def test_the_cost_comparison_panel_draws_two_dashed_estimates_and_a_solid_actual
     assert "custom.lineStyle" not in overrides["actual_cost"]
     assert defaults["custom"]["drawStyle"] == "line"
     assert defaults["custom"]["spanNulls"] is False
+    # a day with no row in any series must still break the line: the gap between
+    # two points one day apart (up to 25 hours) is fine, two days apart is not
+    assert 25 * 3600 * 1000 < defaults["custom"]["insertNulls"] < 47 * 3600 * 1000
     colours = {s: overrides[s]["color"]["fixedColor"] for s in overrides}
     assert len(set(colours.values())) == 3
 
@@ -896,9 +899,9 @@ def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None
 def test_the_cost_comparison_keeps_a_day_only_when_every_hour_is_priced() -> None:
     sql = _cost_comparison_sql()
 
-    assert "GROUP BY series," in sql
-    assert "HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(" in sql
-    assert "HOUR," in sql
+    # one shared rule, applied per series because it groups by series first
+    assert sql.count("HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(") == 1
+    assert sql.index("GROUP BY series,") < sql.index("HAVING COUNT(")
     assert "CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME)" in sql
 
 
