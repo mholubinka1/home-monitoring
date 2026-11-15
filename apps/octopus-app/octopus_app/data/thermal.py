@@ -471,13 +471,14 @@ def _replay_day(
     if len(steps) != (day.end - day.start) // STEP:
         return None
     window_start = day.start - FIT_WINDOW
-    own_index = delay_index
     if count_between(heating_starts, window_start, day.start) >= MIN_HEATING_STARTS:
         searched = search_delay(ledger, window_start, day.start)
         if searched is None:
             return None
-        own_index = searched[0]
-    earlier = fit_window(ledger.window(own_index, window_start, day.start))
+        own_index, earlier = searched
+    else:
+        own_index = delay_index
+        earlier = fit_window(ledger.window(own_index, window_start, day.start))
     if earlier.numbers is None or earlier.reason is not None:
         return None
     return replay(earlier.numbers, steps, own_index)

@@ -299,7 +299,7 @@ class RoomForecastJob:
                     scenario=scenario,
                     starts_at=starts_at,
                     ends_at=starts_at + STORED_SPAN,
-                    room_temp=inputs.start.room if not rows else steps[0].room,
+                    room_temp=steps[0].room,
                     on_minutes=on_minutes,
                     heating_kwh=kwh,
                     cost_gbp=cost,
