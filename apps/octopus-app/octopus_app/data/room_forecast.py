@@ -97,18 +97,18 @@ class Part:
 
 def schedule_parts(schedule: Schedule, hour_start: datetime) -> list[Part]:
     """The parts of the local hour at its start: the slot in force then, and a new
-    part at each slot that starts strictly inside the hour."""
+    part at each slot that starts strictly inside the hour with a different target
+    (a slot repeating the target changes nothing, and a boundary would make the
+    room reach the target sooner than the whole hour does)."""
     first = hour_start.hour * 60 + hour_start.minute
-    inside = [
-        (start, target)
-        for start, target in schedule[DAY_NAMES[hour_start.weekday()]]
-        if first < start < first + MINUTES_PER_HOUR
-    ]
-    starts = [first, *(start for start, _ in inside), first + MINUTES_PER_HOUR]
-    targets = [target_at(schedule, hour_start), *(target for _, target in inside)]
+    changes = [(first, target_at(schedule, hour_start))]
+    for start, target in schedule[DAY_NAMES[hour_start.weekday()]]:
+        if first < start < first + MINUTES_PER_HOUR and target != changes[-1][1]:
+            changes.append((start, target))
+    ends = [start for start, _ in changes[1:]] + [first + MINUTES_PER_HOUR]
     return [
         Part((end - begin) / MINUTES_PER_HOUR, target)
-        for begin, end, target in zip(starts, starts[1:], targets)
+        for (begin, target), end in zip(changes, ends)
     ]
 
 

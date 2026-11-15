@@ -4,7 +4,7 @@
 
 The room forecast (E3, [ADR-0035](../adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md)) works in whole hours, and three of its shortcuts show on the household's real data, first seen on 2026-11-14, the day it was deployed:
 
-- **Current schedule.** An hour takes the Hive slot target in force at the hour's start. A slot shorter than an hour that straddles an hour boundary is therefore forecast as one whole hour of heating in the later hour. Measured over a week, the thermostat ran for the slot's own minutes, split across the two hours (about two thirds in the first, one third in the second). The forecast showed nothing in the first hour and 60 minutes in the second: up to an hour late, and about a third too much heating and cost.
+- **Current schedule.** An hour takes the Hive slot target in force at the hour's start. A slot shorter than an hour that straddles an hour boundary is therefore forecast as one whole hour of heating in the later hour. Measured over a week, the thermostat ran for the slot's own minutes, split across the two hours. The forecast showed nothing in the first hour and 60 minutes in the second: up to an hour late, and too much heating and cost.
 - **Comfort plan.** A window that opens inside an hour is reached by interpolating within that hour, so the last pre-heat hour's minutes can fall up to 30 minutes after the window has opened, and the target is held only from the next whole hour. A window that closes inside an hour leaves that hour unheated.
 - **First hour.** The job runs some minutes past the hour, but treats the newest reading as the room at the top of that hour and forecasts the whole hour. Heating that happened before the reading is counted again: after a slot ends, the live line sits up to about 1.2 C too warm until the next run.
 
@@ -45,7 +45,7 @@ Terms are in `.agent-docs/context.md`.
 
 Averaging the targets over the hour was rejected: a half hour at 7 C and a half at 19 C averages to 13 C, below the room, and would forecast no heating.
 
-**Current schedule.** The parts of an hour come from the Weekly Schedule's slot start times that fall inside it, in local time; the first part's target is the slot in force at the hour's start (including the previous day's last slot before the day's first, as today). Mode OFF is one part with no target. A slot is assumed to start heating at its start time: the measured week shows no early start.
+**Current schedule.** The parts of an hour come from the Weekly Schedule's slot start times that fall inside it and change the target, in local time (a slot that repeats the target in force is not a new part: a part heats the least that reaches its target by its own end, so a boundary where nothing changes would force heating forward and the hour would no longer match its whole-hour result); the first part's target is the slot in force at the hour's start (including the previous day's last slot before the day's first, as today). Mode OFF is one part with no target. A slot is assumed to start heating at its start time: the measured week shows no early start.
 
 Worked example (model numbers of the tests: loss 0.02, heating gain 1.3, carried 0.3, constant 0.08; 10 C outside, no sun): a slot at 19 C from 05:40 to 06:25, room 16.0 C at 05:00. The 05:00 hour heats 20 minutes (05:40 to 06:00) and ends at 16.39 C. The 06:00 hour heats 25 minutes (06:00 to 06:25) and ends at 16.99 C. Before this change: nothing in the 05:00 hour and 60 minutes in the 06:00 hour.
 
@@ -72,6 +72,7 @@ Scenarios (each also a BDD red-green step):
 - a room that reaches a slot's target part-way through stops heating there;
 - two slot changes inside one hour each heat for at most their own length;
 - a schedule whose slots start on the hour stores the same rows as before, and mode OFF still stores no heating;
+- a slot that repeats the target in force does not start a new part, so the hour keeps its whole-hour result;
 - the plan's pre-heat ends at the opening minute, with the room at the target then, and no pre-heat minute after it;
 - the plan holds the target from the opening minute, in the same hour;
 - a window closing inside an hour holds until that minute and heats nothing after;

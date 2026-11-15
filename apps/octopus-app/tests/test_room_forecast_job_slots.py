@@ -118,8 +118,9 @@ def test_two_slot_changes_inside_an_hour_each_heat_for_at_most_their_own_length(
     # When the job runs
     RoomForecastJob(client, REGION).refresh(EARLY)
 
-    # Then the 05:00 hour is three parts: 20 minutes at 7 C, 30 at 19 C and 10 at
-    # 7 C. The room (16 C, above 7 C) heats only in the middle part, which cannot
+    # Then the rest of the 05:00 hour after the 05:05 reading is three parts: 15
+    # minutes at 7 C, 30 at 19 C and 10 at 7 C. The room (16 C, above 7 C) heats
+    # only in the middle part, which cannot
     # reach 19 C and so heats all 30 minutes; nothing follows
     rows = live_rows(client, "current")
     assert [row.on_minutes for row in rows[:3]] == [30, 0, 0]

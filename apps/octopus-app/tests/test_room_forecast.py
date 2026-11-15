@@ -112,6 +112,32 @@ def test_an_hour_with_no_slot_starting_inside_it_is_one_part() -> None:
     assert schedule_parts(schedule, datetime(2026, 11, 17, 7)) == [Part(1.0, 7.0)]
 
 
+def test_a_slot_that_repeats_the_target_does_not_split_the_hour() -> None:
+    # Hive allows adjacent slots with the same target. A part heats the least that
+    # reaches its target by its end, so a boundary where nothing changes would force
+    # the room to reach 19 C by the boundary, not by the hour's end, and store more
+    # heating than the same target held across the whole hour.
+    schedule = parse_schedule(
+        _raw_schedule(tuesday=[(0, 7.0), (330, 19.0), (345, 19.0), (385, 7.0)])
+    )
+    assert schedule is not None
+
+    # 05:00: 7 C until 05:30, then 19 C; the slot repeating 19 C at 05:45 is no part
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 5)) == [
+        Part(0.5, 7.0),
+        Part(0.5, 19.0),
+    ]
+    # 06:00: 19 C until 06:25, then 7 C
+    assert schedule_parts(schedule, datetime(2026, 11, 17, 6)) == [
+        Part(25 / 60, 19.0),
+        Part(35 / 60, 7.0),
+    ]
+    # an hour in the repeated target only is one part
+    repeating = parse_schedule(_raw_schedule(tuesday=[(0, 19.0), (330, 19.0)]))
+    assert repeating is not None
+    assert schedule_parts(repeating, datetime(2026, 11, 17, 5)) == [Part(1.0, 19.0)]
+
+
 def test_a_slot_starting_on_the_hour_does_not_split_it() -> None:
     schedule = parse_schedule(_raw_schedule(tuesday=[(0, 7.0), (300, 19.0)]))
     assert schedule is not None
