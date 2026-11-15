@@ -875,12 +875,18 @@ def test_the_cost_comparison_estimates_are_the_frozen_day_ahead_forecast() -> No
     sql = _cost_comparison_sql()
 
     assert "FROM room_forecast_hour" in sql
-    assert "kind = 'day_ahead'" in sql
+    assert sql.count("r.kind = 'day_ahead'") == 2  # both estimate branches
     assert "'live'" not in sql
-    assert "scenario = 'current'" in sql
-    assert "scenario = 'plan'" in sql
-    assert "FROM heating_hour" in sql
-    assert "source" not in sql  # measured and estimated hours both count
+    # each series label sits in the branch that reads its own scenario
+    for series in ("current", "plan"):
+        assert re.search(
+            rf"'{series}' AS series(?:(?!UNION).)*?r\.scenario = '{series}'",
+            sql,
+            re.DOTALL,
+        ), series
+    actual_branch = sql[sql.index("'actual' AS series") :]
+    assert "FROM heating_hour" in actual_branch
+    assert "h.source" not in sql  # measured and estimated hours both count
 
 
 def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None:

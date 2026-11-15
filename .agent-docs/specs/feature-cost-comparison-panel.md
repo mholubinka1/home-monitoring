@@ -49,7 +49,7 @@ The two estimates come from each day's **Day-Ahead Forecast**, which the hourly 
 
 **The window.** Fixed in the query, not taken from the dashboard range: London days from today minus 30 up to yesterday inclusive, where today is `DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))`. Today is excluded by the upper bound, so it can never appear even if the panel range reaches into it. The panel carries a relative time override of 31 days (`timeFrom: "31d"`) so that its axis spans the window whatever the dashboard's range (14 days back, 7 forward) is: the oldest day's noon is always less than 31 days before now, so its point is on the axis at any time of day. The query's own bounds are the authority on which days have points, so it does not use `$__timeFilter`.
 
-**Performance.** The query touches only `room_forecast_hour` (at most about 2 x 2 x 24 x (30 + 1) day-ahead rows, plus a couple of days of live rows) and `heating_hour` (about 24 rows a day), filtered to the 31-day window. No `weather_observation`, `heating_status`, `daily_consumption_summary` or `consumption` access.
+**Performance.** The query touches only `room_forecast_hour` (at most about 2 x 24 x 30 day-ahead rows, plus a couple of days of live rows) and `heating_hour` (about 24 rows a day), filtered to the 31-day window. No `weather_observation`, `heating_status`, `daily_consumption_summary` or `consumption` access.
 
 **Deploy.** Import the dashboard. No app deploy is needed. Nothing is checked on the live MariaDB (a 512 MB cap, OOM on 2026-11-05); the SQL is checked once, read-only, on a throwaway copy of the database in the final dashboard review, as the other new panels are.
 
@@ -65,7 +65,7 @@ Scenarios, each a red-green step:
 2. The query returns three named series, `current_cost`, `plan_cost` and `actual_cost`, with the display names "Current Schedule (estimated)", "Comfort Schedule (estimated)" and "Actual", in pounds, dashed for the two estimates and solid for Actual, not joined across gaps.
 3. The estimates read `kind = 'day_ahead'` rows of the `current` and `plan` scenarios and never `live`; Actual reads `heating_hour` of both sources.
 4. The window is 30 London days ending yesterday: the query bounds exclude the current day, and the panel has a 31-day relative time override.
-5. A day is kept per series only when its count of priced hours equals the hours in the London day (the `HAVING COUNT(...) = TIMESTAMPDIFF(HOUR` rule appears for each series).
+5. A day is kept per series only when its count of priced hours equals the hours in the London day (one `HAVING COUNT(...) = TIMESTAMPDIFF(HOUR` rule, applied per series because the rows are grouped by series first).
 6. The panel reads only `room_forecast_hour` and `heating_hour`.
 7. The dashboard-wide tests (chart-only types, distinct panel ids, every variable used) still pass.
 
