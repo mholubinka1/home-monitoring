@@ -1649,7 +1649,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "The live room forecast, every 10 minutes. Bars: minutes of heating in each 10 minutes under the current schedule and under the comfort plan. Lines on the right axis: the gas cost of each, in pounds. Points at now: the newest thermal-model fit, with the mean and worst error of its backtest in degrees (own axis on the right), and the model state (green is usable; red names why the fit was rejected). The age of the live forecast is one point at now, in hours since it was last computed. A red model state means the forecast lines are stale: the room forecast is not recomputed while the model is unusable. A red forecast age means the hourly chain has stopped.",
+      "description": "The live room forecast, every 10 minutes. Bars: minutes of heating in each 10 minutes under the current schedule and under the comfort plan. Lines on the right axis: the gas cost of each, in pounds. Points at now: the newest thermal-model fit, with the mean and worst error of its backtest in degrees (own axis on the right), and the model state (green is usable; red names why the fit was rejected). The warm-up delay is the time between the thermostat calling for heat and the room responding, learned at each daily refit and shown as a point at now in minutes, with its state: learned (found in this fit), carried (the last learned value, kept because the 60 days held under 10 heating starts) or not learned yet (0 minutes, never learned). The age of the live forecast is one point at now, in hours since it was last computed. A red model state means the forecast lines are stale: the room forecast is not recomputed while the model is unusable. A red forecast age means the hourly chain has stopped.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2031,6 +2031,121 @@
                 "value": "age of the live forecast"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warm_up_delay"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "m"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              },
+              {
+                "id": "displayName",
+                "value": "warm-up delay"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warm_up_delay_state"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "orange",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "index": 0,
+                        "text": "learned"
+                      },
+                      "1": {
+                        "index": 1,
+                        "text": "carried"
+                      },
+                      "2": {
+                        "index": 2,
+                        "text": "not learned yet"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 9
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "displayName",
+                "value": "warm-up delay state"
+              }
+            ]
           }
         ]
       },
@@ -2153,6 +2268,35 @@
           "rawQuery": true,
           "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  ROUND(TIMESTAMPDIFF(MINUTE, MAX(r.computed_at), UTC_TIMESTAMP()) / 60, 1) AS forecast_age_hours\nFROM room_forecast_interval r\nWHERE r.kind = 'live';",
           "refId": "D",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,\n  m.warm_up_delay_minutes AS warm_up_delay,\n  CASE m.warm_up_delay_source WHEN 'learned' THEN 0 WHEN 'carried' THEN 1 ELSE 2 END AS warm_up_delay_state\nFROM thermal_model m\nORDER BY m.fitted_at DESC, m.id DESC\nLIMIT 1;",
+          "refId": "E",
           "sql": {
             "columns": [
               {

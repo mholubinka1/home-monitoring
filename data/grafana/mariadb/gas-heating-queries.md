@@ -571,7 +571,7 @@ LIMIT 1;
 
 ### Heating Plan and Room Model (time series)
 
-The live room forecast, every 10 minutes, read from the small `room_forecast_interval` table that octopus-app's hourly job writes ([ADR-0035](../../../.agent-docs/adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)). Bars are the minutes of heating in each 10 minutes (at most 10) under the current schedule and under the comfort plan; lines on the right axis are the gas cost of each, in pounds. Points at now: the newest thermal-model fit with the mean and worst error of its backtest, and the model state; the age of the live forecast in hours.
+The live room forecast, every 10 minutes, read from the small `room_forecast_interval` table that octopus-app's hourly job writes ([ADR-0035](../../../.agent-docs/adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)). Bars are the minutes of heating in each 10 minutes (at most 10) under the current schedule and under the comfort plan; lines on the right axis are the gas cost of each, in pounds. Points at now: the newest thermal-model fit with the mean and worst error of its backtest, and the model state; the warm-up delay of that fit in minutes with whether it was learned, carried or not learned yet; the age of the live forecast in hours.
 
 Query A, forecast:
 
@@ -629,6 +629,18 @@ SELECT
   ROUND(TIMESTAMPDIFF(MINUTE, MAX(r.computed_at), UTC_TIMESTAMP()) / 60, 1) AS forecast_age_hours
 FROM room_forecast_interval r
 WHERE r.kind = 'live';
+```
+
+Query E, warm-up delay (the Warm-Up Delay of the newest fit, in minutes, and how it was found; one point at now, drawn like the backtest figures; the state maps 0 to "learned", 1 to "carried" and 2 to "not learned yet"):
+
+```sql
+SELECT
+  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,
+  m.warm_up_delay_minutes AS warm_up_delay,
+  CASE m.warm_up_delay_source WHEN 'learned' THEN 0 WHEN 'carried' THEN 1 ELSE 2 END AS warm_up_delay_state
+FROM thermal_model m
+ORDER BY m.fitted_at DESC, m.id DESC
+LIMIT 1;
 ```
 
 Not yet run against MariaDB: it is checked in the single end-of-plan dashboard review.

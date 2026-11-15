@@ -432,6 +432,19 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 ),
             )
 
+    def read_latest_warm_up_delay(self) -> int | None:
+        """The Warm-Up Delay, in minutes, of the newest fit that learned one or
+        carried one; None when none has."""
+        tm = model.thermal_model
+        with self.session_read_scope() as session:
+            row = (
+                session.query(tm.warm_up_delay_minutes)
+                .filter(tm.warm_up_delay_source.in_(("learned", "carried")))
+                .order_by(tm.fitted_at.desc(), tm.id.desc())
+                .first()
+            )
+        return None if row is None or row[0] is None else int(row[0])
+
     def _replace_all_rows(
         self, table: type[SQLBase], rows: list[SQLBase], description: str
     ) -> None:

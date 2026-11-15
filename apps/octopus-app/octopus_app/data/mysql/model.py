@@ -206,6 +206,9 @@ class thermal_model(SQLBase):
     backtest_mean_error = Column(_DOUBLE)
     backtest_worst_error = Column(_DOUBLE)
     step_minutes = Column(Integer)  # NULL on rows fitted hourly, read as 60
+    warm_up_delay_minutes = Column(Integer)  # NULL on old rows, read as 0
+    warm_up_delay_source = Column(String(20))  # learned, carried or none
+    heating_starts = Column(Integer)
 
 
 class heating_forecast_day(SQLBase):

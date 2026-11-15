@@ -792,6 +792,25 @@ def test_the_age_of_the_live_forecast_is_one_point_at_now_so_a_stale_line_shows(
     assert overrides["custom.showPoints"] == "always"
 
 
+def test_the_plan_panel_shows_the_warm_up_delay_and_whether_it_was_learned() -> None:
+    sql = _plan_panel_sql()
+    overrides = _panel_overrides(PLAN_PANEL)
+    state = overrides["warm_up_delay_state"]
+
+    assert "m.warm_up_delay_minutes AS warm_up_delay" in sql
+    assert "AS warm_up_delay_state" in sql
+    assert "ORDER BY m.fitted_at DESC, m.id DESC" in sql
+    assert overrides["warm_up_delay"]["unit"] == "m"
+    assert overrides["warm_up_delay"]["custom.showPoints"] == "always"
+    (mapping,) = state["mappings"]
+    assert {key: option["text"] for key, option in mapping["options"].items()} == {
+        "0": "learned",
+        "1": "carried",
+        "2": "not learned yet",
+    }
+    assert "WHEN 'learned' THEN 0 WHEN 'carried' THEN 1 ELSE 2" in sql
+
+
 def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None:
     sql = _plan_panel_sql()
 
@@ -959,6 +978,7 @@ QUERIES_DOCUMENT = GRAFANA_DIR / "mariadb" / "gas-heating-queries.md"
         (TEMPERATURES, "E"),
         (PLAN_PANEL, "A"),
         (PLAN_PANEL, "D"),
+        (PLAN_PANEL, "E"),
         ("Schedule Today", "A"),
     ],
 )

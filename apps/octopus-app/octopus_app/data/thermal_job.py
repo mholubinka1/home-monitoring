@@ -2,6 +2,7 @@
 ADR-0036)."""
 
 import logging.config
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -17,6 +18,23 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # The newest room reading a step's end can use comes this long after the end.
 READING_MARGIN = thermal.READING_TOLERANCE + timedelta(minutes=2)
+LEARNED = "learned"
+CARRIED = "carried"
+NO_DELAY = "none"
+
+
+@dataclass(frozen=True)
+class _Delay:
+    """The Warm-Up Delay a fit used: its index among the searched delays, how it
+    was found, and the fit made with it."""
+
+    index: int
+    source: str
+    fit: ThermalFit
+
+    @property
+    def minutes(self) -> int:
+        return thermal.SEARCHED_DELAYS[self.index]
 
 
 class ThermalModelJob:
@@ -44,21 +62,50 @@ class ThermalModelJob:
             return
         history = timedelta(minutes=max(thermal.SEARCHED_DELAYS)) + thermal.STEP
         polls = self._mariadb.read_thermostat_polls(
-            first - history, end + READING_MARGIN
+            first - history - thermal.QUIET_BEFORE_START, end + READING_MARGIN
         )
         if not polls:
             logger.info("Thermal model: no thermostat readings, nothing fitted.")
             return
         ledger = thermal.StepLedger(thermal.build_steps(polls, weather, first, end))
-        fit = thermal.fit_window(ledger.window(0, start, end))
+        heating_starts = thermal.heating_start_times(polls)
+        starts_in_window = thermal.count_between(heating_starts, start, end)
+        delay = self._delay(ledger, start, end, starts_in_window)
+        fit = delay.fit
         result = None
         if fit.reason is None:
-            result = thermal.backtest(ledger, days)
+            result = thermal.backtest(ledger, days, delay.index, heating_starts)
             fit = thermal.with_backtest(fit, result)
-        self._mariadb.write_thermal_model(_record(fit, result, now, start, end))
+        self._mariadb.write_thermal_model(
+            _record(fit, delay, starts_in_window, result, now, start, end)
+        )
         logger.info(
-            f"Thermal model: fitted over {fit.steps_used} step(s), "
+            f"Thermal model: fitted over {fit.steps_used} step(s) with a warm-up "
+            f"delay of {delay.minutes} minute(s) ({delay.source}), "
             f"{'usable' if fit.reason is None else fit.reason.value}."
+        )
+
+    def _delay(
+        self,
+        ledger: thermal.StepLedger,
+        start: datetime,
+        end: datetime,
+        starts_in_window: int,
+    ) -> _Delay:
+        """The delay whose fit misses the readings least, when the window holds
+        enough Heating Starts to learn one; otherwise the newest stored delay, or
+        none (0) when there has never been one."""
+        if starts_in_window >= thermal.MIN_HEATING_STARTS:
+            searched = thermal.search_delay(ledger, start, end)
+            if searched is not None:
+                return _Delay(searched[0], LEARNED, searched[1])
+        carried = self._mariadb.read_latest_warm_up_delay()
+        if carried in thermal.SEARCHED_DELAYS:
+            index, source = thermal.SEARCHED_DELAYS.index(carried), CARRIED
+        else:
+            index, source = 0, NO_DELAY
+        return _Delay(
+            index, source, thermal.fit_window(ledger.window(index, start, end))
         )
 
     def _fitted_today(self, now: datetime) -> bool:
@@ -87,8 +134,10 @@ def _naive_start_of(day: date) -> datetime:
     return local_day.start_of_local_day(day).replace(tzinfo=None)
 
 
-def _record(
+def _record(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     fit: ThermalFit,
+    delay: _Delay,
+    heating_starts: int,
     result: thermal.Backtest | None,
     now: datetime,
     start: datetime,
@@ -113,4 +162,7 @@ def _record(
         sun_gain=numbers.sun_gain if numbers else None,
         constant_gain=numbers.constant_gain if numbers else None,
         step_minutes=thermal.STEP_MINUTES,
+        warm_up_delay_minutes=delay.minutes,
+        warm_up_delay_source=delay.source,
+        heating_starts=heating_starts,
     )

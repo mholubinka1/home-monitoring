@@ -46,7 +46,13 @@ MAX_MEAN_ERROR = 0.5  # C
 # the inputs do not vary enough to tell the numbers apart.
 PIVOT_TOLERANCE = 1e-12
 # The delays searched, in minutes (the Warm-Up Delay, ADR-0036).
-SEARCHED_DELAYS = (0,)
+MAX_DELAY_MINUTES = 40
+DELAY_STEP_MINUTES = 2
+SEARCHED_DELAYS = tuple(range(0, MAX_DELAY_MINUTES + 1, DELAY_STEP_MINUTES))
+# A delay is learned only when the fit window holds this many Heating Starts: the
+# heating coming on after at least this long with none.
+MIN_HEATING_STARTS = 10
+QUIET_BEFORE_START = timedelta(minutes=30)
 
 
 class Unusable(StrEnum):
@@ -141,6 +147,25 @@ class _Polls:
             return None
         temp = self._polls[index][1]
         return temp if _is_finite(temp) else None
+
+
+def heating_start_times(poll_rows: Iterable[Poll]) -> list[datetime]:
+    """When the heating came on after at least 30 minutes with none (a Heating
+    Start), oldest first."""
+    starts: list[datetime] = []
+    last_on: datetime | None = None
+    for at, _, state, boost in sorted(poll_rows, key=lambda poll: poll[0]):
+        if not poll_is_on(state, boost):
+            continue
+        if last_on is None or at - last_on >= QUIET_BEFORE_START:
+            starts.append(at)
+        last_on = at
+    return starts
+
+
+def count_between(times: Sequence[datetime], start: datetime, end: datetime) -> int:
+    """How many of the sorted times lie in [start, end)."""
+    return bisect_left(times, end) - bisect_left(times, start)
 
 
 def _interpolated_outdoor(
@@ -353,6 +378,39 @@ def fit_window(sums: WindowSums) -> ThermalFit:
     return ThermalFit(sums.steps, sums.heating_steps, numbers, reason)
 
 
+def _squared_misses(numbers: ThermalNumbers, sums: WindowSums) -> float:
+    """The sum of the squared misses of the numbers over a window's steps, from its
+    sums: change squared less twice its product with the inputs, plus their square."""
+    beta = list(astuple(numbers))
+    matrix, target = sums.matrix(), sums.target()
+    cross = sum(b * t for b, t in zip(beta, target, strict=True))
+    quadratic = sum(
+        beta[row] * matrix[row][column] * beta[column]
+        for row in range(TERMS)
+        for column in range(TERMS)
+    )
+    return sums.squared_change() - 2 * cross + quadratic
+
+
+def search_delay(
+    ledger: StepLedger, start: datetime, end: datetime
+) -> tuple[int, ThermalFit] | None:
+    """The searched delay, as an index, whose fit misses the readings least over a
+    window (the smaller on a tie), with that fit; None when no delay can be fitted
+    (too few steps, too little heating or no fit at any)."""
+    best: tuple[int, ThermalFit] | None = None
+    best_misses = math.inf
+    for index in range(len(ledger.delays)):
+        sums = ledger.window(index, start, end)
+        fit = fit_window(sums)
+        if fit.numbers is None:
+            continue
+        misses = _squared_misses(fit.numbers, sums)
+        if misses < best_misses:
+            best, best_misses = (index, fit), misses
+    return best
+
+
 @dataclass(frozen=True)
 class DayWindow:
     """One local day, [start, end) in naive UTC: 23, 24 or 25 hours."""
@@ -397,26 +455,41 @@ def replay(
 
 
 def _replay_day(
-    ledger: StepLedger, day: DayWindow, delay_index: int
+    ledger: StepLedger,
+    day: DayWindow,
+    delay_index: int,
+    heating_starts: Sequence[datetime],
 ) -> list[float] | None:
     """The errors of the day replayed by a model fitted on the 60 days before it,
-    or None when the day has a gap or that model fails the first four checks."""
+    with that model's own delay (searched when its window holds enough Heating
+    Starts, else the delay of the fit under test), or None when the day has a gap
+    or that model fails the first four checks."""
     steps = ledger.steps_between(day.start, day.end)
     if len(steps) != (day.end - day.start) // STEP:
         return None
-    earlier = fit_window(ledger.window(delay_index, day.start - FIT_WINDOW, day.start))
+    window_start = day.start - FIT_WINDOW
+    own_index = delay_index
+    if count_between(heating_starts, window_start, day.start) >= MIN_HEATING_STARTS:
+        searched = search_delay(ledger, window_start, day.start)
+        if searched is None:
+            return None
+        own_index = searched[0]
+    earlier = fit_window(ledger.window(own_index, window_start, day.start))
     if earlier.numbers is None or earlier.reason is not None:
         return None
-    return replay(earlier.numbers, steps, delay_index)
+    return replay(earlier.numbers, steps, own_index)
 
 
 def backtest(
-    ledger: StepLedger, days: Sequence[DayWindow], delay_index: int = 0
+    ledger: StepLedger,
+    days: Sequence[DayWindow],
+    delay_index: int,
+    heating_starts: Sequence[datetime],
 ) -> Backtest:
     errors: list[float] = []
     replayed = 0
     for day in days:
-        day_errors = _replay_day(ledger, day, delay_index)
+        day_errors = _replay_day(ledger, day, delay_index, heating_starts)
         if day_errors is not None:
             replayed += 1
             errors += day_errors

@@ -123,6 +123,12 @@ class ThermalModelRecord:  # pylint: disable=too-many-instance-attributes
     backtest_worst_error: float | None
     # The step the numbers were fitted on; None on rows fitted hourly (read as 60).
     step_minutes: int | None = None
+    # The Warm-Up Delay the numbers were fitted with, whether it was 'learned',
+    # 'carried' from an earlier fit or 'none' yet, and the Heating Starts the
+    # fit window held; None on rows fitted before the delay existed.
+    warm_up_delay_minutes: int | None = None
+    warm_up_delay_source: str | None = None
+    heating_starts: int | None = None
 
 
 @dataclass(frozen=True)

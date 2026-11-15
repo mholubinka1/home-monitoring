@@ -4,7 +4,8 @@
 London is on GMT in November, so local time is UTC. The slot used throughout is
 made up: 19 C from 05:40 to 06:25 on a Tuesday, 7 C otherwise."""
 
-from datetime import UTC, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from typing import Any
 
@@ -14,15 +15,19 @@ from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
+    NOW,
     REGION,
     live_rows,
+    seed_comfort,
     seed_gas_rate,
     seed_measured_intervals,
     seed_reading,
     seed_schedule,
     seed_weather_forecast,
+    slot_rows,
     thermal_model_client,
     tuesday_slot_schedule,
+    usable_model,
     weekly_schedule,
 )
 
@@ -246,3 +251,80 @@ def test_mode_off_heats_no_row_even_in_a_slot(client: MariaDBClient) -> None:
     rows: list[Any] = live_rows(client, "current")
     assert rows
     assert {row.on_minutes for row in rows} == {0}
+
+
+def _model_with_delay(minutes: int, fitted_hours_ago: int = 0) -> Any:
+    """A usable model fitted on 10-minute steps with nothing carried, so that the
+    room changes only while heat arrives, and the given Warm-Up Delay."""
+    return replace(
+        usable_model(),
+        fitted_at=NOW - timedelta(hours=fitted_hours_ago),
+        carried_gain=0.0,
+        step_minutes=10,
+        warm_up_delay_minutes=minutes,
+        warm_up_delay_source="learned",
+    )
+
+
+def test_with_a_delay_the_room_stays_on_its_unheated_course_until_the_heat_arrives(
+    client: MariaDBClient,
+) -> None:
+    # Given a delay of 14 minutes and the slot at 19 C from 05:40 to 06:25
+    client.write_thermal_model(_model_with_delay(14))
+    seed_reading(client, EARLY - timedelta(minutes=5), room=16.0)
+    seed_schedule(client, tuesday_slot_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 5), last=datetime(2026, 11, 19, 0)
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(EARLY)
+
+    # Then gas is counted from 05:40 as before, but the room only cools until the
+    # heat arrives at 05:54, so it is cooler at 05:50 than at 05:40 and warmer at
+    # 06:00; heat asked for until 06:24 keeps arriving until 06:38, so the room is
+    # warmer at 06:40 than at 06:30 and cooler again by 06:50
+    on_minutes = _on_minutes_by_start(client)
+    assert on_minutes[datetime(2026, 11, 17, 5, 40)] == 10.0
+    assert on_minutes[datetime(2026, 11, 17, 6, 20)] == 4.0
+    room = {row.starts_at: row.room_temp for row in live_rows(client, "current")}
+    day = datetime(2026, 11, 17)
+
+    def at(hour: int, minute: int) -> float:
+        return room[day.replace(hour=hour, minute=minute)]
+
+    assert at(5, 50) < at(5, 40)
+    assert at(6, 0) > at(5, 50)
+    assert at(6, 40) > at(6, 30)
+    assert at(6, 50) < at(6, 40)
+
+
+def test_with_a_delay_the_plan_switches_on_that_much_earlier_and_is_still_warm_at_the_opening(
+    client: MariaDBClient,
+) -> None:
+    # Given a room of 18 C at 05:05, a weekday window opening at 06:30, and the
+    # plan under a model with no delay
+    seed_reading(client, EARLY - timedelta(minutes=5), room=18.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 17, 5), last=datetime(2026, 11, 19, 0)
+    )
+    seed_comfort(client, date(2026, 11, 17), 19.0)
+    client.write_thermal_model(_model_with_delay(0, fitted_hours_ago=2))
+    RoomForecastJob(client, REGION).refresh(EARLY)
+    today = date(2026, 11, 17)
+    without_delay = next(row for row in slot_rows(client, "plan") if row.day == today)
+
+    # When a model with a delay of 14 minutes is fitted and the job runs again
+    client.write_thermal_model(_model_with_delay(14))
+    RoomForecastJob(client, REGION).refresh(EARLY)
+
+    # Then today's plan slot starts 14 minutes earlier and the room is at 19 C at
+    # the 06:30 opening, as before
+    with_delay = next(row for row in slot_rows(client, "plan") if row.day == today)
+    assert without_delay.starts_at - with_delay.starts_at == timedelta(minutes=14)
+    assert with_delay.starts_at.minute % 2 == 0
+    by_start = {row.starts_at: row for row in live_rows(client, "plan")}
+    assert by_start[datetime(2026, 11, 17, 6, 30)].room_temp == pytest.approx(
+        19.0, abs=0.01
+    )

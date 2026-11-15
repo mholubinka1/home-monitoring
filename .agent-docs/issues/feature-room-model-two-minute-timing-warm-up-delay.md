@@ -85,12 +85,12 @@ Learn the Warm-Up Delay at each refit: try delays of 0 to 40 minutes in 2-minute
 
 ### Acceptance criteria
 
-- [ ] Given polls from a made-up house whose room responds 14 minutes after heating starts, and at least 10 Heating Starts, when the model is fitted, then the stored delay is 14 and its source learned.
-- [ ] Given fewer than 10 Heating Starts and an earlier stored delay of 14, when the model is fitted, then the delay is 14 and its source carried.
-- [ ] Given fewer than 10 Heating Starts and no earlier delay, when the model is fitted, then the delay is 0 and its source none.
-- [ ] Given a delay of 14 and a slot from 05:40 to 06:25, when the job runs, then heating minutes are stored from 05:40, the room follows its unheated course until 05:54, and heat keeps arriving until 06:38.
-- [ ] Given a delay of 14, when the plan is made, then its slot starts 14 minutes earlier than with no delay and the room is at the target at the opening.
-- [ ] Given the dashboard, when read, then the Heating Plan and Room Model panel shows the delay in minutes and whether it is learned, carried or not learned yet.
+- [x] Given polls from a made-up house whose room responds 14 minutes after heating starts, and at least 10 Heating Starts, when the model is fitted, then the stored delay is 14 and its source learned.
+- [x] Given fewer than 10 Heating Starts and an earlier stored delay of 14, when the model is fitted, then the delay is 14 and its source carried.
+- [x] Given fewer than 10 Heating Starts and no earlier delay, when the model is fitted, then the delay is 0 and its source none.
+- [x] Given a delay of 14 and a slot from 05:40 to 06:25, when the job runs, then heating minutes are stored from 05:40, the room follows its unheated course until 05:54, and heat keeps arriving until 06:38.
+- [x] Given a delay of 14, when the plan is made, then its slot starts 14 minutes earlier than with no delay and the room is at the target at the opening.
+- [x] Given the dashboard, when read, then the Heating Plan and Room Model panel shows the delay in minutes and whether it is learned, carried or not learned yet.
 
 ---
 
