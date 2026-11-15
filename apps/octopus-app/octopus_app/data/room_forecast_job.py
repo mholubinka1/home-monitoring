@@ -404,6 +404,10 @@ def _room_model_of(record: ThermalModelRecord) -> room_forecast.RoomModel | None
         return None
     return room_forecast.RoomModel(
         ThermalNumbers(*numbers),  # type: ignore[arg-type]
-        step_minutes=record.step_minutes or MINUTES_PER_HOUR,
-        delay_minutes=record.warm_up_delay_minutes or 0,
+        step_minutes=(
+            MINUTES_PER_HOUR if record.step_minutes is None else record.step_minutes
+        ),
+        delay_minutes=(
+            0 if record.warm_up_delay_minutes is None else record.warm_up_delay_minutes
+        ),
     )

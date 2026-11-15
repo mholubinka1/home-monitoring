@@ -208,7 +208,7 @@ One span of actual heating, a half-hour to match the gas meter, stored with its 
 _Avoid_: boost cost (boost is only one way heating comes on), heating hour (the old hourly row)
 
 **Hot-Water Baseline**:
-The typical gas used in a half-hour of the day with no heating on, learned from the last 28 days and subtracted from measured gas in heating hours.
+The typical gas used in a half-hour of the day with no heating on, learned from the last 28 days and subtracted from measured gas in heating half-hours.
 
 **Effective Boiler kW**:
 The gas the boiler draws per hour of heating-on time, learned from measured Heating Intervals and used to estimate those without measured gas.

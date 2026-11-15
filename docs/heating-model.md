@@ -79,7 +79,7 @@ A day with a gas reading of exactly zero is a different thing again. It is a mis
 
 ## 9. Reading the dashboard panels
 
-The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The heating-cost-per-hour chart and the comfort temperature are separate from the model (sections 10 and 11). The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
+The model feeds one chart (the expected-gas bars) and, through the cost forecast, the billing-period gauge. The heating-cost-per-half-hour chart and the comfort temperature are separate from the model (sections 10 and 11). The charts that showed the model itself (the fitted bend, where the gas went, heating efficiency and the 1 °C setpoint saving) were removed from the dashboard on 2026-11-02, and the code that fed them on 2026-11-04.
 
 - **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
