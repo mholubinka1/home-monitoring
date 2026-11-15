@@ -59,9 +59,9 @@ def test_forecast_under_the_current_schedule_runs_from_now_to_the_end_of_tomorro
     assert rows[-1].hour_start == datetime(2026, 11, 18, 23)
     assert len(rows) == 34
     assert rows[0].room_temp == pytest.approx(18.0)
-    # nothing is heating, so the next hour has cooled by
-    # 0.02 * (10 - 18) + 0.08 = -0.08 C
-    assert rows[1].room_temp == pytest.approx(17.92)
+    # nothing is heating, so the hour cools by 0.02 * (10 - 18) + 0.08 = -0.08 C,
+    # of which 11/12 is left after the 14:05 reading: 18 - 0.0733 = 17.9267 C
+    assert rows[1].room_temp == pytest.approx(17.926667)
 
 
 def test_a_slot_target_above_the_room_is_held_with_the_least_heating(
@@ -116,10 +116,10 @@ def test_mode_off_forecasts_no_heating(client: MariaDBClient) -> None:
     # When the job runs
     RoomForecastJob(client, REGION).refresh(NOW)
 
-    # Then no hour heats, and the room cools
+    # Then no hour heats, and the room cools by 11/12 of 0.08 C to 17.9267 C
     rows = live_rows(client, "current")
     assert {row.on_minutes for row in rows} == {0}
-    assert rows[1].room_temp == pytest.approx(17.92)
+    assert rows[1].room_temp == pytest.approx(17.926667)
 
 
 @pytest.mark.parametrize(
@@ -198,18 +198,19 @@ def test_a_reading_more_than_30_minutes_old_stores_nothing(
 
 
 def test_a_reading_exactly_30_minutes_old_is_fresh(client: MariaDBClient) -> None:
-    # Given the newest reading is exactly 30 minutes old
+    # Given the newest reading is exactly 30 minutes old, at 13:40
     seed_reading(client, NOW - timedelta(minutes=30), room=18.0)
     seed_schedule(client, weekly_schedule())
     seed_weather_forecast(
-        client, first=datetime(2026, 11, 17, 14), last=datetime(2026, 11, 19, 0)
+        client, first=datetime(2026, 11, 17, 13), last=datetime(2026, 11, 19, 0)
     )
 
     # When the job runs
     RoomForecastJob(client, REGION).refresh(NOW)
 
-    # Then it counts as fresh and the forecast is stored
-    assert len(live_rows(client, "current")) == 34
+    # Then it counts as fresh and the forecast is stored, from the 13:00 hour the
+    # reading is in
+    assert len(live_rows(client, "current")) == 35
 
 
 def test_an_unusable_newest_model_stores_nothing_and_never_falls_back(
@@ -315,10 +316,11 @@ def test_an_unknown_radiation_counts_as_no_sunshine_and_keeps_the_hour(
     # When the job runs
     RoomForecastJob(client, REGION).refresh(NOW)
 
-    # Then every hour is kept and the room cools as with no sunshine
+    # Then every hour is kept and the room cools as with no sunshine, 11/12 of
+    # 0.08 C after the 14:05 reading
     rows = live_rows(client, "current")
     assert len(rows) == 34
-    assert rows[1].room_temp == pytest.approx(17.92)
+    assert rows[1].room_temp == pytest.approx(17.926667)
 
 
 def test_an_hours_temperature_pairs_with_the_next_stamps_radiation(
@@ -343,9 +345,10 @@ def test_an_hours_temperature_pairs_with_the_next_stamps_radiation(
     RoomForecastJob(client, REGION).refresh(NOW)
 
     # Then 14:00 uses its own 10 C with 15:00's 1 kW/m2:
-    # 0.02 * (10 - 18) + 0.4 * 1 + 0.08 = 0.32 C
+    # 0.02 * (10 - 18) + 0.4 * 1 + 0.08 = 0.32 C an hour, 11/12 of it after the
+    # 14:05 reading: 18 + 0.2933 = 18.2933 C
     rows = live_rows(client, "current")
-    assert rows[1].room_temp == pytest.approx(18.32)
+    assert rows[1].room_temp == pytest.approx(18.293333)
 
 
 @pytest.mark.parametrize(
@@ -456,10 +459,11 @@ def test_the_plan_holds_the_rounded_up_comfort_temperature_with_the_shortest_pre
         row.hour_start for row in live_rows(client, "current")
     ]
     # and heats the room from 18 C in the first hour, already in today's window,
-    # up to 19.5 C (not 19.3 C): (19.5 - 18 + 0.08) / 1.3 of the hour, 73 minutes
-    # of heating, so the whole hour
-    assert rows[0].on_minutes == 60
-    assert rows[1].room_temp == pytest.approx(18.0 - 0.08 + 1.3)
+    # up to 19.5 C (not 19.3 C): more than the 11/12 of the hour left after the
+    # 14:05 reading, so all of it, 55 minutes, and the room is
+    # 18 - 11/12 * 0.08 + 1.3 * 11/12 = 19.1183 C at 15:00
+    assert rows[0].on_minutes == 55
+    assert rows[1].room_temp == pytest.approx(19.118333)
     by_hour = {row.hour_start: row for row in rows}
     # tomorrow the room cools overnight (held at 19.5 C to midnight, then 10 C
     # outside: 19.41, 19.30, 19.20, 19.09, 18.99 C at 01:00 to 05:00) to 18.89 C at

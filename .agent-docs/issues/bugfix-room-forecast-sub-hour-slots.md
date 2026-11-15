@@ -60,11 +60,11 @@ Start the forecast at the newest reading's time instead of the top of the hour: 
 
 ### Acceptance criteria
 
-- [ ] Given a reading taken just after a slot has ended, when the job runs, then the rest of that hour stores no heating.
-- [ ] Given a reading taken inside a slot, when the job runs, then the first hour stores only the minutes from the reading to the slot's end or the hour's end.
-- [ ] Given heating seen before the reading in the first hour, when the second hour is forecast, then the heat carried into it counts those minutes plus the forecast remainder.
-- [ ] Given a reading in the previous hour, when the job runs, then the rows start at that hour with only its remaining minutes.
-- [ ] Given either scenario, when the job runs, then the first row's room is the reading.
+- [x] Given a reading taken just after a slot has ended, when the job runs, then the rest of that hour stores no heating.
+- [x] Given a reading taken inside a slot, when the job runs, then the first hour stores only the minutes from the reading to the slot's end or the hour's end.
+- [x] Given heating seen before the reading in the first hour, when the second hour is forecast, then the heat carried into it counts those minutes plus the forecast remainder.
+- [x] Given a reading in the previous hour, when the job runs, then the rows start at that hour with only its remaining minutes.
+- [x] Given either scenario, when the job runs, then the first row's room is the reading.
 
 ---
 

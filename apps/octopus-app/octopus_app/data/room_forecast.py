@@ -171,10 +171,35 @@ class PlannedHour:
 
 @dataclass(frozen=True)
 class Start:
-    """The room now and the heating fraction of the hour before the first."""
+    """The room at the reading's local time `at` (the forecast's first hour starts
+    there; None is the hour's start) and the heating fraction of the hour before the
+    first. `seen_fraction` is the heating of the first hour already seen before `at`."""
 
     room: float
     previous_fraction: float
+    at: datetime | None = None
+    seen_fraction: float = 0.0
+
+
+def _after(parts: list[Part], elapsed: float) -> list[Part]:
+    """The parts of an hour after its first `elapsed` fraction has passed."""
+    rest = []
+    for part in parts:
+        passed = min(part.share, elapsed)
+        elapsed -= passed
+        if part.share > passed:
+            rest.append(Part(part.share - passed, part.target))
+    return rest
+
+
+def _from_reading(
+    start: Start, index: int, hour: ForecastHour, parts: list[Part]
+) -> tuple[list[Part], float]:
+    """The parts of the hour to step and the heating already seen in it: for the
+    first hour, only the parts after the reading and the seen heating."""
+    if index == 0 and start.at is not None:
+        return _after(parts, (start.at - hour.start) / ONE_HOUR), start.seen_fraction
+    return parts, 0.0
 
 
 def hold_forecast(
@@ -184,15 +209,14 @@ def hold_forecast(
     parts_of: Callable[[datetime], list[Part]],
 ) -> list[PlannedHour]:
     """Each hour stepped through the parts that `parts_of` gives for its local
-    start."""
+    start; the first only from the reading's time on."""
     planned = []
     room, previous = start.room, start.previous_fraction
-    for hour in hours:
-        fraction, end_room = step_hour(
-            numbers, room, hour, previous, parts_of(hour.start)
-        )
+    for index, hour in enumerate(hours):
+        parts, seen = _from_reading(start, index, hour, parts_of(hour.start))
+        fraction, end_room = step_hour(numbers, room, hour, previous, parts)
         planned.append(PlannedHour(room, fraction))
-        room, previous = end_room, fraction
+        room, previous = end_room, seen + fraction
     return planned
 
 
@@ -246,13 +270,13 @@ def _room_at(
     """The room at the moment: the hours before it stepped, and the hour it falls
     in stepped through the parts up to it."""
     room, previous = start.room, start.previous_fraction
-    for hour in hours:
+    for index, hour in enumerate(hours):
         if hour.start >= moment:
             break
         upto = min((moment - hour.start) / ONE_HOUR, 1.0)
-        previous, room = step_hour(
-            numbers, room, hour, previous, parts_until(hour.start, upto)
-        )
+        parts, seen = _from_reading(start, index, hour, parts_until(hour.start, upto))
+        fraction, room = step_hour(numbers, room, hour, previous, parts)
+        previous = seen + fraction
     return room
 
 

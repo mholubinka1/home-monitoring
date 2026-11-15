@@ -61,10 +61,9 @@ class RoomForecastJob:
 
     def refresh(self, now: datetime | None = None) -> None:
         """Replaces the live forecasts, current schedule and comfort plan, each on
-        its own inputs: hourly, from the hour containing now to the end of
-        tomorrow's local day."""
+        its own inputs: hourly, from the hour containing the newest reading, and
+        from the reading's time on, to the end of tomorrow's local day."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
-        first = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
         end = _naive_utc_start_of(local_day.to_local_date(now) + 2 * ONE_DAY)
         stored = self._mariadb.read_latest_thermal_model()
         status = self._mariadb.read_latest_heating_status()
@@ -78,6 +77,7 @@ class RoomForecastJob:
         if now.replace(tzinfo=None) - status[0] > MAX_READING_AGE:
             logger.info("Room forecast: the newest reading is stale, nothing stored.")
             return
+        first = status[0].replace(minute=0, second=0, microsecond=0)
         weather = self._mariadb.read_hourly_weather_forecast(first, end)
         hours = _hours_with_weather(weather, first, end)
         if not hours:
@@ -86,7 +86,12 @@ class RoomForecastJob:
             return
         inputs = _Inputs(
             numbers,
-            room_forecast.Start(status[1], self._previous_fraction(first)),
+            room_forecast.Start(
+                status[1],
+                self._previous_fraction(first),
+                _local(status[0]),
+                self._seen_fraction(first, status[0]),
+            ),
             hours,
             [
                 room_forecast.ForecastHour(
@@ -221,6 +226,14 @@ class RoomForecastJob:
         counts as none."""
         stored = self._mariadb.read_heating_hours(first - ONE_HOUR, first)
         return stored[0].on_minutes / MINUTES_PER_HOUR if stored else 0.0
+
+    def _seen_fraction(self, first: datetime, reading: datetime) -> float:
+        """The heating already seen in the first hour, as a fraction: the minutes
+        its polls before the reading were on, at most the minutes gone by."""
+        on = heating_hours.on_poll_minutes(
+            self._mariadb.read_heating_polls(first, reading)
+        )
+        return min(on, (reading - first) / timedelta(minutes=1)) / MINUTES_PER_HOUR
 
 
 def _hours_with_weather(

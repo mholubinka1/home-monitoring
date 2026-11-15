@@ -9,9 +9,11 @@ from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.room_forecast import (
     ForecastHour,
     Part,
+    PlannedHour,
     Start,
     comfort_plan,
     comfort_window,
+    hold_forecast,
     parse_schedule,
     round_up_to_half,
     schedule_parts,
@@ -285,6 +287,49 @@ def test_no_preheat_when_the_forecast_starts_inside_the_window() -> None:
 
     assert plan[0].room == 18.0
     assert plan[0].fraction == pytest.approx(1.08 / 1.3)
+
+
+def test_the_first_hour_steps_only_the_part_after_the_reading_and_carries_what_was_seen() -> (
+    None
+):
+    # Room 18 C at 06:30, with a quarter of the hour already heated before it and
+    # 19 C wanted all day; 10 C outside, nothing carried from 05:00. The hour's
+    # drift is 0.02 * (10 - 18) + 0.08 = -0.08 C, and the half hour left needs
+    # (19 - 18 + 0.5 * 0.08) / 1.3 = 0.8 of an hour: more than the 0.5 there is.
+    plan = hold_forecast(
+        NUMBERS,
+        Start(18.0, 0.0, at=datetime(2026, 11, 17, 6, 30), seen_fraction=0.25),
+        _hours(datetime(2026, 11, 17, 6), 3),
+        lambda _: [Part(1.0, 19.0)],
+    )
+
+    assert plan[0] == PlannedHour(room=18.0, fraction=0.5)
+    # The room at 07:00 is 18 - 0.04 + 0.65 = 18.61 C. The 07:00 hour carries the
+    # quarter seen and the half to come, 0.75: its drift is
+    # 0.02 * (10 - 18.61) + 0.08 + 0.3 * 0.75 = 0.1328 C, so holding 19 C needs
+    # (19 - 18.61 - 0.1328) / 1.3 = 0.19785 of the hour
+    assert plan[1].room == pytest.approx(18.61)
+    assert plan[1].fraction == pytest.approx(0.19785, abs=1e-5)
+
+
+def test_a_preheat_that_began_before_the_next_hour_is_searched_from_the_reading() -> (
+    None
+):
+    # Room 18.3 C at 05:50, plan target 19 C, window opening 06:30, 10 C outside.
+    # Unheated the room is 18.3 - 1/6 * 0.086 = 18.28567 C at 06:00. With the
+    # pre-heat starting x of an hour before 06:00 (0.3 x carried into the 06:00
+    # hour), the room at 06:30 is
+    # 18.28567 + 1.3 x + 0.5 * (-0.08571 + 0.274 x) + 0.65 = 19: x = 0.074594.
+    plan = comfort_plan(
+        NUMBERS,
+        Start(18.3, 0.0, at=datetime(2026, 11, 17, 5, 50)),
+        _hours(datetime(2026, 11, 17, 5), 3),
+        19.0,
+        ComfortWindows(),
+    )
+
+    assert plan[0].room == 18.3
+    assert plan[0].fraction == pytest.approx(0.074594, abs=1e-5)
 
 
 def test_the_weekend_window_starts_later_than_the_weekday_one() -> None:

@@ -5,7 +5,6 @@ London is on GMT in November, so local time is UTC. The slot used throughout is
 made up: 19 C from 05:40 to 06:25 on a Tuesday, 7 C otherwise."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 
@@ -21,24 +20,12 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     seed_schedule,
     seed_weather_forecast,
     thermal_model_client,
+    tuesday_slot_schedule,
     weekly_schedule,
 )
 
 # A Tuesday, ten minutes into the 05:00 hour.
 EARLY = datetime(2026, 11, 17, 5, 10, tzinfo=UTC)
-SLOT_START = 5 * 60 + 40
-SLOT_END = 6 * 60 + 25
-
-
-def tuesday_slot_schedule() -> dict[str, Any]:
-    """Seven degrees all week, except Tuesday's slot at 19 C from 05:40 to 06:25."""
-    schedule = weekly_schedule()
-    schedule["tuesday"] = [
-        {"start": 0, "value": {"target": 7.0}},
-        {"start": SLOT_START, "value": {"target": 19.0}},
-        {"start": SLOT_END, "value": {"target": 7.0}},
-    ]
-    return schedule
 
 
 def test_a_slot_that_straddles_an_hour_heats_its_own_minutes_in_each_hour(
@@ -101,14 +88,14 @@ def test_a_room_that_reaches_the_target_part_way_through_a_slot_stops_heating(
     RoomForecastJob(client, REGION).refresh(EARLY)
 
     # Then, with the 05:00 hour drifting 0.02 * (10 - 18.8) + 0.08 = -0.096 C,
-    # the room is 18.8 - 0.064 = 18.736 C at 05:40 and needs
-    # (19 - 18.736 + 0.032) / 1.3 = 0.2277 of the hour, 14 minutes, not the
-    # slot's 20: the room is at 19 C at 06:00
+    # the room is 18.8 - 35/60 * 0.096 = 18.744 C at 05:40 (the reading is at
+    # 05:05) and needs (19 - 18.744 + 0.032) / 1.3 = 0.2215 of the hour, 13
+    # minutes, not the slot's 20: the room is at 19 C at 06:00
     rows = live_rows(client, "current")
-    assert rows[0].on_minutes == 14
+    assert rows[0].on_minutes == 13
     assert rows[1].room_temp == pytest.approx(19.0)
-    # and 06:00 needs only (0.4167 * 0.031692) / 1.3 of the hour, 1 minute, to
-    # hold 19 C to 06:25 (carrying 0.2277 * 0.3 of the earlier heating)
+    # and 06:00 needs only (0.4167 * 0.033538) / 1.3 of the hour, 1 minute, to
+    # hold 19 C to 06:25 (carrying 0.2215 * 0.3 of the earlier heating)
     assert [row.on_minutes for row in rows[1:3]] == [1, 0]
 
 
