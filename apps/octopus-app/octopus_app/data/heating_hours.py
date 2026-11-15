@@ -21,6 +21,16 @@ MIN_BOILER_KW_ON_MINUTES = 20
 Poll = tuple[datetime, str | None, bool | None]
 
 
+def poll_is_on(state: str | None, boost_active: bool | None) -> bool:
+    """A poll is "on" when the thermostat calls for heat or boost is active."""
+    return state == "ON" or bool(boost_active)
+
+
+def on_poll_minutes(polls: list[Poll]) -> int:
+    """The minutes the polls cover while on, whatever their number."""
+    return POLL_MINUTES * sum(poll_is_on(state, boost) for _, state, boost in polls)
+
+
 def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
     """Per hour start, (poll count, minutes the heating was on), for hours with
     enough polls. A poll is "on" when the thermostat calls for heat or boost is
@@ -30,7 +40,7 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int]]:
     for polled_at, state, boost_active in polls:
         hour = polled_at.replace(minute=0, second=0, microsecond=0)
         counts[hour] += 1
-        on[hour] += state == "ON" or bool(boost_active)
+        on[hour] += poll_is_on(state, boost_active)
     return {
         hour: (count, POLL_MINUTES * on[hour])
         for hour, count in counts.items()

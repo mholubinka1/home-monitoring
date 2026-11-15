@@ -61,6 +61,22 @@ def weekly_schedule(target_on_day: dict[str, float] | None = None) -> dict[str, 
     }
 
 
+# A made-up slot (never the household's real times): 19 C from 05:40 to 06:25.
+SLOT_START = 5 * 60 + 40
+SLOT_END = 6 * 60 + 25
+
+
+def tuesday_slot_schedule() -> dict[str, Any]:
+    """Seven degrees all week, except Tuesday's slot at 19 C from 05:40 to 06:25."""
+    schedule = weekly_schedule()
+    schedule["tuesday"] = [
+        {"start": 0, "value": {"target": 7.0}},
+        {"start": SLOT_START, "value": {"target": 19.0}},
+        {"start": SLOT_END, "value": {"target": 7.0}},
+    ]
+    return schedule
+
+
 def seed_reading(
     client: MariaDBClient, at: datetime, room: float, mode: str = "SCHEDULE"
 ) -> None:
@@ -76,6 +92,28 @@ def seed_reading(
                     "state": "OFF",
                     "boost_active": False,
                 }
+            ],
+        )
+
+
+def seed_heating_polls(client: MariaDBClient, first: datetime, count: int) -> None:
+    """`count` thermostat polls two minutes apart from `first`, each with the
+    thermostat demanding heat (state ON)."""
+    with client.session_write_scope() as session:
+        session.execute(
+            heating_status_table.insert(),
+            [
+                {
+                    "polled_at": (first + timedelta(minutes=2 * index)).replace(
+                        tzinfo=None
+                    ),
+                    "current_temp": 18.0,
+                    "target_temp": 19.0,
+                    "mode": "SCHEDULE",
+                    "state": "ON",
+                    "boost_active": False,
+                }
+                for index in range(count)
             ],
         )
 
