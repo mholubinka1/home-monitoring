@@ -350,14 +350,16 @@ def register_heating_hour_job(  # pylint: disable=too-many-arguments,too-many-po
     room_forecast: RoomForecastJob,
     mariadb: MariaDBClient,
 ) -> Job:
-    """Registers one hourly job that refreshes the heating hours, then -- only if
+    """Registers one hourly job that refreshes the heating intervals (the job keeps
+    its `heating_hour_refresh` name so its run history continues), then -- only if
     that succeeded -- the comfort days, the thermal model and the room forecast
     (each skipped, and recorded so, otherwise), in the same background thread.
-    They read the stored heating hours: a comfort day is settled once from them
-    (ADR-0034), the thermal model learns from them and the room forecast runs it
-    forward (ADR-0035), so none may run while they are missing or part-way through
-    a backfill. The room forecast reads the comfort day and the thermal model of
-    the same cycle, so it runs last. A failed comfort refresh does not stop the
+    A comfort day is settled once from the stored heating intervals (ADR-0034), and
+    the room forecast reads their boiler kW, so neither may run while they are
+    missing or part-way through a backfill. The thermal model reads the thermostat
+    polls directly and runs after them to keep one hourly order (ADR-0036). The
+    room forecast reads the comfort day and the thermal model of the same cycle, so
+    it runs last. A failed comfort refresh does not stop the
     thermal model or the room forecast: each reads the rows already stored, and
     the room forecast says so when it has no comfort temperature to plan from."""
     refresh_heating_hours = _with_backoff_recording(
