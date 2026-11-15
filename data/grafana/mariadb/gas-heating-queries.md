@@ -2,7 +2,7 @@
 
 One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dashboard.json`](../gas-heating-dashboard.json) ("pi-desktop: gas-heating-monitoring", uid `gas-heating-monitoring`). It is separate from the electricity dashboard ([`electricity-dashboard.json`](../electricity-dashboard.json), documented in [`electricity-queries.md`](electricity-queries.md)), which this file does not change. Re-sync this file and the JSON together whenever the dashboard changes.
 
-**House style.** Every panel is a chart, with no tables; the one non-chart panel is the billing-period predictor (a bar gauge). Gas, thermostat and weather panels all read the same shared database as the electricity dashboard.
+**House style.** Every panel is a chart, with two exceptions: the billing-period predictor (a bar gauge) and the schedule table (a table, [feature-schedule-table-panel](../../../.agent-docs/specs/feature-schedule-table-panel.md)). Gas, thermostat and weather panels all read the same shared database as the electricity dashboard.
 
 ## Import
 
@@ -550,3 +550,41 @@ LIMIT 1;
 ```
 
 **Checked read-only against the Pi on 16 October 2026:** 12.41 cost so far, 32.76 projected, the same figures as the latest gas row of `cost_forecast`.
+
+### Schedule Today (table)
+
+The one table, an exception to the charts-only style. Two columns for today's London day, which changes at 00:00: "Current schedule" is the Hive schedule as programmed (every slot of the day) and "Comfort plan" is the plan's one slot, from when heating switches on (including the pre-heat) to when the comfort window closes. Each cell reads `hh:mm - hh:mm | N degrees`. Rows pair by slot position; a column with fewer slots is empty below. The last row is each scenario's estimated gas cost from the current hour to local midnight (the live `room_forecast_hour` rows), blank when that scenario has no slot today. The slots come from `room_forecast_slot`, written by the hourly room-forecast job, so deploy octopus-app before importing the dashboard that reads it.
+
+```sql
+SELECT `Current schedule`, `Comfort plan` FROM (
+SELECT
+  n.position AS sort_order,
+  CONCAT(
+    DATE_FORMAT(CONVERT_TZ(c.starts_at, 'UTC', '${timezone}'), '%H:%i'),
+    ' - ',
+    DATE_FORMAT(CONVERT_TZ(c.ends_at, 'UTC', '${timezone}'), '%H:%i'),
+    ' | ',
+    REPLACE(CAST(ROUND(c.target, 1) AS CHAR), '.0', ''),
+    ' degrees'
+  ) AS `Current schedule`,
+  CONCAT(
+    DATE_FORMAT(CONVERT_TZ(p.starts_at, 'UTC', '${timezone}'), '%H:%i'),
+    ' - ',
+    DATE_FORMAT(CONVERT_TZ(p.ends_at, 'UTC', '${timezone}'), '%H:%i'),
+    ' | ',
+    REPLACE(CAST(ROUND(p.target, 1) AS CHAR), '.0', ''),
+    ' degrees'
+  ) AS `Comfort plan`
+FROM (SELECT position FROM room_forecast_slot WHERE scenario IN ('current', 'plan') AND day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) GROUP BY position) n
+LEFT JOIN (SELECT position, starts_at, ends_at, target FROM room_forecast_slot WHERE scenario = 'current' AND day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) c ON c.position = n.position
+LEFT JOIN (SELECT position, starts_at, ends_at, target FROM room_forecast_slot WHERE scenario = 'plan' AND day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) p ON p.position = n.position
+UNION ALL
+SELECT
+  1000,
+  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_hour r WHERE r.kind = 'live' AND r.scenario = 'current' AND r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00') AND r.hour_start < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'current' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')))),
+  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_hour r WHERE r.kind = 'live' AND r.scenario = 'plan' AND r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00') AND r.hour_start < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'plan' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))))
+) t
+ORDER BY sort_order;
+```
+
+Not yet run against MariaDB: it is checked in the single end-of-plan dashboard review.

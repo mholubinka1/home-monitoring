@@ -167,6 +167,27 @@ def test_the_stored_times_are_the_correct_instants_on_a_clock_change_day(
     ]
 
 
+def test_the_plan_slot_ends_at_the_correct_instant_on_a_clock_change_day(
+    client: MariaDBClient,
+) -> None:
+    # Given 29 March 2026, when London moves to BST at 01:00 UTC, a cold room and
+    # a comfort temperature
+    now = datetime(2026, 3, 29, 5, 10, tzinfo=UTC)
+    seed_reading(client, now - timedelta(minutes=5), room=14.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 3, 29, 5), last=datetime(2026, 3, 31, 0)
+    )
+    seed_comfort(client, now.date(), 19.3)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(now)
+
+    # Then the window closes at midnight BST, which is 23:00 UTC
+    sunday = [row for row in slot_rows(client, "plan") if row.day.day == 29]
+    assert [row.ends_at for row in sunday] == [datetime(2026, 3, 29, 23, 0)]
+
+
 def test_the_plan_slot_runs_from_its_pre_heat_start_to_midnight_at_a_rounded_target(
     client: MariaDBClient,
 ) -> None:

@@ -200,7 +200,7 @@ The extension of `cost_forecast` to gas, distinguished by an `energy` column ([A
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 
 **Gas Heating Dashboard**:
-The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it has six chart panels: temperatures, daily gas with expected-gas bars, heating cost per hour, minutes below comfort, the outdoor temperature band and the billing-period predictor.
+The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it had six chart panels; it has since gained the heating plan and room model chart and a table of today's schedule slots (the one table).
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
 **Heating Hour**:

@@ -178,7 +178,7 @@ class RoomForecastJob:
     def _store_plan_slots(self, inputs: _Inputs, target: float) -> None:
         """The plan's slot of each local day, its start kept once it has passed."""
         naive_now = inputs.now.replace(tzinfo=None)
-        rows = []
+        rows: list[RoomForecastSlotRecord] = []
         # Each slot belongs to the day its window opened on.
         for day, slot in room_forecast.plan_slots(
             inputs.numbers, inputs.start, inputs.weather, target, self._windows
