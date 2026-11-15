@@ -82,7 +82,7 @@ Bring the heating guide's section on the room forecast into line with the new ru
 
 ### Acceptance criteria
 
-- [ ] Given `docs/heating-model.md` section 12, when read, then the worked example is a half hour of pre-heat ending at 06:30 and the text says the target is held from the opening minute.
-- [ ] Given the guide, when read, then it says MANUAL mode is forecast as if it were SCHEDULE.
+- [x] Given `docs/heating-model.md` section 12, when read, then the worked example is a half hour of pre-heat ending at 06:30 and the text says the target is held from the opening minute.
+- [x] Given the guide, when read, then it says MANUAL mode is forecast as if it were SCHEDULE.
 
 ---
