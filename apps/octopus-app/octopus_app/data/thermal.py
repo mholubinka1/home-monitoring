@@ -13,7 +13,7 @@ from dataclasses import astuple, dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from octopus_app.data.model import HeatingHourRecord, HourlyWeather
+from octopus_app.data.model import HourlyWeather
 
 ONE_HOUR = timedelta(hours=1)
 # A room reading counts as an hour's start when it comes this soon after the hour
@@ -91,12 +91,12 @@ class HourlyEvidence:
     def from_readings(
         cls,
         room_readings: Iterable[tuple[datetime, float | None]],
-        heating_hours: Iterable[HeatingHourRecord],
+        on_minutes: Mapping[datetime, int],
         weather: Mapping[datetime, HourlyWeather],
     ) -> "HourlyEvidence":
         return cls(
             room_starts=_room_start_temperatures(room_readings),
-            on_minutes={row.hour_start: row.on_minutes for row in heating_hours},
+            on_minutes=on_minutes,
             weather=weather,
         )
 

@@ -19,6 +19,7 @@ from octopus_app.data.mysql.client import (
 # A Tuesday.
 NOW = datetime(2026, 11, 17, 14, 10, tzinfo=UTC)
 ONE_HOUR = timedelta(hours=1)
+HALF_HOUR = timedelta(minutes=30)
 LOCATION = "51.50,-0.10"
 REGION = "A"
 DAYS = (
@@ -218,14 +219,16 @@ def seed_gas_rate(client: MariaDBClient, unit_rate_p: float) -> None:
         )
 
 
-def seed_measured_hours(client: MariaDBClient, count: int, kw: float) -> None:
-    """`count` measured hours in the last month, each on for 30 minutes at `kw`."""
+def seed_measured_intervals(client: MariaDBClient, count: int, kw: float) -> None:
+    """`count` measured half-hours in the last month, each on for 30 minutes at
+    `kw`."""
     first = datetime(2026, 11, 10, 10)
     with client.session_write_scope() as session:
         session.add_all(
-            model.heating_hour(
-                hour_start=first + ONE_HOUR * index,
-                poll_count=30,
+            model.heating_interval(
+                starts_at=first + HALF_HOUR * index,
+                ends_at=first + HALF_HOUR * (index + 1),
+                poll_count=15,
                 on_minutes=30,
                 measured_kwh=kw / 2 + 0.3,
                 heating_kwh=kw / 2,

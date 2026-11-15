@@ -6,7 +6,7 @@ from logging import Logger, getLogger
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import thermal
+from octopus_app.data import heating_intervals, thermal
 from octopus_app.data.model import ThermalModelRecord
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.thermal import ThermalFit
@@ -43,7 +43,9 @@ class ThermalModelJob:
             return
         evidence = thermal.HourlyEvidence.from_readings(
             readings,
-            self._mariadb.read_heating_hours(first - thermal.ONE_HOUR, end),
+            heating_intervals.hourly_on_minutes(
+                self._mariadb.read_heating_intervals(first - thermal.ONE_HOUR, end)
+            ),
             weather,
         )
         fit = thermal.fit_thermal_model(thermal.hourly_steps(evidence, start, end))

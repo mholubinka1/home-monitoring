@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from math import isclose
 
 from common import local_day
-from octopus_app.data.heating_hours import POLL_MINUTES
+from octopus_app.data.heating_intervals import POLL_MINUTES
 
 BOOST_WINDOW_DAYS = 730  # only bounds the read: a boost is dropped at ~1.6% weight
 COUNTED_HOURS_WINDOW_DAYS = 365

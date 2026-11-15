@@ -49,15 +49,17 @@ def _seed_boosts_on_earlier_days(
 
 
 def _seed_heating_hour(client: MariaDBClient, hour_start: datetime) -> None:
-    """A stored hour in which the heating was on."""
+    """A stored half-hour, the second of the hour, in which the heating was on."""
+    starts_at = hour_start + timedelta(minutes=30)
     with client.session_write_scope() as session:
         session.add(
-            model.heating_hour(
-                hour_start=hour_start,
-                poll_count=30,
+            model.heating_interval(
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+                poll_count=15,
                 on_minutes=10,
                 source="estimated",
-                computed_at=hour_start,
+                computed_at=starts_at,
             )
         )
 

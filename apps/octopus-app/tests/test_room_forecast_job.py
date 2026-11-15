@@ -24,7 +24,7 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     seed_comfort,
     seed_gas_rate,
     seed_heating_forecast_inputs,
-    seed_measured_hours,
+    seed_measured_intervals,
     seed_plan_inputs,
     seed_reading,
     seed_schedule,
@@ -91,7 +91,7 @@ def test_heating_kwh_and_cost_follow_the_learned_boiler_kw_and_the_gas_rate(
 ) -> None:
     # Given the boiler has been measured at 6 kW and gas costs 6 p per kWh
     seed_heating_forecast_inputs(client)
-    seed_measured_hours(client, count=5, kw=6.0)
+    seed_measured_intervals(client, count=10, kw=6.0)
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
@@ -557,7 +557,7 @@ def test_plan_hours_carry_kwh_and_cost_like_the_current_rows(
     # Given the boiler measured at 6 kW and gas at 6 p per kWh
     seed_plan_inputs(client)
     seed_comfort(client, NOW.date(), 19.0)
-    seed_measured_hours(client, count=5, kw=6.0)
+    seed_measured_intervals(client, count=10, kw=6.0)
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs

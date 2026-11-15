@@ -21,6 +21,7 @@ from octopus_app.data.thermal_job import ThermalModelJob
 
 NOW = datetime(2026, 11, 20, 9, 30, tzinfo=UTC)
 ONE_HOUR = timedelta(hours=1)
+HALF_HOUR = timedelta(minutes=30)
 LOCATION = "51.50,-0.10"
 
 
@@ -149,10 +150,10 @@ def _history(
 
 @dataclass(frozen=True)
 class Gaps:
-    """Hour starts whose reading, heating hour or weather is left out of the seed."""
+    """Hour starts whose reading, heating or weather is left out of the seed."""
 
     reading: frozenset[datetime] = frozenset()
-    heating_hour: frozenset[datetime] = frozenset()
+    heating_interval: frozenset[datetime] = frozenset()
     weather: frozenset[datetime] = frozenset()
 
 
@@ -162,7 +163,7 @@ def _seed(
     gaps: Gaps = Gaps(),  # noqa: B008
 ) -> None:
     """Stores what hive-app and the heating-hour job would have: a thermostat
-    reading a minute into each hour, a heating hour for each completed hour, and
+    reading a minute into each hour, its two heating half-hours for each completed hour, and
     the hourly weather (the radiation stamped at the end of its hour)."""
     polls = [
         {
@@ -193,15 +194,20 @@ def _seed(
         if weather:
             session.execute(weather_observation_table.insert(), weather)
         session.add_all(
-            model.heating_hour(
-                hour_start=hour.start,
-                poll_count=30,
-                on_minutes=hour.on_minutes,
+            model.heating_interval(
+                starts_at=starts_at,
+                ends_at=starts_at + HALF_HOUR,
+                poll_count=15,
+                on_minutes=on_minutes,
                 source="estimated",
                 computed_at=hour.start,
             )
             for hour in hours[:-1]
-            if hour.start not in gaps.heating_hour
+            if hour.start not in gaps.heating_interval
+            for starts_at, on_minutes in (
+                (hour.start, min(hour.on_minutes, 30)),
+                (hour.start + HALF_HOUR, max(hour.on_minutes - 30, 0)),
+            )
         )
 
 
@@ -240,7 +246,7 @@ def test_hours_with_incomplete_readings_are_left_out_and_the_numbers_still_recov
     hours = _history(10, numbers)
     gaps = Gaps(
         reading=frozenset({hours[48].start, hours[100].start}),
-        heating_hour=frozenset({hours[60].start}),
+        heating_interval=frozenset({hours[60].start}),
         weather=frozenset({hours[120].start}),
     )
     _seed(mariadb_client, hours, gaps)

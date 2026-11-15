@@ -903,7 +903,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Gas cost of the heating in each completed hour, at that hour's gas unit rate (no standing charge). Heating is any hour the thermostat called for heat or a boost was on. 'Measured' hours use Octopus's half-hourly gas less a learned hot-water baseline; 'estimated' hours (the newest ~1.5 days, until the gas arrives) use the minutes on times the boiler's learned kW. An hour with too many missing Hive readings is left blank, not shown as zero.",
+      "description": "Gas cost of the heating in each completed half-hour, at that half-hour's gas unit rate (no standing charge). Heating is any half-hour the thermostat called for heat or a boost was on. 'Measured' half-hours use Octopus's half-hourly gas less a learned hot-water baseline; 'estimated' half-hours (the newest ~1.5 days, until the gas arrives) use the minutes on times the boiler's learned kW. A half-hour with too many missing Hive readings is left blank, not shown as zero.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1025,7 +1025,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, measured_cost_gbp, estimated_cost_gbp\nFROM (\n  SELECT\n    h.hour_start AS time,\n    IF(h.source = 'measured', ROUND(h.cost_gbp, 4), NULL) AS measured_cost_gbp,\n    IF(h.source = 'estimated', ROUND(h.cost_gbp, 4), NULL) AS estimated_cost_gbp\n  FROM heating_hour h\n  WHERE $__timeFilter(h.hour_start)\n    AND h.on_minutes > 0\n    AND h.cost_gbp IS NOT NULL\n) d\nORDER BY time;",
+          "rawSql": "SELECT time, measured_cost_gbp, estimated_cost_gbp\nFROM (\n  SELECT\n    h.starts_at AS time,\n    IF(h.source = 'measured', ROUND(h.cost_gbp, 4), NULL) AS measured_cost_gbp,\n    IF(h.source = 'estimated', ROUND(h.cost_gbp, 4), NULL) AS estimated_cost_gbp\n  FROM heating_interval h\n  WHERE $__timeFilter(h.starts_at)\n    AND h.on_minutes > 0\n    AND h.cost_gbp IS NOT NULL\n) d\nORDER BY time;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1046,7 +1046,7 @@
           }
         }
       ],
-      "title": "Heating Cost per Hour",
+      "title": "Heating Cost per Half-Hour",
       "type": "timeseries"
     },
     {
@@ -2265,7 +2265,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Daily gas cost of the heating over the last 30 completed London days (today is never shown), in pounds, heating only at the gas unit rate with no standing charge. 'Current Schedule (estimated)' and 'Comfort Schedule (estimated)' are the day-ahead forecast as the last run before each day began left it, for the Hive schedule as programmed and for the comfort plan. 'Actual' is the cost of the heating hours as they happened (hours whose gas has not arrived yet are estimated from the minutes the heating was on). A day is drawn only when every hour of it is present and priced, so a gap is missing data, never a zero. The estimated lines start with the first stored day-ahead forecast and fill in one day at a time; nothing before that is backfilled. The window is fixed whatever relative dashboard time range is chosen, but if the dashboard is zoomed or set to an absolute range Grafana ignores the panel's own range, and only the days inside that range show.",
+      "description": "Daily gas cost of the heating over the last 30 completed London days (today is never shown), in pounds, heating only at the gas unit rate with no standing charge. 'Current Schedule (estimated)' and 'Comfort Schedule (estimated)' are the day-ahead forecast as the last run before each day began left it, for the Hive schedule as programmed and for the comfort plan. 'Actual' is the cost of the heating half-hours as they happened (half-hours whose gas has not arrived yet are estimated from the minutes the heating was on). A day is drawn only when every minute of it is covered by a priced hour or half-hour, so a gap is missing data, never a zero. The estimated lines start with the first stored day-ahead forecast and fill in one day at a time; nothing before that is backfilled. The window is fixed whatever relative dashboard time range is chosen, but if the dashboard is zoomed or set to an absolute range Grafana ignores the panel's own range, and only the days inside that range show.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2438,7 +2438,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH bounds AS (\n  SELECT\n    CONVERT_TZ(CAST(DATE_SUB(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 30 DAY) AS DATETIME), '${timezone}', 'UTC') AS from_utc,\n    CONVERT_TZ(CAST(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) AS DATETIME), '${timezone}', 'UTC') AS to_utc\n),\nhours AS (\n  SELECT 'current' AS series, r.hour_start, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'current'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'plan' AS series, r.hour_start, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'plan'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'actual' AS series, h.hour_start, h.cost_gbp\n  FROM heating_hour h\n  CROSS JOIN bounds b\n  WHERE h.hour_start >= b.from_utc\n    AND h.hour_start < b.to_utc\n),\ndaily AS (\n  SELECT\n    series,\n    DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}')) AS day,\n    SUM(cost_gbp) AS cost\n  FROM hours\n  GROUP BY series, DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}'))\n  HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT\n  CONVERT_TZ(CAST(day AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n  MAX(CASE WHEN series = 'current' THEN ROUND(cost, 4) END) AS current_cost,\n  MAX(CASE WHEN series = 'plan' THEN ROUND(cost, 4) END) AS plan_cost,\n  MAX(CASE WHEN series = 'actual' THEN ROUND(cost, 4) END) AS actual_cost\nFROM daily\nGROUP BY day\nORDER BY day;",
+          "rawSql": "WITH bounds AS (\n  SELECT\n    CONVERT_TZ(CAST(DATE_SUB(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 30 DAY) AS DATETIME), '${timezone}', 'UTC') AS from_utc,\n    CONVERT_TZ(CAST(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) AS DATETIME), '${timezone}', 'UTC') AS to_utc\n),\nspans AS (\n  SELECT 'current' AS series, r.hour_start AS starts_at, r.hour_start + INTERVAL 1 HOUR AS ends_at, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'current'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'plan' AS series, r.hour_start AS starts_at, r.hour_start + INTERVAL 1 HOUR AS ends_at, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'plan'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'actual' AS series, h.starts_at, h.ends_at, h.cost_gbp\n  FROM heating_interval h\n  CROSS JOIN bounds b\n  WHERE h.starts_at >= b.from_utc\n    AND h.starts_at < b.to_utc\n),\ndaily AS (\n  SELECT\n    series,\n    DATE(CONVERT_TZ(starts_at, 'UTC', '${timezone}')) AS day,\n    SUM(cost_gbp) AS cost\n  FROM spans\n  GROUP BY series, DATE(CONVERT_TZ(starts_at, 'UTC', '${timezone}'))\n  HAVING SUM(IF(cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE, starts_at, ends_at))) = TIMESTAMPDIFF(\n    MINUTE,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT\n  CONVERT_TZ(CAST(day AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n  MAX(CASE WHEN series = 'current' THEN ROUND(cost, 4) END) AS current_cost,\n  MAX(CASE WHEN series = 'plan' THEN ROUND(cost, 4) END) AS plan_cost,\n  MAX(CASE WHEN series = 'actual' THEN ROUND(cost, 4) END) AS actual_cost\nFROM daily\nGROUP BY day\nORDER BY day;",
           "refId": "A",
           "sql": {
             "columns": [

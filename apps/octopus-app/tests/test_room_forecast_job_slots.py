@@ -15,7 +15,7 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     REGION,
     live_rows,
     seed_gas_rate,
-    seed_measured_hours,
+    seed_measured_intervals,
     seed_reading,
     seed_schedule,
     seed_weather_forecast,
@@ -65,7 +65,7 @@ def test_stored_kwh_and_cost_follow_the_minutes_of_each_hour(
 ) -> None:
     # Given those 20 and 25 minutes, a boiler measured at 6 kW and gas at 6 p/kWh
     seed_straddling_slot(client)
-    seed_measured_hours(client, count=5, kw=6.0)
+    seed_measured_intervals(client, count=10, kw=6.0)
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs

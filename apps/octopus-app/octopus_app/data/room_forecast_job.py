@@ -9,7 +9,7 @@ from logging import Logger, getLogger
 from common import local_day
 from octopus_app.common.config import ComfortWindows
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import heating_hours, room_forecast
+from octopus_app.data import heating_intervals, room_forecast
 from octopus_app.data.model import (
     HourlyWeather,
     RoomForecastRecord,
@@ -262,7 +262,7 @@ class RoomForecastJob:
         inputs: _Inputs,
     ) -> RoomForecastRecord:
         on_minutes = round(step.fraction * MINUTES_PER_HOUR)
-        kwh, cost = heating_hours.estimated_cost(
+        kwh, cost = heating_intervals.estimated_cost(
             on_minutes,
             self._mariadb.read_gas_unit_rate(self._region_code, hour),
             inputs.boiler_kw,
@@ -279,27 +279,30 @@ class RoomForecastJob:
         )
 
     def _boiler_kw(self, now: datetime) -> float:
-        """The boiler kW learned from the measured hours of the 28 days before now."""
+        """The boiler kW learned from the measured half-hours of the 28 days before
+        now."""
         end = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
-        earlier = self._mariadb.read_heating_hours(
-            end - timedelta(days=heating_hours.BASELINE_DAYS), end
+        earlier = self._mariadb.read_heating_intervals(
+            end - timedelta(days=heating_intervals.BASELINE_DAYS), end
         )
-        return heating_hours.learned_boiler_kw(
+        return heating_intervals.learned_boiler_kw(
             (row.on_minutes, row.heating_kwh or 0.0)
             for row in earlier
-            if row.source == heating_hours.MEASURED
+            if row.source == heating_intervals.MEASURED
         )
 
     def _previous_fraction(self, first: datetime) -> float:
         """The heating of the hour before the first, as a fraction; none stored
         counts as none."""
-        stored = self._mariadb.read_heating_hours(first - ONE_HOUR, first)
-        return stored[0].on_minutes / MINUTES_PER_HOUR if stored else 0.0
+        stored = heating_intervals.hourly_on_minutes(
+            self._mariadb.read_heating_intervals(first - ONE_HOUR, first)
+        )
+        return stored.get(first - ONE_HOUR, 0) / MINUTES_PER_HOUR
 
     def _seen_fraction(self, first: datetime, reading: datetime) -> float:
         """The heating already seen in the first hour, as a fraction: the minutes
         its polls before the reading were on, at most the minutes gone by."""
-        on = heating_hours.on_poll_minutes(
+        on = heating_intervals.on_poll_minutes(
             self._mariadb.read_heating_polls(first, reading)
         )
         return min(on, (reading - first) / timedelta(minutes=1)) / MINUTES_PER_HOUR

@@ -220,12 +220,14 @@ class heating_forecast_day(SQLBase):
     computed_at = Column(DateTime, nullable=False)
 
 
-class heating_hour(SQLBase):
-    __tablename__ = "heating_hour"
+class heating_interval(SQLBase):
+    __tablename__ = "heating_interval"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
-    # One row per completed UTC hour, recomputed each run.
-    hour_start = Column(DateTime, primary_key=True)
+    # One row per completed span, recomputed each run. Each row carries its own
+    # end, so a later change of grain needs no schema change.
+    starts_at = Column(DateTime, primary_key=True)
+    ends_at = Column(DateTime, nullable=False)
     poll_count = Column(Integer, nullable=False)
     on_minutes = Column(Integer, nullable=False)
     measured_kwh = Column(_DOUBLE)

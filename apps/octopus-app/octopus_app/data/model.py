@@ -167,10 +167,12 @@ class HourlyWeather:
 
 
 @dataclass(frozen=True)
-class HeatingHourRecord:  # pylint: disable=too-many-instance-attributes
-    """One completed hour of heating as stored (naive UTC stamps)."""
+class HeatingIntervalRecord:  # pylint: disable=too-many-instance-attributes
+    """One completed span of heating as stored (naive UTC stamps); today a
+    half-hour, but no reader may assume it."""
 
-    hour_start: datetime
+    starts_at: datetime
+    ends_at: datetime
     poll_count: int
     on_minutes: int
     measured_kwh: float | None

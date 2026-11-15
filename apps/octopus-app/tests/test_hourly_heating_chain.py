@@ -6,7 +6,7 @@ import pytest
 from schedule import Scheduler
 
 from octopus_app.data.comfort_job import ComfortDayJob
-from octopus_app.data.heating_hour_job import HeatingHourJob
+from octopus_app.data.heating_interval_job import HeatingIntervalJob
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast_job import RoomForecastJob
@@ -25,7 +25,7 @@ def test_heating_hour_job_is_registered_hourly(
 ) -> None:
     job = register_heating_hour_job(
         Scheduler(),
-        Mock(spec=HeatingHourJob),
+        Mock(spec=HeatingIntervalJob),
         Mock(spec=ComfortDayJob),
         Mock(spec=ThermalModelJob),
         Mock(spec=RoomForecastJob),
@@ -40,7 +40,7 @@ def test_the_comfort_days_the_thermal_model_then_the_room_forecast_follow_a_succ
     mariadb_client: MariaDBClient,
 ) -> None:
     steps = Mock()
-    heating_hour = Mock(spec=HeatingHourJob)
+    heating_hour = Mock(spec=HeatingIntervalJob)
     comfort_day = Mock(spec=ComfortDayJob)
     thermal_model = Mock(spec=ThermalModelJob)
     room_forecast = Mock(spec=RoomForecastJob)
@@ -74,7 +74,7 @@ def test_a_failing_heating_hour_run_retries_and_skips_the_jobs_that_read_it(
     mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("octopus_app.common.decorator.time.sleep", lambda seconds: None)
-    heating_hour = Mock(spec=HeatingHourJob)
+    heating_hour = Mock(spec=HeatingIntervalJob)
     heating_hour.refresh.side_effect = RuntimeError("db down")
     comfort_day = Mock(spec=ComfortDayJob)
     thermal_model = Mock(spec=ThermalModelJob)
@@ -111,7 +111,7 @@ def test_a_failing_comfort_day_refresh_does_not_stop_the_thermal_model_or_the_ro
 
     register_heating_hour_job(
         Scheduler(),
-        Mock(spec=HeatingHourJob),
+        Mock(spec=HeatingIntervalJob),
         comfort_day,
         thermal_model,
         room_forecast,

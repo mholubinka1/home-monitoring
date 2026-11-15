@@ -14,12 +14,12 @@ Store actual heating per half-hour, the gas meter's grain, in a new `heating_int
 
 ### Acceptance criteria
 
-- [ ] Given polls and half-hour meter readings, when the job runs, then one `heating_interval` row per half-hour is stored with its start, end, minutes on, kWh and cost.
-- [ ] Given a half-hour with fewer than 12 polls, when the job runs, then it has no row.
-- [ ] Given an empty `heating_interval` table and polls going back weeks, when the job first runs, then every half-hour since the first poll's local day is stored.
-- [ ] Given a rebuilt half-hour with no meter reading left, when it is stored, then its source is estimated.
-- [ ] Given the dashboard, when read, then the cost panel is titled Heating Cost per Half-Hour and reads `heating_interval`, and the Daily Cost panel judges each line complete by minutes covered.
-- [ ] Given heating in a half-hour, when the comfort day job runs, then that hour is a Counted Hour and the day a Heating Day.
+- [x] Given polls and half-hour meter readings, when the job runs, then one `heating_interval` row per half-hour is stored with its start, end, minutes on, kWh and cost.
+- [x] Given a half-hour with fewer than 12 polls, when the job runs, then it has no row.
+- [x] Given an empty `heating_interval` table and polls going back weeks, when the job first runs, then every half-hour since the first poll's local day is stored.
+- [x] Given a rebuilt half-hour with no meter reading left, when it is stored, then its source is estimated.
+- [x] Given the dashboard, when read, then the cost panel is titled Heating Cost per Half-Hour and reads `heating_interval`, and the Daily Cost panel judges each line complete by minutes covered.
+- [x] Given heating in a half-hour, when the comfort day job runs, then that hour is a Counted Hour and the day a Heating Day.
 
 ---
 

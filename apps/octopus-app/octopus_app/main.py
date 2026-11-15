@@ -24,7 +24,7 @@ from octopus_app.data.consumption_summary import (
     ConsumptionSummaryRetriever,
 )
 from octopus_app.data.cost_forecast import CostForecastRetriever
-from octopus_app.data.heating_hour_job import HeatingHourJob
+from octopus_app.data.heating_interval_job import HeatingIntervalJob
 from octopus_app.data.heating_job import HeatingModelJob
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.pricing import PricingRetriever
@@ -344,7 +344,7 @@ def register_agile_forecast_refresh_job(
 
 def register_heating_hour_job(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     scheduler: Scheduler,
-    heating_hour: HeatingHourJob,
+    heating_hour: HeatingIntervalJob,
     comfort_day: ComfortDayJob,
     thermal_model: ThermalModelJob,
     room_forecast: RoomForecastJob,
@@ -465,7 +465,7 @@ def main() -> None:
     register_cost_forecast_refresh_job(default_scheduler, cost_forecast, client.mariadb)
     register_heating_hour_job(
         default_scheduler,
-        HeatingHourJob(client.mariadb, client.region_code),
+        HeatingIntervalJob(client.mariadb, client.region_code),
         ComfortDayJob(client.mariadb),
         ThermalModelJob(client.mariadb),
         RoomForecastJob(client.mariadb, client.region_code, settings.comfort_windows),
