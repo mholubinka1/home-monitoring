@@ -3,7 +3,8 @@ tomorrow in 2-minute steps and stores the forecast every 10 minutes (ADR-0035,
 ADR-0036)."""
 
 import logging.config
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -40,6 +41,19 @@ STORED_MINUTES = 10  # one row per this many minutes
 STORED_SPAN = timedelta(minutes=STORED_MINUTES)
 
 
+class _UnitRates:
+    """The gas unit rate by hour start, each hour read once for a whole run."""
+
+    def __init__(self, read: Callable[[datetime], float | None]) -> None:
+        self._read = read
+        self._rates: dict[datetime, float | None] = {}
+
+    def at(self, hour: datetime) -> float | None:
+        if hour not in self._rates:
+            self._rates[hour] = self._read(hour)
+        return self._rates[hour]
+
+
 @dataclass(frozen=True)
 class _Inputs:  # pylint: disable=too-many-instance-attributes
     """What both forecasts start from."""
@@ -51,8 +65,7 @@ class _Inputs:  # pylint: disable=too-many-instance-attributes
     boiler_kw: float
     now: datetime
     tomorrow: tuple[datetime, datetime]  # [start, end) of its local day, naive UTC
-    # Gas unit rates by hour start, read once per distinct hour of a run.
-    unit_rates: dict[datetime, float | None] = field(default_factory=dict)
+    unit_rates: _UnitRates  # shared by both forecasts of the run
 
 
 class RoomForecastJob:
@@ -109,6 +122,9 @@ class RoomForecastJob:
             self._boiler_kw(now),
             now,
             (_naive_utc_start_of(local_day.to_local_date(now) + ONE_DAY), end),
+            _UnitRates(
+                lambda hour: self._mariadb.read_gas_unit_rate(self._region_code, hour)
+            ),
         )
         self._store_current(inputs, status[2] == OFF_MODE)
         self._store_plan(inputs, local_day.to_local_date(now))
@@ -273,7 +289,9 @@ class RoomForecastJob:
         for starts_at, steps in by_start.items():
             on_minutes = round(sum(step.demand_minutes for step in steps), 1)
             kwh, cost = heating_intervals.estimated_cost(
-                on_minutes, self._unit_rate(inputs, starts_at), inputs.boiler_kw
+                on_minutes,
+                inputs.unit_rates.at(starts_at.replace(minute=0)),
+                inputs.boiler_kw,
             )
             rows.append(
                 RoomForecastIntervalRecord(
@@ -289,16 +307,6 @@ class RoomForecastJob:
                 )
             )
         return rows
-
-    def _unit_rate(self, inputs: _Inputs, starts_at: datetime) -> float | None:
-        """The gas unit rate in force at the hour of `starts_at`, read once per
-        hour of the run."""
-        hour = starts_at.replace(minute=0)
-        if hour not in inputs.unit_rates:
-            inputs.unit_rates[hour] = self._mariadb.read_gas_unit_rate(
-                self._region_code, hour
-            )
-        return inputs.unit_rates[hour]
 
     def _boiler_kw(self, now: datetime) -> float:
         """The boiler kW learned from the measured half-hours of the 28 days before

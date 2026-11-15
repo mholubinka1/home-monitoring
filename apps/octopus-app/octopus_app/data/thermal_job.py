@@ -8,7 +8,7 @@ from logging import Logger, getLogger
 
 from common import local_day
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import thermal
+from octopus_app.data import heating_intervals, thermal
 from octopus_app.data.model import ThermalModelRecord
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.thermal import ThermalFit
@@ -17,7 +17,10 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # The newest room reading a step's end can use comes this long after the end.
-READING_MARGIN = thermal.READING_TOLERANCE + timedelta(minutes=2)
+# (the tolerance, and one more poll so the poll just inside it is read).
+READING_MARGIN = thermal.READING_TOLERANCE + timedelta(
+    minutes=heating_intervals.POLL_MINUTES
+)
 LEARNED = "learned"
 CARRIED = "carried"
 NO_DELAY = "none"

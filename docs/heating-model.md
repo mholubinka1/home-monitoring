@@ -138,7 +138,7 @@ Example: at 06:00 the room is at 16.0 °C and it is 6 °C outside, before sunris
 
 Example (made up): the thermostat calls for heat at 05:40 and the room only starts to warm at 05:54, a delay of 14 minutes. Fitted with a 14-minute delay, the model explains the readings better than with any other.
 
-The first refit after this change is the assessment of how long the household's radiators take, nobody has measured it before. The figure, whether it was learned, and the number of heating starts are on the Heating Plan and Room Model panel.
+The first refit after this change is the assessment of how long the household's radiators take, nobody has measured it before. The figure and whether it was learned are on the Heating Plan and Room Model panel, and the number of heating starts is stored with each fit.
 
 **How it is checked.** A model that fits the past is not proof that it predicts. So each time it is relearned it is given a test it has not seen the answers to, called a [backtest](https://en.wikipedia.org/wiki/Backtesting):
 
