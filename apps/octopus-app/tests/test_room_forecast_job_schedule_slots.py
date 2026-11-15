@@ -4,8 +4,9 @@ schedule table (feature-schedule-table-panel).
 London is on GMT in November, so local time is UTC. The schedule is made up: 7 C
 all week, except Tuesday's slot at 19 C from 05:40 to 06:25."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
+from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.model import RoomForecastSlotRecord
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast_job import RoomForecastJob
@@ -253,3 +254,31 @@ def test_no_comfort_temperature_removes_the_earlier_plan_slots(
 
     # Then no plan slots remain
     assert not slot_rows(client, "plan")
+
+
+def test_each_plan_slot_is_stored_under_the_day_its_window_opens(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday's window runs 06:00 to 03:00 (Saturday) and Saturday's 01:00 to
+    # 22:00, so both close on Saturday
+    now = datetime(2026, 11, 20, 14, 10, tzinfo=UTC)
+    windows = ComfortWindows(
+        weekday=ComfortWindow(start=time(6, 0), end=time(3, 0)),
+        weekend=ComfortWindow(start=time(1, 0), end=time(22, 0)),
+    )
+    seed_reading(client, now - timedelta(minutes=5), room=14.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 20, 14), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, now.date(), 19.0)
+
+    # When the job runs
+    RoomForecastJob(client, REGION, comfort_windows=windows).refresh(now)
+
+    # Then there is one plan slot per opening day, Friday's ending Saturday 03:00
+    rows = slot_rows(client, "plan")
+    assert [(row.day.day, row.position, row.ends_at) for row in rows] == [
+        (20, 0, datetime(2026, 11, 21, 3, 0)),
+        (21, 0, datetime(2026, 11, 21, 22, 0)),
+    ]

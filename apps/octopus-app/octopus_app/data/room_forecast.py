@@ -403,16 +403,22 @@ def plan_slots(
     hours: list[ForecastHour],
     target: float,
     windows: ComfortWindows,
-) -> list[Slot]:
+) -> list[tuple[date, Slot]]:
     """The comfort plan's held span (pre-heat start to window close) of each window
-    overlapping the forecast's first day or the next, at the target rounded up to a
-    half degree (naive local times)."""
+    overlapping the forecast's first day or the next, at the target as given, each
+    with the local date its window opens on (naive local times)."""
     if not hours:
         return []
     held, _ = _held_spans(numbers, start, hours, target, windows)
     first = datetime.combine(hours[0].start.date(), datetime.min.time())
+    opening_days = {
+        comfort_window(windows, day)[1]: day
+        for day in dict.fromkeys(
+            [first.date() - ONE_DAY, *(hour.start.date() for hour in hours)]
+        )
+    }
     return [
-        Slot(opens, closes, round_up_to_half(target))
+        (opening_days[closes], Slot(opens, closes, target))
         for opens, closes in held
         if first < closes and opens < first + 2 * ONE_DAY
     ]

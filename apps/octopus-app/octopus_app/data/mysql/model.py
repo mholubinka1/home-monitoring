@@ -271,7 +271,8 @@ class room_forecast_slot(SQLBase):
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     # One row per schedule slot of a local day, for the dashboard's schedule
-    # table (feature-schedule-table-panel). scenario is 'current'.
+    # table (feature-schedule-table-panel). scenario is 'current' (the Hive
+    # schedule) or 'plan' (the comfort plan).
     day = Column(Date, primary_key=True)
     scenario = Column(String(20), primary_key=True)
     position = Column(Integer, primary_key=True)

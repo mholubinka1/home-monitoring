@@ -141,6 +141,7 @@ class RoomForecastJob:
         self, schedule: room_forecast.Schedule, today: date, now: datetime
     ) -> None:
         """Today's and tomorrow's current slots, whatever the thermostat's mode."""
+        naive_now = now.replace(tzinfo=None)
         rows = [
             RoomForecastSlotRecord(
                 day,
@@ -149,7 +150,7 @@ class RoomForecastJob:
                 _utc_of(slot.start),
                 _utc_of(slot.end),
                 slot.target,
-                now.replace(tzinfo=None),
+                naive_now,
             )
             for day in (today, today + ONE_DAY)
             for position, slot in enumerate(room_forecast.schedule_slots(schedule, day))
@@ -179,15 +180,15 @@ class RoomForecastJob:
 
     def _store_plan_slots(self, inputs: _Inputs, target: float) -> None:
         """The plan's slot of each local day, its start kept once it has passed."""
+        naive_now = inputs.now.replace(tzinfo=None)
         rows = []
-        for slot in room_forecast.plan_slots(
+        # Each slot belongs to the day its window opened on.
+        for day, slot in room_forecast.plan_slots(
             inputs.numbers, inputs.start, inputs.weather, target, self._windows
         ):
-            # A window closing at midnight belongs to the day it opened on.
-            day = (slot.end - timedelta(microseconds=1)).date()
             starts_at = _utc_of(slot.start)
             for stored in self._mariadb.read_room_forecast_slots(PLAN, day):
-                if stored.starts_at <= inputs.now.replace(tzinfo=None):
+                if stored.starts_at <= naive_now:
                     starts_at = stored.starts_at
             rows.append(
                 RoomForecastSlotRecord(
@@ -197,7 +198,7 @@ class RoomForecastJob:
                     starts_at,
                     _utc_of(slot.end),
                     slot.target,
-                    inputs.now.replace(tzinfo=None),
+                    naive_now,
                 )
             )
         self._mariadb.replace_room_forecast_slots(PLAN, rows)
