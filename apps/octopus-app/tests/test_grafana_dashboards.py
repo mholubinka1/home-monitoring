@@ -817,3 +817,4 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     assert "r.scenario = 'plan'" in sql
     assert "INTERVAL 1 DAY" in sql
     assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
+    assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2

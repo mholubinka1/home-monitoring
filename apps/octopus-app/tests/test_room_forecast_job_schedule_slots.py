@@ -222,6 +222,20 @@ def test_a_plan_start_that_has_passed_is_kept_while_the_end_and_target_update(
     ]
 
 
+def test_a_plan_start_that_is_exactly_now_is_kept(client: MariaDBClient) -> None:
+    # Given today's stored plan slot starts at the minute the job runs
+    seed_plan_inputs(client, room=14.0)
+    seed_comfort(client, NOW_PLAN.date(), 19.3)
+    store_plan_slot(client, 17, NOW_PLAN.replace(tzinfo=None), 18.0)
+
+    # When the job runs at that minute
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+
+    # Then the start is still that minute
+    today = [row for row in slot_rows(client, "plan") if row.day.day == 17]
+    assert [row.starts_at for row in today] == [NOW_PLAN.replace(tzinfo=None)]
+
+
 def test_a_plan_start_still_ahead_is_replaced_by_the_new_one(
     client: MariaDBClient,
 ) -> None:

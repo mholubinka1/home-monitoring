@@ -187,7 +187,8 @@ class RoomForecastJob:
             inputs.numbers, inputs.start, inputs.weather, target, self._windows
         ):
             starts_at = _utc_of(slot.start)
-            for stored in self._mariadb.read_room_forecast_slots(PLAN, day):
+            # One plan slot a day, so at most one is stored.
+            for stored in self._mariadb.read_room_forecast_slots(PLAN, day)[:1]:
                 if stored.starts_at <= naive_now:
                     starts_at = stored.starts_at
             rows.append(
