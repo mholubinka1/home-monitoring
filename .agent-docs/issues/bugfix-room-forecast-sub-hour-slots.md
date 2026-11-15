@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: bugfix/room-forecast-sub-hour-slots
 
 ## Current schedule follows slots to the minute
