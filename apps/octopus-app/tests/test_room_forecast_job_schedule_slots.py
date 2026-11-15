@@ -6,13 +6,17 @@ all week, except Tuesday's slot at 19 C from 05:40 to 06:25."""
 
 from datetime import UTC, datetime, timedelta
 
+from octopus_app.data.model import RoomForecastSlotRecord
 from octopus_app.data.mysql.client import MariaDBClient
 from octopus_app.data.room_forecast_job import RoomForecastJob
 
+from . import room_forecast_fixtures
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
     REGION,
     SLOT_END,
     SLOT_START,
+    seed_comfort,
+    seed_plan_inputs,
     seed_reading,
     seed_schedule,
     seed_weather_forecast,
@@ -24,6 +28,8 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
 
 # A Tuesday, ten minutes into the 05:00 hour.
 NOW = datetime(2026, 11, 17, 5, 10, tzinfo=UTC)
+# The fixtures' own time: Tuesday afternoon.
+NOW_PLAN = room_forecast_fixtures.NOW
 
 
 def seed_inputs(client: MariaDBClient, schedule: dict) -> None:
@@ -154,3 +160,96 @@ def test_the_stored_times_are_the_correct_instants_on_a_clock_change_day(
         (datetime(2026, 3, 29, 4, 40), datetime(2026, 3, 29, 5, 25)),
         (datetime(2026, 3, 29, 5, 25), datetime(2026, 3, 29, 23, 0)),
     ]
+
+
+def test_the_plan_slot_runs_from_its_pre_heat_start_to_midnight_at_a_rounded_target(
+    client: MariaDBClient,
+) -> None:
+    # Given a comfort temperature of 19.3 C, a cold room and the default window
+    # (06:30 to midnight on weekdays)
+    seed_plan_inputs(client, room=14.0)
+    seed_comfort(client, NOW_PLAN.date(), 19.3)
+
+    # When the job runs
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+
+    # Then tomorrow's plan slot starts before 06:30 (the pre-heat), ends at
+    # midnight and holds 19.5 C, the comfort temperature rounded up to a half
+    tomorrow = [row for row in slot_rows(client, "plan") if row.day.day == 18]
+    assert len(tomorrow) == 1
+    slot = tomorrow[0]
+    assert slot.starts_at < datetime(2026, 11, 18, 6, 30)
+    assert slot.starts_at > datetime(2026, 11, 18, 0, 0)
+    assert slot.ends_at == datetime(2026, 11, 19, 0, 0)
+    assert slot.target == 19.5
+
+
+def store_plan_slot(
+    client: MariaDBClient, day: int, starts_at: datetime, target: float
+) -> None:
+    client.replace_room_forecast_slots(
+        "plan",
+        [
+            RoomForecastSlotRecord(
+                datetime(2026, 11, day).date(),
+                "plan",
+                0,
+                starts_at,
+                datetime(2026, 11, day, 22, 0),
+                target,
+                NOW_PLAN.replace(tzinfo=None),
+            )
+        ],
+    )
+
+
+def test_a_plan_start_that_has_passed_is_kept_while_the_end_and_target_update(
+    client: MariaDBClient,
+) -> None:
+    # Given today's stored plan slot started at 05:50, before now (14:10)
+    seed_plan_inputs(client, room=14.0)
+    seed_comfort(client, NOW_PLAN.date(), 19.3)
+    store_plan_slot(client, 17, datetime(2026, 11, 17, 5, 50), 18.0)
+
+    # When a later run recomputes
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+
+    # Then the start stays and the end and target are the new ones
+    today = [row for row in slot_rows(client, "plan") if row.day.day == 17]
+    assert [(row.starts_at, row.ends_at, row.target) for row in today] == [
+        (datetime(2026, 11, 17, 5, 50), datetime(2026, 11, 18, 0, 0), 19.5)
+    ]
+
+
+def test_a_plan_start_still_ahead_is_replaced_by_the_new_one(
+    client: MariaDBClient,
+) -> None:
+    # Given tomorrow's stored plan slot starts at 05:00, after now
+    seed_plan_inputs(client, room=14.0)
+    seed_comfort(client, NOW_PLAN.date(), 19.3)
+    store_plan_slot(client, 18, datetime(2026, 11, 18, 5, 0), 19.5)
+
+    # When a later run recomputes
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+
+    # Then the start is the newly calculated one
+    tomorrow = [row for row in slot_rows(client, "plan") if row.day.day == 18]
+    assert len(tomorrow) == 1
+    assert tomorrow[0].starts_at != datetime(2026, 11, 18, 5, 0)
+
+
+def test_no_comfort_temperature_removes_the_earlier_plan_slots(
+    client: MariaDBClient,
+) -> None:
+    # Given plan slots stored by an earlier run
+    seed_plan_inputs(client, room=14.0)
+    seed_comfort(client, NOW_PLAN.date(), 19.3)
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    assert slot_rows(client, "plan")
+
+    # When the comfort temperature is gone and the job runs
+    seed_comfort(client, NOW_PLAN.date(), None)
+    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+
+    # Then no plan slots remain
+    assert not slot_rows(client, "plan")

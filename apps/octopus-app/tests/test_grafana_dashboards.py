@@ -55,6 +55,10 @@ def test_the_schedule_table_reads_the_slots_of_the_local_day() -> None:
     (target,) = table["targets"]
     assert target["dataset"] == "home_monitoring"
     assert "FROM room_forecast_slot" in target["rawSql"]
+    assert "scenario = 'current'" in target["rawSql"]
+    assert "scenario = 'plan'" in target["rawSql"]
+    assert "AS `Current schedule`" in target["rawSql"]
+    assert "AS `Comfort plan`" in target["rawSql"]
     assert "CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')" in target["rawSql"]
 
 

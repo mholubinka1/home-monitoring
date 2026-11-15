@@ -38,10 +38,10 @@ Expose the comfort plan's held span (pre-heat start to window close) from the pl
 
 ### Acceptance criteria
 
-- [ ] Given a comfort temperature and a window closing at midnight, when the job runs, then the plan slot runs from the pre-heat start to 00:00 at the temperature rounded up to a half degree.
-- [ ] Given a stored plan start already passed, when a later run recomputes, then the start is kept and the end and target update.
-- [ ] Given a stored plan start still ahead, when a later run recomputes, then the new start replaces it.
-- [ ] Given no comfort temperature, when the job runs, then no plan slots are stored and earlier ones are removed.
+- [x] Given a comfort temperature and a window closing at midnight, when the job runs, then the plan slot runs from the pre-heat start to 00:00 at the temperature rounded up to a half degree.
+- [x] Given a stored plan start already passed, when a later run recomputes, then the start is kept and the end and target update.
+- [x] Given a stored plan start still ahead, when a later run recomputes, then the new start replaces it.
+- [x] Given no comfort temperature, when the job runs, then no plan slots are stored and earlier ones are removed.
 
 ---
 

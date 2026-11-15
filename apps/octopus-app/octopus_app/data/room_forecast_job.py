@@ -165,7 +165,9 @@ class RoomForecastJob:
         if comfort is None:
             logger.info("Room forecast: no comfort temperature, no plan stored.")
             self._mariadb.replace_room_forecast(LIVE, PLAN, [])
+            self._mariadb.replace_room_forecast_slots(PLAN, [])
             return
+        self._store_plan_slots(inputs, room_forecast.round_up_to_half(comfort))
         planned = room_forecast.comfort_plan(
             inputs.numbers,
             inputs.start,
@@ -174,6 +176,31 @@ class RoomForecastJob:
             self._windows,
         )
         self._store(PLAN, inputs, planned)
+
+    def _store_plan_slots(self, inputs: _Inputs, target: float) -> None:
+        """The plan's slot of each local day, its start kept once it has passed."""
+        rows = []
+        for slot in room_forecast.plan_slots(
+            inputs.numbers, inputs.start, inputs.weather, target, self._windows
+        ):
+            # A window closing at midnight belongs to the day it opened on.
+            day = (slot.end - timedelta(microseconds=1)).date()
+            starts_at = _utc_of(slot.start)
+            for stored in self._mariadb.read_room_forecast_slots(PLAN, day):
+                if stored.starts_at <= inputs.now.replace(tzinfo=None):
+                    starts_at = stored.starts_at
+            rows.append(
+                RoomForecastSlotRecord(
+                    day,
+                    PLAN,
+                    0,
+                    starts_at,
+                    _utc_of(slot.end),
+                    slot.target,
+                    inputs.now.replace(tzinfo=None),
+                )
+            )
+        self._mariadb.replace_room_forecast_slots(PLAN, rows)
 
     def _store(
         self,
