@@ -2259,6 +2259,209 @@
       ],
       "title": "Schedule Today",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "Daily gas cost of the heating over the last 30 completed London days (today is never shown), in pounds, heating only at the gas unit rate with no standing charge. 'Current Schedule (estimated)' and 'Comfort Schedule (estimated)' are the day-ahead forecast frozen when each day began, for the Hive schedule as programmed and for the comfort plan. 'Actual' is the cost of the heating hours as they happened. A day is drawn only when every hour of it is present and priced, so a gap is missing data, never a zero. The estimated lines start with the first stored day-ahead forecast and fill in one day at a time; nothing before that is backfilled. The panel ignores the dashboard time range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 1,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyGBP"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "current_cost"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "displayName",
+                "value": "Current Schedule (estimated)"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "plan_cost"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "teal",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "displayName",
+                "value": "Comfort Schedule (estimated)"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "actual_cost"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "displayName",
+                "value": "Actual"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH bounds AS (\n  SELECT\n    CONVERT_TZ(CAST(DATE_SUB(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 30 DAY) AS DATETIME), '${timezone}', 'UTC') AS from_utc,\n    CONVERT_TZ(CAST(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) AS DATETIME), '${timezone}', 'UTC') AS to_utc\n),\nhours AS (\n  SELECT 'current' AS series, r.hour_start, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'current'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'plan' AS series, r.hour_start, r.cost_gbp\n  FROM room_forecast_hour r\n  CROSS JOIN bounds b\n  WHERE r.kind = 'day_ahead'\n    AND r.scenario = 'plan'\n    AND r.hour_start >= b.from_utc\n    AND r.hour_start < b.to_utc\n\n  UNION ALL\n\n  SELECT 'actual' AS series, h.hour_start, h.cost_gbp\n  FROM heating_hour h\n  CROSS JOIN bounds b\n  WHERE h.hour_start >= b.from_utc\n    AND h.hour_start < b.to_utc\n),\ndaily AS (\n  SELECT\n    series,\n    DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}')) AS day,\n    SUM(cost_gbp) AS cost\n  FROM hours\n  GROUP BY series, DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}'))\n  HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(\n    HOUR,\n    CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),\n    CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')\n  )\n)\nSELECT\n  CONVERT_TZ(CAST(day AS DATETIME) + INTERVAL 12 HOUR, '${timezone}', 'UTC') AS time,\n  MAX(CASE WHEN series = 'current' THEN ROUND(cost, 4) END) AS current_cost,\n  MAX(CASE WHEN series = 'plan' THEN ROUND(cost, 4) END) AS plan_cost,\n  MAX(CASE WHEN series = 'actual' THEN ROUND(cost, 4) END) AS actual_cost\nFROM daily\nGROUP BY day\nORDER BY day;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "timeFrom": "31d",
+      "title": "Daily Cost: Schedules vs Actual",
+      "type": "timeseries"
     }
   ],
   "refresh": "5m",

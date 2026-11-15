@@ -65,7 +65,7 @@ _Avoid_: customer, user
 ### Data Storage
 
 **`home_monitoring` database** (formerly `octopus`):
-The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. The heating forecast uses `weather_forecast_hour` and `heating_schedule` (hive-app) and `thermal_model`, `room_forecast_hour` and `room_forecast_slot` (octopus-app). It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
+The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`; the heating forecast reads `weather_forecast_hour`, `heating_schedule`, `thermal_model`, `room_forecast_hour` and `room_forecast_slot` from it. It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
 _Avoid_: octopus database (the old name), the database, mysql db
 
 **schema** (as in `schema_translate_map`, `__table_args__ = {"schema": ...}`):
@@ -200,7 +200,7 @@ The extension of `cost_forecast` to gas, distinguished by an `energy` column ([A
 _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 
 **Gas Heating Dashboard**:
-The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it had six chart panels; it has since gained the heating plan and room model chart and a table of today's schedule slots (the one table).
+The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it had six chart panels; it has since gained the heating plan and room model chart, a table of today's schedule slots (the one table) and a 30-day chart of daily cost under the current schedule, the Comfort Plan and what actually happened.
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
 **Heating Hour**:
@@ -266,7 +266,7 @@ The Daily Outdoor Temperature Band's indoor line: the mean `current_temp` of Hea
 _Avoid_: average indoor temperature (ambiguous with the all-day mean)
 
 **Hive Data Lost Notification**:
-The ntfy.sh message hive-app sends when the newest `heating_status` row is more than 30 minutes old, checked every minute. It repeats hourly while data is missing, followed by a recovered notice; nothing is sent during quiet hours. Recovery from a genuine re-authentication failure is operator-run via `python -m hive_app.login` ([ADR-0031](adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md)).
+The ntfy.sh message hive-app sends when the newest `heating_status` row is more than 30 minutes old, checked every minute, repeating hourly while data is missing and followed by a recovered notice; nothing is sent during quiet hours. Recovery from a genuine re-authentication failure is operator-run via `python -m hive_app.login` ([ADR-0031](adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md)).
 _Avoid_: re-auth alert (removed), alert (too general)
 
 **Weather Observation**:
@@ -280,7 +280,7 @@ Upcoming days' predicted max temperature and (nullable) min and mean temperature
 hive-app's stored Open-Meteo forecast of temperature and sunshine for each of the coming hours, beside the daily Weather Forecast.
 
 **Weather Location**:
-The coordinates hive-app's weather jobs poll. Explicit `location` config always wins; otherwise it is derived from the Account Postcode (geocoded via postcodes.io), falling back to IP geolocation, and cached in `weather_location` ([ADR-0028](adr/0028-weather-location-derived-lazily-from-account-postcode.md)). Every reading is stored under a location key (coordinates rounded to two decimals, never the postcode), so a changed location starts a new series.
+The coordinates hive-app's weather jobs poll: explicit `location` config always wins, otherwise they are derived from the Account Postcode (geocoded via postcodes.io), falling back to IP geolocation, and cached in `weather_location` ([ADR-0028](adr/0028-weather-location-derived-lazily-from-account-postcode.md)). Every reading is stored under a location key (coordinates rounded to two decimals, never the postcode), so a changed location starts a new series.
 _Avoid_: household location (implies a user-entered setting)
 
 **Account Postcode**:

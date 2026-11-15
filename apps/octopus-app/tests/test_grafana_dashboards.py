@@ -823,3 +823,88 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     assert sql.count("HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR") == 2
     # the cost row lists its columns as the slot rows do: sort key first
     assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql
+
+
+COST_COMPARISON = "Daily Cost: Schedules vs Actual"
+
+
+def _cost_comparison_sql() -> str:
+    return " ".join(t["rawSql"] for t in _panel(COST_COMPARISON)["targets"])
+
+
+def test_the_cost_comparison_panel_sits_full_width_below_the_schedule_table() -> None:
+    panel = _panel(COST_COMPARISON)
+    table = _panel("Schedule Today")
+
+    assert panel["type"] == "timeseries"
+    assert panel["gridPos"]["w"] == GRID_COLUMNS
+    assert panel["gridPos"]["x"] == 0
+    assert panel["gridPos"]["y"] == table["gridPos"]["y"] + table["gridPos"]["h"]
+    ids = [p["id"] for p in _gas_panels()]
+    assert len(set(ids)) == len(ids)
+
+
+def test_the_cost_comparison_panel_draws_two_dashed_estimates_and_a_solid_actual() -> (
+    None
+):
+    sql = _cost_comparison_sql()
+    overrides = _panel_overrides(COST_COMPARISON)
+    defaults = _panel(COST_COMPARISON)["fieldConfig"]["defaults"]
+
+    for series, name in (
+        ("current_cost", "Current Schedule (estimated)"),
+        ("plan_cost", "Comfort Schedule (estimated)"),
+        ("actual_cost", "Actual"),
+    ):
+        assert overrides[series]["displayName"] == name, series
+        assert overrides[series]["unit"] == "currencyGBP", series
+        assert f"AS {series}" in sql, series
+    for estimate in ("current_cost", "plan_cost"):
+        assert overrides[estimate]["custom.lineStyle"]["fill"] == "dash", estimate
+    assert "custom.lineStyle" not in overrides["actual_cost"]
+    assert defaults["custom"]["drawStyle"] == "line"
+    assert defaults["custom"]["spanNulls"] is False
+    colours = {s: overrides[s]["color"]["fixedColor"] for s in overrides}
+    assert len(set(colours.values())) == 3
+
+
+def test_the_cost_comparison_estimates_are_the_frozen_day_ahead_forecast() -> None:
+    sql = _cost_comparison_sql()
+
+    assert "FROM room_forecast_hour" in sql
+    assert "kind = 'day_ahead'" in sql
+    assert "'live'" not in sql
+    assert "scenario = 'current'" in sql
+    assert "scenario = 'plan'" in sql
+    assert "FROM heating_hour" in sql
+    assert "source" not in sql  # measured and estimated hours both count
+
+
+def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None:
+    sql = _cost_comparison_sql()
+
+    assert _panel(COST_COMPARISON)["timeFrom"] == "31d"
+    assert "$__timeFilter" not in sql
+    assert "INTERVAL 30 DAY" in sql
+    assert "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))" in sql
+    # every hour is taken from the window start up to, not including, today
+    assert sql.count(".hour_start >= b.from_utc") == 3
+    assert sql.count(".hour_start < b.to_utc") == 3
+    assert "INTERVAL 12 HOUR" in sql  # a day's point is at London noon
+
+
+def test_the_cost_comparison_keeps_a_day_only_when_every_hour_is_priced() -> None:
+    sql = _cost_comparison_sql()
+
+    assert "GROUP BY series," in sql
+    assert "HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(" in sql
+    assert "HOUR," in sql
+    assert "CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME)" in sql
+
+
+def test_the_cost_comparison_reads_only_the_small_forecast_and_heating_tables() -> None:
+    sql = _cost_comparison_sql()
+
+    ctes = set(re.findall(r"\b(\w+) AS \(", sql))
+    tables = set(re.findall(r"\b(?:FROM|JOIN) (\w+)", sql)) - ctes
+    assert tables == {"room_forecast_hour", "heating_hour"}
