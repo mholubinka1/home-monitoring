@@ -65,7 +65,7 @@ _Avoid_: customer, user
 ### Data Storage
 
 **`home_monitoring` database** (formerly `octopus`):
-The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. The heating forecast uses `weather_forecast_hour` and `heating_schedule` (hive-app) and `thermal_model`, `room_forecast_hour` and `room_forecast_slot` (octopus-app). It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
+The single shared MariaDB database for `octopus-app` and `hive-app`, holding both apps' tables plus the cross-app `job_run` and `account_postcode` tables owned by `common`. The heating forecast uses `weather_forecast_hour` and `heating_schedule` (hive-app) and `thermal_model`, `room_forecast_interval` and `room_forecast_slot` (octopus-app). It was renamed from `octopus` on 2026-10-01 ([ADR-0022](adr/0022-single-shared-home-monitoring-database.md)); models keep the literal `schema="octopus"`, which [ADR-0025](adr/0025-schema-translate-map-for-config-driven-mariadb-schema.md) translates to the configured database name at query time.
 _Avoid_: octopus database (the old name), the database, mysql db
 
 **schema** (as in `schema_translate_map`, `__table_args__ = {"schema": ...}`):
@@ -203,15 +203,15 @@ _Avoid_: heating cost model, gas forecast (ambiguous with Weather Forecast)
 The second Grafana dashboard (`data/grafana/gas-heating-dashboard.json`, queries in `data/grafana/mariadb/gas-heating-queries.md`), separate from the electricity dashboard and in London time. After the 2026-11-02 review it had six chart panels; it has since gained the heating plan and room model chart, a table of today's schedule slots (the one table) and a 30-day chart of daily cost under the current schedule, the Comfort Plan and what actually happened.
 _Avoid_: heating dashboard (ambiguous with the Hive app)
 
-**Heating Hour**:
-One UTC hour of heating, stored as a `heating_hour` row: minutes on, heating kWh and cost at the gas unit rate (no standing charge), and whether the kWh is measured or estimated ([ADR-0033](adr/0033-hourly-heating-cost-learns-a-hot-water-baseline-and-the-boilers-effective-kw.md)).
-_Avoid_: boost cost (boost is only one way heating comes on)
+**Heating Interval**:
+One span of actual heating, a half-hour to match the gas meter, stored with its own start and end: minutes on, heating kWh and cost at the gas unit rate (no standing charge), and whether the kWh is measured or estimated ([ADR-0033](adr/0033-hourly-heating-cost-learns-a-hot-water-baseline-and-the-boilers-effective-kw.md), [ADR-0036](adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)). It replaces the Heating Hour.
+_Avoid_: boost cost (boost is only one way heating comes on), heating hour (the old hourly row)
 
 **Hot-Water Baseline**:
-The typical gas used in an hour of day with no heating on, learned from the last 28 days and subtracted from measured gas in heating hours.
+The typical gas used in a half-hour of the day with no heating on, learned from the last 28 days and subtracted from measured gas in heating hours.
 
 **Effective Boiler kW**:
-The gas the boiler draws per hour of heating-on time, learned from measured heating hours and used to estimate hours without measured gas.
+The gas the boiler draws per hour of heating-on time, learned from measured Heating Intervals and used to estimate those without measured gas.
 
 ### Thermal Model and Comfort
 
@@ -232,25 +232,33 @@ A London clock hour in which the heating was on at least once in the 365 days be
 One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was below comfort in them. A finished day is settled once and never restated.
 
 **Thermal Model**:
-The five learned numbers describing how the room warms and cools hour by hour: loss per degree above outdoors, gain per hour of heating, the gain carried into the next hour, sunshine gain and a constant gain ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md)).
+The five learned numbers describing how the room warms and cools, fitted on 10-minute changes: loss per degree above outdoors, gain per hour of heating, the gain carried into the next 10 minutes, sunshine gain and a constant gain, plus the Warm-Up Delay ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)).
 _Avoid_: heating model (that is the daily gas model)
+
+**Warm-Up Delay**:
+The time between the thermostat calling for heat and the room responding, learned at each refit as the shift of the heating record, in 2-minute steps, that fits the readings best. When it cannot be learned the last learned value carries on.
+_Avoid_: lag, dead time, pre-heat (the Comfort Plan's early start, which includes the delay)
+
+**Heating Start**:
+The heating coming on after at least 30 minutes off. A Warm-Up Delay is learned only from a window with at least 10 of them.
+_Avoid_: Boost Start (a boost only, and evidence for the Comfort Temperature)
 
 **Backtest**:
 A replay of each of the last 14 days by a Thermal Model fitted only on data before that day; its average and worst error decide whether the model is usable.
 
 **Room Forecast**:
-The predicted room temperature for each hour to the end of tomorrow, stored twice: under the Hive schedule as programmed and under the Comfort Plan.
+The predicted room temperature to the end of tomorrow, run forward in 2-minute steps and stored every 10 minutes, twice: under the Hive schedule as programmed and under the Comfort Plan.
 _Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
 
 **Day-Ahead Forecast**:
 The Room Forecast for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
 
 **Comfort Plan**:
-The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. Advice only; nothing is written to Hive.
+The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. It switches on and off on 2-minute marks, the thermostat's reading interval. Advice only; nothing is written to Hive.
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Window**:
-The configured hours the Comfort Plan keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends by default. Distinct from Counted Hours, which are learned.
+The configured hours the Comfort Plan keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends by default, each time rounded earlier to a 2-minute mark. Distinct from Counted Hours, which are learned.
 
 ### Hive and Weather
 
