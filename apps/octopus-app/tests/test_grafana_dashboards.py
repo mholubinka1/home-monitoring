@@ -797,3 +797,21 @@ def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None
     }
     for heavy in ("weather_observation", "daily_consumption_summary", "heating_status"):
         assert heavy not in sql, heavy
+
+
+def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
+    table = next(
+        p for p in _panels(_load(GAS_HEATING_DASHBOARD)) if p["type"] == "table"
+    )
+
+    (target,) = table["targets"]
+    sql = target["rawSql"]
+    # the rest of the local day, from the live forecast hours of each scenario,
+    # and nothing for a column that has no slots
+    assert sql.count("Cost to midnight") == 2
+    assert "FROM room_forecast_hour" in sql
+    assert "r.kind = 'live'" in sql
+    assert "r.scenario = 'current'" in sql
+    assert "r.scenario = 'plan'" in sql
+    assert "INTERVAL 1 DAY" in sql
+    assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2

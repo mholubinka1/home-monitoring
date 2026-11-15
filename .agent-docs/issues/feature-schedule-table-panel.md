@@ -59,8 +59,8 @@ Add a last row to each column of the table: the estimated gas cost from now to l
 
 ### Acceptance criteria
 
-- [ ] Given live rows for the rest of today, when the panel's query runs, then each column's last row is the sum of its cost to local midnight.
-- [ ] Given no slots in a column, when the panel's query runs, then that column's cost is empty.
-- [ ] Given the heating guide, when the slice is done, then it describes the table, the kept start and the cost to midnight.
+- [x] Given live rows for the rest of today, when the panel's query runs, then each column's last row is the sum of its cost to local midnight.
+- [x] Given no slots in a column, when the panel's query runs, then that column's cost is empty.
+- [x] Given the heating guide, when the slice is done, then it describes the table, the kept start and the cost to midnight.
 
 ---
