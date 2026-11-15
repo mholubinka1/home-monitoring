@@ -44,6 +44,15 @@ heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_tem
 heating_interval          (octopus) starts_at (UTC, key), ends_at, poll_count, on_minutes, measured_kwh,
                                     heating_kwh, source ('measured' or 'estimated'), unit_rate (p/kWh), cost_gbp,
                                     computed_at
+room_forecast_interval   (octopus) kind ('live' or 'day_ahead'), scenario ('current' or 'plan'),
+                                    starts_at (UTC) -- the three are the key -- ends_at, room_temp (at starts_at),
+                                    on_minutes (one decimal), heating_kwh, cost_gbp, computed_at
+room_forecast_slot        (octopus) day, scenario, position (key), starts_at, ends_at, target, computed_at
+thermal_model             (octopus) id, fitted_at, usable, unusable_reason, loss_per_degree, heating_gain,
+                                    carried_gain, sun_gain, constant_gain, backtest_mean_error,
+                                    backtest_worst_error, step_minutes (10; NULL when fitted hourly),
+                                    warm_up_delay_minutes, warm_up_delay_source ('learned', 'carried' or 'none'),
+                                    heating_starts, ...
 comfort_day               (octopus) date (London day, key), comfort_temp (C, NULL until learned), boost_starts,
                                     counted_hours ('0,1,6,18'), minutes_below (NULL without a comfort_temp), computed_at
 ```
@@ -51,6 +60,17 @@ comfort_day               (octopus) date (London day, key), comfort_temp (C, NUL
 `heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation (ties on the same hour go to the newest row id), so a changed postcode never mixes two places.
 
 ---
+
+## Retired tables
+
+`heating_hour` and `room_forecast_hour` are no longer written or read by octopus-app or by any panel; they were replaced by `heating_interval` and `room_forecast_interval`. Schema Sync never drops a table, so after the dashboard review has passed, drop them by hand on the octopus database:
+
+```sql
+DROP TABLE heating_hour;
+DROP TABLE room_forecast_hour;
+```
+
+Rows carried in them (the few hourly day-ahead days of `room_forecast_hour`) are not carried over to the new tables.
 
 ## Row 1 — Temperatures
 

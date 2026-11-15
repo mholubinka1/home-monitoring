@@ -83,16 +83,17 @@ The model feeds one chart (the expected-gas bars) and, through the cost forecast
 
 - **The next seven days.** Expected gas for each day from the forecast temperature, drawn as lighter bars on the daily gas panel. The cost forecast uses the same numbers.
 
-## 10. What the heating costs, hour by hour
+## 10. What the heating costs, half-hour by half-hour
 
-The model above works in whole days. A separate hourly record answers a different question: how much did the heating cost in each hour, however it came on (schedule, manual raise or boost)?
+The model above works in whole days. A separate record answers a different question: how much did the heating cost in each half-hour, however it came on (schedule, manual raise or boost)? A half-hour is the grain of the gas meter, so each row can be compared with a real reading.
 
-- **When the heating is on.** Every two minutes the thermostat reports whether it is calling for heat. An hour with 12 such readings has the heating on for 24 minutes. An hour with too few readings (Hive was down) is left out, never counted as zero.
-- **Gas that has arrived.** Octopus's half-hourly gas arrives about a day and a half late. For an hour it has covered, the heating's gas is the meter reading less a typical amount for hot water and cooking at that time of day. The household's boiler is a combi, so one burner does both jobs and the meter cannot tell them apart. The typical amount is learned from hours in the last 28 days when the heating was off.
-- **Gas that has not.** Until the meter catches up, the hour is estimated: minutes on times the boiler's usual draw in kW. That draw is learned from hours that have both readings (it was about 12 kW on the first test evening, and is relearned from then on).
-- **The price.** The gas unit rate in force at the start of the hour. The standing charge is not included, because the heating does not cause it.
+- **When the heating is on.** Every two minutes the thermostat reports whether it is calling for heat. A half-hour with 15 such readings, of which 6 say on, has the heating on for 12 minutes. A half-hour with fewer than 12 readings (Hive was down) is left out, never counted as zero.
+- **Gas that has arrived.** Octopus's half-hourly gas arrives about a day and a half late. For a half-hour it has covered, the heating's gas is the meter reading less a typical amount for hot water and cooking at that time of day. The household's boiler is a combi, so one burner does both jobs and the meter cannot tell them apart. The typical amount is learned, for each of the 48 half-hours of the day, from half-hours in the last 28 days when the heating was off.
+- **Gas that has not.** Until the meter catches up, the half-hour is estimated: minutes on times the boiler's usual draw in kW. That draw is learned from half-hours that have both readings and at least 10 minutes on, once there are 10 of them (it was about 12 kW on the first test evening, and is relearned from then on).
+- **The price.** The gas unit rate in force at the start of the half-hour. The standing charge is not included, because the heating does not cause it.
+- **The first run.** The first time it runs, the record is rebuilt from every thermostat poll since the first one, so the history starts from the first poll, not from the day of the change.
 
-Example: the heating is on for 24 minutes in an hour, the meter says 4.5 kWh, and 0.3 kWh is typical for hot water at that hour. Heating is 4.2 kWh; at 6 p per kWh that is 25.2 p, drawn as a measured bar. Before the meter arrives the same hour might be drawn as an estimated 4.8 kWh (24/60 of an hour at 12 kW), 28.8 p, in a lighter colour.
+Example: the heating is on for 12 minutes in a half-hour, the meter says 2.25 kWh, and 0.15 kWh is typical for hot water at that time of day. Heating is 2.1 kWh; at 6 p per kWh that is 12.6 p, drawn as a measured bar. Before the meter arrives the same half-hour might be drawn as an estimated 2.4 kWh (12/60 of an hour at 12 kW), 14.4 p, in a lighter colour.
 
 What this cannot tell you: the thermostat's "on" is demand, not proof the burner was firing the whole time, and the hot-water amount is a typical figure, not a measurement. Both are labelled as estimates.
 
@@ -115,33 +116,43 @@ What this cannot tell you: it is the temperature at which the household acts, no
 
 ## 12. The thermal model
 
-Everything above works in whole days of gas. The thermal model answers a different question: **how does the room's temperature change from one hour to the next?** It is the groundwork for a forecast of the room and for heating advice, both described at the end of this section and drawn on the dashboard.
+Everything above works in whole days of gas. The thermal model answers a different question: **how does the room's temperature change from one moment to the next?** It is the groundwork for a forecast of the room and for heating advice, both described at the end of this section and drawn on the dashboard.
 
-It is five numbers, learned from the thermostat's own readings, the heating hours of section 10 and the hourly weather:
+It is five numbers, learned from the thermostat's own readings and the hourly weather. They are all per hour, whatever the length of the steps they are learned on:
 
 - **Loss.** How much the room falls in an hour for each degree it is warmer than outdoors. On the first six weeks of data it was about 0.02 °C. A room at 17 °C with 7 °C outside loses about 0.2 °C an hour.
 - **Heating gain.** How much the room rises per hour of heating: about 1.4 °C. The 45-minute morning slot is worth about 1 °C.
-- **Carried gain.** Radiators stay hot after the boiler stops, so some of the rise arrives in the following hour: about 0.2 °C per hour of heating.
+- **Carried gain.** Radiators stay hot after the boiler stops, so some of the rise arrives afterwards: about 0.2 °C per hour of heating, spread over the 10 minutes that follow it.
 - **Sunshine gain.** How much a bright hour adds: about 0.1 °C in an hour of strong winter sun. Sunshine is used here and nowhere on the dashboard.
 - **Constant gain.** A small steady gain from people, cooking and appliances, about 0.06 °C an hour. It is why an unheated house settles a few degrees above outdoors and not at the outdoor temperature.
 
-Example: at 06:00 the room is at 16.0 °C and it is 6 °C outside, before sunrise, and the heating runs for 30 minutes of the hour. Loss: 0.02 times 10 degrees is 0.2 °C. Heating: half an hour at 1.4 is 0.7 °C. Constant: 0.06 °C. The model says the room is at about 16.56 °C at 07:00, and that a further 0.1 °C arrives during the next hour from the hot radiators.
+Example: at 06:00 the room is at 16.0 °C and it is 6 °C outside, before sunrise, and the heating runs for 5 minutes of the next 10. Over 10 minutes, a sixth of an hour: loss is 0.02 times 10 degrees, 0.2 °C an hour, so 0.033 °C. Heating: 5 minutes is a twelfth of an hour at 1.4, 0.117 °C. Constant: 0.06 an hour is 0.01 °C. The model says the room is at about 16.09 °C at 06:10.
 
-**How it is learned.** The model looks at every hour of the last 60 days for which it has everything: the room's temperature at the start and the end, the minutes of heating in that hour and the one before, and the weather. It then finds the five numbers that fit all of those hours best at once ([ordinary least squares](https://en.wikipedia.org/wiki/Ordinary_least_squares), as in section 5). An hour with anything missing (Hive was down, a weather gap) is left out, never filled in. It is relearned once a day.
+**How it is learned.** The model looks at every 10-minute step of the last 60 days for which it has everything: a room reading within 4 minutes after the step's start and after its end, at least 4 of the 5 thermostat polls in the 10 minutes its heating is read from (and in the 10 before), and the weather. Outdoor temperature is drawn in a straight line between the hourly readings. It then finds the five numbers that fit all of those steps best at once ([ordinary least squares](https://en.wikipedia.org/wiki/Ordinary_least_squares), as in section 5). A step with anything missing (Hive was down, a weather gap) is left out, never filled in. It is relearned once a day, and at once the first time after it changes from learning on hours to learning on 10-minute steps. Ten-minute changes are small against a thermostat that reads to 0.1 °C, so the numbers can be noisier than an hourly fit.
+
+**The warm-up delay.** Radiators take time to warm a room: the thermostat calls for heat, and the room starts to respond a while later. The model learns that wait, the warm-up delay, at each refit. It tries every delay from 0 to 40 minutes in steps of 2, each time reading a step's heating from that long earlier, and keeps the delay whose numbers miss the room's changes least.
+
+- **When it is learned.** Only when the 60 days hold at least 10 heating starts (the heating coming on after at least 30 minutes with none). Fewer starts say too little about the wait.
+- **When it cannot be.** The last learned delay carries on, so the forecast does not lose it at the start of a season. With none ever learned, the delay is 0 and the dashboard says "not learned yet".
+- **A delay near 40 minutes** means the range tried is too short.
+
+Example (made up): the thermostat calls for heat at 05:40 and the room only starts to warm at 05:54, a delay of 14 minutes. Fitted with a 14-minute delay, the model explains the readings better than with any other.
+
+The first refit after this change is the assessment of how long the household's radiators take, nobody has measured it before. The figure, whether it was learned, and the number of heating starts are on the Heating Plan and Room Model panel.
 
 **How it is checked.** A model that fits the past is not proof that it predicts. So each time it is relearned it is given a test it has not seen the answers to, called a [backtest](https://en.wikipedia.org/wiki/Backtesting):
 
 - Take each of the last 14 days in turn.
 - Learn a model from only the 60 days before that day.
-- Start it at the room's temperature at midnight and let it run for the whole day on its own, hour after hour, given the weather and the heating that really happened.
+- Start it at the room's temperature at midnight and let it run for the whole day on its own, 10 minutes after 10 minutes, given the weather and the heating that really happened. A model with at least 10 heating starts in its own 60 days uses the delay it would learn; otherwise it uses the delay of the fit being tested.
 - Compare what it said with what the thermostat recorded.
 
-The average miss over all those hours, and the worst single miss, are stored with the model. On the first six weeks of data (to 13 November 2026) the average was about 0.3 °C and the worst hour about 1 °C, over the 8 days that could be tested. A day is only tested when all of its hours are complete and the model before it had enough heating to learn from, so early in a heating season several days are skipped.
+The average miss over all those steps, and the worst single miss, are stored with the model. On the first six weeks of data (to 13 November 2026), fitted and replayed by hours, the average was about 0.3 °C and the worst hour about 1 °C, over the 8 days that could be tested; the figures on 10-minute steps are not known yet and may be noisier. A day is only tested when all of its steps are complete, which is stricter than the hourly rule, and the model before it had enough heating to learn from, so early in a heating season several days are skipped.
 
 **When it is not trusted.** Each stored model says whether it is usable, and if not, why:
 
-- under a week of complete hours to learn from;
-- almost no heating in the 60 days, so the heating gain cannot be learned;
+- under a week of complete steps to learn from (1,008 of them);
+- almost no heating in the 60 days (fewer than 30 steps with at least 4 minutes of it), so the heating gain cannot be learned;
 - readings too alike to tell the five numbers apart;
 - numbers that make no physical sense (a room that warms as it gets colder outside, or heating that cools it);
 - fewer than 5 of the 14 days could be tested;
@@ -149,22 +160,24 @@ The average miss over all those hours, and the worst single miss, are stored wit
 
 While the newest model is not usable, no new forecast is made. The last forecast lines stay on the dashboard, and the heating plan panel shows why the model is not trusted and how old the forecast is, so a stale line is visibly stale. An older usable model is never brought back in its place.
 
-**The room forecast.** Once an hour the model is run forward from the room's latest reading to the end of tomorrow, hour by hour, using the weather forecast. It is run twice:
+**The room forecast.** Once an hour the model is run forward from the room's latest reading to the end of tomorrow in 2-minute steps, the thermostat's own reading interval, using the weather forecast, and stored every 10 minutes. It is run twice:
 
-- **Under your Hive schedule as programmed.** The thermostat heats just enough to hold each slot's target, and nothing while Hive's mode is OFF. If the weekly schedule cannot be read, this forecast is left out for that hour and the log says so, rather than showing a house with no heating. A slot that starts part-way through an hour counts from its own minute: a slot beginning at 05:40 heats in the last 20 minutes of the 05:00 hour, not in the 06:00 hour.
-- **Under the comfort plan.** This is advice only: nothing is ever sent to Hive. The plan holds your comfort temperature (section 11), rounded up to the half degree Hive accepts, from 06:30 on weekdays and 07:45 at weekends until midnight. The windows are in the octopus-app config. The target is held from the minute the window opens until the minute it closes, and before the opening the plan heats for the shortest time that has the room at the target at that minute.
+- **Under your Hive schedule as programmed.** The thermostat heats just enough to hold each slot's target, and nothing while Hive's mode is OFF. If the weekly schedule cannot be read, this forecast is left out for that run and the log says so, rather than showing a house with no heating. Slots are followed to the step: a slot beginning at 05:40 heats from 05:40. A slot that starts on an odd minute takes effect from the 2-minute step before it, so one that starts at 06:25 takes over at 06:24.
+- **Under the comfort plan.** This is advice only: nothing is ever sent to Hive. The plan holds your comfort temperature (section 11), rounded up to the half degree Hive accepts, from 06:30 on weekdays and 07:44 at weekends until midnight. The windows are in the octopus-app config, and a time on an odd minute is rounded earlier to an even one (07:45 becomes 07:44) with a line in the log. The target is held from the step the window opens until the step it closes, and before the opening the plan heats for the shortest whole number of 2-minute steps that has the room at the target at that minute, allowing for the warm-up delay.
 
-Each stored hour is still one row, but inside an hour the forecast follows the minute at which a target starts or stops. The first hour is forecast only from the latest reading onwards, so heating that has already happened is not counted again.
+With a warm-up delay the forecast treats heat as arriving that long after the thermostat asks for it. Nothing arrives for the first delay of a slot, and heat already asked for keeps arriving for the delay after the slot ends. Gas is counted when the thermostat asks, not when the room responds. The first row is forecast only from the latest reading onwards, and the heating asked for just before it, which has not yet finished arriving, is still counted.
 
-Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C. It is a weekday, 6 °C outside, and the room has drifted to 18.9 °C at 06:00. Over the hour without heating the room would drift by about 0.2 °C (0.02 times 12.9 degrees lost, less the 0.06 °C constant), so by 06:30 half of that, 0.1 °C, has gone. Half an hour of heating adds 0.7 °C (half an hour at 1.4 °C an hour), so the room is up by 0.6 °C and at 19.5 °C at 06:30. The plan therefore pre-heats for half an hour, from 06:00 to 06:30, which is the least heating that gets there, and from 06:30 it holds 19.5 °C.
+Example: a slot at 19 C from 05:40 to 06:25 and a warm-up delay of 14 minutes. Gas is counted from 05:40. The room line follows its unheated course until 05:54, then climbs. Demand stops at 06:24; heat keeps arriving until 06:38.
+
+Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C, and the delay is 14 minutes. The room at 06:30 needs 42 minutes of arriving heat to reach 19.5 °C. Heat takes 14 minutes to arrive, so the plan switches on 42 plus 14 minutes before 06:30, at 05:34, and holds 19.5 °C from 06:30. With no delay it would have switched on 14 minutes later and the room would reach the target at the same time.
 
 **A known limit.** If Hive's mode is MANUAL (a temperature set by hand, held until changed), the schedule forecast still follows the programmed slots as though the mode were SCHEDULE, so it will not show the manual temperature. Only OFF is treated differently.
 
-Each hour is stored with its heating minutes and cost (the minutes times the boiler's learned kW, times the gas unit rate of section 10). The dashboard draws the two room lines dotted on the temperature chart, and a separate panel shows the minutes and cost of each, the backtest error and whether the model is trusted.
+Each 10-minute row is stored with its heating minutes and cost (the minutes times the boiler's learned kW, times the gas unit rate of section 10, read once for each hour). Rows carry their own start and end, so the panels judge a day complete by the minutes its rows cover, never by counting rows. The dashboard draws the two room lines dotted on the temperature chart, and a separate panel shows the minutes and cost of each, the backtest error, whether the model is trusted and the warm-up delay.
 
-**The schedule table.** One table on the dashboard lists today's heating slots, each as `start - end | target`, and changes day at midnight London time. The first column is the Hive schedule as programmed: every slot of the day, each running to the next one's start, with the previous day's last target carried over until the day's first slot and equal neighbours merged. The second is the comfort plan: one slot from when the plan switches heating on (including the pre-heat) to when the comfort window closes, at the comfort temperature rounded up to a half degree. The plan is recomputed every hour, but once its start time has passed the start is kept (the live forecast no longer holds that hour), so the row does not jump during the morning. A slot shows on the day its window opens. The last row of each column is the estimated gas cost from now to midnight, the sum of that scenario's live hours at the unit rates of section 10. A column is empty when the weekly schedule cannot be read (current) or there is no comfort temperature (plan). As with the forecast, a manually held temperature is not shown.
+**The schedule table.** One table on the dashboard lists today's heating slots, each as `start - end | target`, and changes day at midnight London time. The first column is the Hive schedule as programmed: every slot of the day, each running to the next one's start, with the previous day's last target carried over until the day's first slot and equal neighbours merged. The second is the comfort plan: one slot from when the plan switches heating on (including the pre-heat) to when the comfort window closes, at the comfort temperature rounded up to a half degree. The plan is recomputed every hour, but once its start time has passed the start is kept (the live forecast no longer holds that time), so the row does not jump during the morning. A slot shows on the day its window opens. The last row of each column is the estimated gas cost from now to midnight, the sum of that scenario's live rows at the unit rates of section 10, shown only when its rows cover every minute of it. A column is empty when the weekly schedule cannot be read (current) or there is no comfort temperature (plan). As with the forecast, a manually held temperature is not shown.
 
-**Day-ahead lines.** The forecast for tomorrow is rewritten every hour until midnight and then frozen. Past days therefore keep the forecast as it stood when the day began, which can be compared with what the room really did. Today's live forecast is the freshest, tomorrow's frozen copy is the honest one.
+**Day-ahead lines.** The forecast for tomorrow is rewritten every hour until midnight and then frozen, and only written when it covers every minute of tomorrow. Past days therefore keep the forecast as it stood when the day began, which can be compared with what the room really did. Today's live forecast is the freshest, tomorrow's frozen copy is the honest one.
 
 What this cannot tell you: it describes one room, the one with the thermostat. It has seen only mild weather so far (nothing colder than about 1 °C outdoors), so its numbers will move as winter arrives, which is why it is relearned and retested daily. It knows nothing about open windows, guests or a door left open, which show up as misses. And the backtest is given the heating that really happened, so it tests the house model, not anyone's ability to guess when the heating will be on.
 
@@ -180,7 +193,7 @@ What this cannot tell you: it describes one room, the one with the thermostat. I
 
 **Comfort plan.** The least heating that keeps the room at the comfort temperature (rounded up to a half degree) through the comfort window, including the pre-heat before it. Advice only.
 
-**Comfort window.** The hours of a day the comfort plan keeps comfortable: 06:30 to midnight on weekdays and 07:45 to midnight at weekends, set in the config.
+**Comfort window.** The hours of a day the comfort plan keeps comfortable: 06:30 to midnight on weekdays and 07:44 to midnight at weekends, set in the config.
 
 **Counted hour.** A clock hour in which the heating has been on in the last 365 days; only these count towards minutes below comfort.
 
@@ -194,11 +207,15 @@ What this cannot tell you: it describes one room, the one with the thermostat. I
 
 **Heating day.** A day on which the heating was on at least once. Old boosts fade by heating days, not calendar days.
 
-**Room forecast.** The predicted room temperature for each hour to the end of tomorrow, made twice: under the Hive schedule as programmed and under the comfort plan.
+**Heating start.** The heating coming on after at least 30 minutes with none. A warm-up delay is learned only from 60 days with at least 10 of them.
+
+**Room forecast.** The predicted room temperature in 2-minute steps to the end of tomorrow, stored every 10 minutes and made twice: under the Hive schedule as programmed and under the comfort plan.
 
 **Slope.** The extra gas each degree-day costs, in kWh.
 
-**Thermal model.** Five learned numbers that say how the thermostat's room warms and cools from one hour to the next.
+**Thermal model.** Five learned numbers that say how the thermostat's room warms and cools, learned on 10-minute steps and given per hour.
+
+**Warm-up delay.** The time between the thermostat calling for heat and the room responding, learned at each daily refit from 0 to 40 minutes.
 
 **Threshold.** The temperature below which heating starts to be needed.
 

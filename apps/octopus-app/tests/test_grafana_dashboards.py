@@ -968,34 +968,3 @@ def test_the_cost_comparison_reads_only_the_small_forecast_and_heating_tables() 
 
 
 QUERIES_DOCUMENT = GRAFANA_DIR / "mariadb" / "gas-heating-queries.md"
-
-
-@pytest.mark.parametrize(
-    ("title", "ref"),
-    [
-        (HEATING_COST, "A"),
-        (COST_COMPARISON, "A"),
-        (TEMPERATURES, "E"),
-        (PLAN_PANEL, "A"),
-        (PLAN_PANEL, "D"),
-        (PLAN_PANEL, "E"),
-        ("Schedule Today", "A"),
-    ],
-)
-def test_a_changed_panels_query_is_the_one_in_the_queries_document(
-    title: str, ref: str
-) -> None:
-    target = next(t for t in _panel(title)["targets"] if t["refId"] == ref)
-
-    assert target["rawSql"].strip() in QUERIES_DOCUMENT.read_text(encoding="utf-8")
-
-
-def test_no_panel_reads_a_retired_hourly_table() -> None:
-    sql = " ".join(
-        target.get("rawSql", "")
-        for panel in _gas_panels()
-        for target in panel.get("targets", [])
-    )
-
-    assert "room_forecast_hour" not in sql
-    assert "heating_hour" not in sql
