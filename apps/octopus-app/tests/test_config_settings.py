@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from octopus_app.common.config import ApplicationSettings, get_settings
+from octopus_app.common.config import ApplicationSettings, ComfortWindow, get_settings
 
 VALID_CONFIG: dict[str, Any] = {
     "octopus": {"account_number": "A-1234ABCD", "api_key": "sk_live_test"},
@@ -229,3 +229,44 @@ def test_a_comfort_time_on_an_even_minute_is_kept_and_not_logged(
 
     assert windows.weekend.start == time(8, 16)
     assert not logged_messages
+
+
+def test_a_comfort_window_that_collapses_when_its_times_are_rounded_is_rejected() -> (
+    None
+):
+    # Given a one-minute window, 07:44 to 07:45, whose end rounds down to its start
+    # (and so would be read as lasting until the next day)
+    with pytest.raises(ValueError, match="2-minute marks"):
+        ComfortWindow.model_validate({"start": "07:44", "end": "07:45"})
+
+
+def test_a_window_ending_at_midnight_is_not_a_collapsed_window() -> None:
+    window = ComfortWindow.model_validate({"start": "07:45", "end": "00:00"})
+
+    assert (window.start, window.end) == (time(7, 44), time(0, 0))
+
+
+def test_a_collapsing_comfort_window_stops_startup_and_says_why(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a weekday window of 07:44 to 07:45, which rounds to nothing
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekday:\n    start: "07:44"\n    end: "07:45"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.critical", logged_messages.append
+    )
+
+    # When the settings load
+    with pytest.raises(SystemExit) as exit_info:
+        get_settings(str(config_file))
+
+    # Then startup stops naming the field and the reason
+    assert exit_info.value.code == 1
+    logged = " ".join(logged_messages)
+    assert "comfort_windows.weekday" in logged
+    assert "where it starts" in logged

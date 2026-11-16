@@ -519,3 +519,68 @@ def test_plan_slots_start_at_the_opening_less_the_lead_and_end_at_the_close() ->
     )
     assert slot.end == datetime(2026, 11, 18, 0, 0)
     assert slot.target == 18.5
+
+
+def test_on_a_spring_forward_day_the_preheat_can_start_in_the_hour_before_the_change() -> (
+    None
+):
+    # Given the 23-hour day on which London's clocks go forward (29 March 2026):
+    # the local hours are 00:00, then 02:00 onwards, and the weekend window opens at
+    # 07:44. The room is far too cold for the target to be reached by then.
+    hours = [ForecastHour(datetime(2026, 3, 29, 0), -10.0, -10.0, 0.0)] + [
+        ForecastHour(datetime(2026, 3, 29, hour), -10.0, -10.0, 0.0)
+        for hour in range(2, 8)
+    ]
+
+    plan = comfort_plan(
+        HOURLY_MODEL,
+        Start(10.0, datetime(2026, 3, 29, 0, 0)),
+        hours,
+        19.0,
+        ComfortWindows(),
+    )
+
+    # Then it heats from the forecast's first step, not from 01:00 (which never
+    # happens), so the hour before the change is not lost
+    assert _first_demand(plan) == 0
+
+
+def test_on_a_fall_back_day_an_out_of_reach_target_heats_from_the_first_step() -> None:
+    # Given the 25-hour day on which clocks go back (25 October 2026): the local
+    # hours are 00:00, 01:00, 01:00 again, then 02:00 onwards, and the room is far
+    # too cold for the 07:44 weekend opening
+    hours = [
+        ForecastHour(datetime(2026, 10, 25, hour), -10.0, -10.0, 0.0)
+        for hour in (0, 1, 1, 2, 3, 4, 5, 6, 7)
+    ]
+
+    plan = comfort_plan(
+        HOURLY_MODEL,
+        Start(5.0, datetime(2026, 10, 25, 0, 0)),
+        hours,
+        19.0,
+        ComfortWindows(),
+    )
+
+    assert _first_demand(plan) == 0
+
+
+def test_a_reachable_target_across_the_spring_forward_gap_is_at_the_opening() -> None:
+    # Given the same 23-hour day with a room 4 C short, which the heating can make up
+    # well before 07:44 (6 hours 44 minutes of steps, 7 hours 44 on the clock)
+    hours = [ForecastHour(datetime(2026, 3, 29, 0), 0.0, 0.0, 0.0)] + [
+        ForecastHour(datetime(2026, 3, 29, hour), 0.0, 0.0, 0.0) for hour in range(2, 8)
+    ]
+
+    plan = comfort_plan(
+        HOURLY_MODEL,
+        Start(15.0, datetime(2026, 3, 29, 0, 0)),
+        hours,
+        19.0,
+        ComfortWindows(),
+    )
+
+    # Then the pre-heat starts part-way through the forecast, and the room is at the
+    # target at 07:44, 404 minutes of steps in
+    assert 0 < _first_demand(plan) < 404
+    assert _room_at(plan, 404) >= 19.0 - 1e-9

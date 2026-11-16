@@ -5,7 +5,14 @@ from datetime import time
 from logging import Logger, getLogger
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -43,11 +50,25 @@ class ComfortWindow(BaseModel):
         # YAML 1.1 reads an unquoted 7:45 as the number 465 (base 60), so only a
         # quoted string is a time the household meant (a time object is the default).
         if isinstance(value, time):
-            return _earlier_even_minute(value)
+            return value
         match = _CLOCK_TIME.fullmatch(value) if isinstance(value, str) else None
         if match is None or int(match[1]) > 23 or int(match[2]) > 59:
             raise ValueError('use a quoted clock time such as "07:45"')
-        return _earlier_even_minute(time(int(match[1]), int(match[2])))
+        return time(int(match[1]), int(match[2]))
+
+    @model_validator(mode="after")
+    def _times_must_stay_apart_on_the_forecast_steps(self) -> "ComfortWindow":
+        """Rounds both times to the forecast's 2-minute marks. A window that would
+        end where it starts once rounded is refused: it would otherwise be read as
+        lasting until the next day."""
+        start, end = _earlier_even_minute(self.start), _earlier_even_minute(self.end)
+        if start == end and self.start != self.end:
+            raise ValueError(
+                f"comfort window {self.start:%H:%M} to {self.end:%H:%M} would end "
+                "where it starts once its times are rounded earlier to 2-minute marks"
+            )
+        self.start, self.end = start, end
+        return self
 
 
 def _earlier_even_minute(clock_time: time) -> time:
@@ -97,9 +118,10 @@ def get_settings(
         invalid_fields = ", ".join(
             ".".join(str(part) for part in error["loc"]) for error in e.errors()
         )
+        reasons = "; ".join(error["msg"] for error in e.errors())
         logger.critical(
             f"Failed to load application settings from {config_file_path}: "
-            f"invalid or missing field(s): {invalid_fields}"
+            f"invalid or missing field(s): {invalid_fields} ({reasons})"
         )
         sys.exit(1)
     except Exception as e:

@@ -358,11 +358,17 @@ def _lead(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     first = first_step_start(start, hours)
     if not first < opening <= hours[-1].start + ONE_HOUR:
         return ZERO
-    cap = _steps_before(start, hours, opening)
+    # The simulation runs the steps that elapse before the opening, but the lead is
+    # taken off the wall clock, so it can reach back to the forecast's first step
+    # even when a clock change skips an hour in between.
+    elapsed_steps = _steps_before(start, hours, opening)
+    cap = (opening - first) // STEP
 
     def room_at_opening(lead_steps: int) -> float:
         interval = [*held, (opening - lead_steps * STEP, closing)]
-        return _simulate(model, start, hours, _target_in(interval, target), cap)[1]
+        return _simulate(
+            model, start, hours, _target_in(interval, target), elapsed_steps
+        )[1]
 
     if room_at_opening(0) >= target:
         return ZERO
