@@ -1,4 +1,4 @@
-"""The Day-Ahead Forecast: tomorrow's hours of each live forecast, rewritten by
+"""The Day-Ahead Forecast: tomorrow's rows of each live forecast, rewritten by
 every run until midnight and then frozen (ADR-0035).
 
 London is on GMT in November, so local time is UTC."""
@@ -23,19 +23,30 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     weekly_schedule,
 )
 
+TEN_MINUTE_ROWS_A_DAY = 24 * 6
+
+
+def every_ten_minutes(day: int) -> list[datetime]:
+    """The 144 row starts of a day in November 2026."""
+    return [
+        datetime(2026, 11, day, hour, minute)
+        for hour in range(24)
+        for minute in range(0, 60, 10)
+    ]
+
 
 def day_ahead_rows(client: MariaDBClient, scenario: str) -> list[Any]:
-    rows = model.room_forecast_hour
+    rows = model.room_forecast_interval
     with client.session_read_scope() as session:
         return (
             session.query(rows)
             .filter(rows.kind == "day_ahead", rows.scenario == scenario)
-            .order_by(rows.hour_start)
+            .order_by(rows.starts_at)
             .all()
         )
 
 
-def test_a_run_today_stores_day_ahead_rows_for_tomorrows_hours_only(
+def test_a_run_today_stores_day_ahead_rows_for_every_ten_minutes_of_tomorrow_only(
     client: MariaDBClient,
 ) -> None:
     # Given a run on Tuesday 17 November with a comfort temperature, so both
@@ -46,17 +57,15 @@ def test_a_run_today_stores_day_ahead_rows_for_tomorrows_hours_only(
     # When the job runs
     RoomForecastJob(client, REGION).refresh(NOW)
 
-    # Then each scenario has day-ahead rows for Wednesday's 24 hours and none for
-    # today, and they match the live rows of those hours
+    # Then each scenario has day-ahead rows for every 10 minutes of Wednesday and
+    # none for today, and they match the live rows of those minutes
     for scenario in ("current", "plan"):
         day_ahead = day_ahead_rows(client, scenario)
-        assert [row.hour_start for row in day_ahead] == [
-            datetime(2026, 11, 18, hour) for hour in range(24)
-        ]
+        assert [row.starts_at for row in day_ahead] == every_ten_minutes(18)
         live_tomorrow = [
             row
             for row in live_rows(client, scenario)
-            if row.hour_start.date() == datetime(2026, 11, 18).date()
+            if row.starts_at.date() == datetime(2026, 11, 18).date()
         ]
         assert [row.room_temp for row in day_ahead] == [
             row.room_temp for row in live_tomorrow
@@ -75,11 +84,11 @@ def test_a_later_run_the_same_day_rewrites_tomorrows_day_ahead_rows(
     seed_reading(client, later - timedelta(minutes=5), room=20.0)
     RoomForecastJob(client, REGION).refresh(later)
 
-    # Then tomorrow's day-ahead rows are the second run's, still 24 of them
+    # Then tomorrow's day-ahead rows are the second run's, still every 10 minutes
     day_ahead = day_ahead_rows(client, "current")
-    assert len(day_ahead) == 24
+    assert len(day_ahead) == TEN_MINUTE_ROWS_A_DAY
     live_tomorrow = [
-        row for row in live_rows(client, "current") if row.hour_start.day == 18
+        row for row in live_rows(client, "current") if row.starts_at.day == 18
     ]
     assert [row.room_temp for row in day_ahead] == [
         row.room_temp for row in live_tomorrow
@@ -99,10 +108,10 @@ def test_once_midnight_passes_that_days_day_ahead_rows_stay_frozen(
     seed_reading(client, last_run - timedelta(minutes=5), room=18.0)
     RoomForecastJob(client, REGION).refresh(last_run)
     frozen = [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "current")
     ]
-    assert len(frozen) == 24
+    assert len(frozen) == TEN_MINUTE_ROWS_A_DAY
 
     # When a run after midnight reads a different room temperature
     after_midnight = datetime(2026, 11, 18, 0, 20, tzinfo=UTC)
@@ -113,14 +122,14 @@ def test_once_midnight_passes_that_days_day_ahead_rows_stay_frozen(
     # are written, and nothing is stored for Tuesday
     day_ahead = day_ahead_rows(client, "current")
     assert [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead
-        if row.hour_start.day == 18
+        if row.starts_at.day == 18
     ] == frozen
-    assert [row.hour_start for row in day_ahead if row.hour_start.day == 19] == [
-        datetime(2026, 11, 19, hour) for hour in range(24)
-    ]
-    assert not [row for row in day_ahead if row.hour_start.day == 17]
+    assert [
+        row.starts_at for row in day_ahead if row.starts_at.day == 19
+    ] == every_ten_minutes(19)
+    assert not [row for row in day_ahead if row.starts_at.day == 17]
 
 
 def test_a_skipped_run_leaves_the_day_ahead_rows_untouched(
@@ -130,7 +139,7 @@ def test_a_skipped_run_leaves_the_day_ahead_rows_untouched(
     seed_plan_inputs(client, room=18.0)
     RoomForecastJob(client, REGION).refresh(NOW)
     before = [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "current")
     ]
 
@@ -139,10 +148,10 @@ def test_a_skipped_run_leaves_the_day_ahead_rows_untouched(
 
     # Then the day-ahead rows are as they were
     assert [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "current")
     ] == before
-    assert len(before) == 24
+    assert len(before) == TEN_MINUTE_ROWS_A_DAY
 
 
 def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
@@ -153,10 +162,10 @@ def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
     seed_comfort(client, NOW.date(), 19.0)
     RoomForecastJob(client, REGION).refresh(NOW)
     before = [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "plan")
     ]
-    assert len(before) == 24
+    assert len(before) == TEN_MINUTE_ROWS_A_DAY
 
     # When the weather forecast now stops at 18:00 on Wednesday and the job runs
     # again
@@ -170,9 +179,9 @@ def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
 
     # Then the live forecast stops at the gap, but the frozen comparison is not
     # shortened, in either scenario
-    assert live_rows(client, "plan")[-1].hour_start == datetime(2026, 11, 18, 17)
+    assert live_rows(client, "plan")[-1].starts_at == datetime(2026, 11, 18, 17, 50)
     assert [
-        (row.hour_start, row.room_temp, row.computed_at)
+        (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "plan")
     ] == before
-    assert len(day_ahead_rows(client, "current")) == 24
+    assert len(day_ahead_rows(client, "current")) == TEN_MINUTE_ROWS_A_DAY

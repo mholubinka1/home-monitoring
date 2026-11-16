@@ -121,6 +121,14 @@ class ThermalModelRecord:  # pylint: disable=too-many-instance-attributes
     backtest_days: int | None
     backtest_mean_error: float | None
     backtest_worst_error: float | None
+    # The step the numbers were fitted on; None on rows fitted hourly (read as 60).
+    step_minutes: int | None = None
+    # The Warm-Up Delay the numbers were fitted with, whether it was 'learned',
+    # 'carried' from an earlier fit or 'none' yet, and the Heating Starts the
+    # fit window held; None on rows fitted before the delay existed.
+    warm_up_delay_minutes: int | None = None
+    warm_up_delay_source: str | None = None
+    heating_starts: int | None = None
 
 
 @dataclass(frozen=True)
@@ -138,15 +146,17 @@ class RoomForecastSlotRecord:
 
 
 @dataclass(frozen=True)
-class RoomForecastRecord:
-    """One forecast hour as stored (naive UTC stamps). room_temp is the predicted
-    room at the hour's start; cost_gbp is None without a gas rate."""
+class RoomForecastIntervalRecord:  # pylint: disable=too-many-instance-attributes
+    """One forecast span as stored (naive UTC stamps). room_temp is the predicted
+    room at the span's start; cost_gbp is None without a gas rate. Each row
+    carries its own end, so no reader may assume the span's length."""
 
     kind: str
     scenario: str
-    hour_start: datetime
+    starts_at: datetime
+    ends_at: datetime
     room_temp: float
-    on_minutes: int
+    on_minutes: float
     heating_kwh: float
     cost_gbp: float | None
     computed_at: datetime
@@ -167,10 +177,12 @@ class HourlyWeather:
 
 
 @dataclass(frozen=True)
-class HeatingHourRecord:  # pylint: disable=too-many-instance-attributes
-    """One completed hour of heating as stored (naive UTC stamps)."""
+class HeatingIntervalRecord:  # pylint: disable=too-many-instance-attributes
+    """One completed span of heating as stored (naive UTC stamps); today a
+    half-hour, but no reader may assume it."""
 
-    hour_start: datetime
+    starts_at: datetime
+    ends_at: datetime
     poll_count: int
     on_minutes: int
     measured_kwh: float | None

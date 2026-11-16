@@ -41,8 +41,18 @@ cost_forecast             (octopus) billing_period_start/end, actual_cost_to_dat
 heating_model             (octopus) id, fitted_at, usable, threshold, slope, weight,
                                     r_squared, baseload, ...
 heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
-heating_hour              (octopus) hour_start (UTC, key), poll_count, on_minutes, measured_kwh, heating_kwh,
-                                    source ('measured' or 'estimated'), unit_rate (p/kWh), cost_gbp, computed_at
+heating_interval          (octopus) starts_at (UTC, key), ends_at, poll_count, on_minutes, measured_kwh,
+                                    heating_kwh, source ('measured' or 'estimated'), unit_rate (p/kWh), cost_gbp,
+                                    computed_at
+room_forecast_interval   (octopus) kind ('live' or 'day_ahead'), scenario ('current' or 'plan'),
+                                    starts_at (UTC) -- the three are the key -- ends_at, room_temp (at starts_at),
+                                    on_minutes (one decimal), heating_kwh, cost_gbp, computed_at
+room_forecast_slot        (octopus) day, scenario, position (key), starts_at, ends_at, target, computed_at
+thermal_model             (octopus) id, fitted_at, usable, unusable_reason, loss_per_degree, heating_gain,
+                                    carried_gain, sun_gain, constant_gain, backtest_mean_error,
+                                    backtest_worst_error, step_minutes (10; NULL when fitted hourly),
+                                    warm_up_delay_minutes, warm_up_delay_source ('learned', 'carried' or 'none'),
+                                    heating_starts, ...
 comfort_day               (octopus) date (London day, key), comfort_temp (C, NULL until learned), boost_starts,
                                     counted_hours ('0,1,6,18'), minutes_below (NULL without a comfort_temp), computed_at
 ```
@@ -51,13 +61,24 @@ comfort_day               (octopus) date (London day, key), comfort_temp (C, NUL
 
 ---
 
+## Retired tables
+
+`heating_hour` and `room_forecast_hour` are no longer written or read by octopus-app or by any panel; they were replaced by `heating_interval` and `room_forecast_interval`. Schema Sync never drops a table, so after the dashboard review has passed, drop them by hand on the octopus database:
+
+```sql
+DROP TABLE heating_hour;
+DROP TABLE room_forecast_hour;
+```
+
+Rows carried in them (the few hourly day-ahead days of `room_forecast_hour`) are not carried over to the new tables.
+
 ## Row 1 — Temperatures
 
 ### Indoor, Target and Outdoor Temperature (time series)
 
 Four lines and a forecast: **comfort** (purple, a step: the learned comfort temperature, see query D), **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather, then a dashed **outdoor forecast** (green) that continues the outdoor line to the right with the forecast daily mean temperature. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
 
-Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Heating Cost per Hour panel counts every hour the heating was on, at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
+Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Heating Cost per Half-Hour panel counts every half-hour the heating was on, at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
 
 ```sql
 SELECT
@@ -176,6 +197,23 @@ ORDER BY time;
 **Not yet checked against the Pi.** Checked once, in the final dashboard review, on a throwaway copy of the database. Deploy octopus-app first so the table exists, then import the dashboard.
 
 ---
+
+Query E, room forecast (the predicted room temperature under the Hive schedule as programmed and under the comfort plan, from octopus-app's hourly room forecast job: one point every 10 minutes from the step holding the newest reading to the end of tomorrow, drawn as dotted lines; `room_forecast_interval` rows carry their own `starts_at` and `ends_at`, so the query assumes no length):
+
+```sql
+SELECT
+  r.starts_at AS time,
+  MAX(CASE WHEN r.scenario = 'current' THEN r.room_temp END) AS room_current,
+  MAX(CASE WHEN r.scenario = 'plan' THEN r.room_temp END) AS room_plan
+FROM room_forecast_interval r
+WHERE r.kind = 'live'
+  AND r.scenario IN ('current', 'plan')
+  AND $__timeFilter(r.starts_at)
+GROUP BY r.starts_at
+ORDER BY r.starts_at;
+```
+
+Not yet run against MariaDB: it is checked in the single end-of-plan dashboard review.
 
 ## Row 2 — Gas
 
@@ -371,19 +409,19 @@ ORDER BY time;
 
 **Checked read-only against the Pi on 27 October 2026.** Query D returned 27 October to 2 November (8.231, 8.231, 12.734, 14.160, 14.235, 16.112, 18.063 kWh); query E returned the same days in pounds (27 October 0.7065 unit cost, 8.231 kWh at 8.58p, plus the 0.2924 standing charge). D returns nothing while the unit is pounds and E nothing while it is kWh. With the usable-model test made to match no model (`m.usable = 2`), D and E return no rows, so there are no expected bars.
 
-### Heating Cost per Hour (time series)
+### Heating Cost per Half-Hour (time series)
 
-Stacked bars of the gas cost of the heating in each completed UTC hour, in pounds, read from the small `heating_hour` table that octopus-app's hourly job writes (ADR-0033), so the panel does no heavy work on the Pi. Heating is any hour the thermostat called for heat or a boost was on (`state = 'ON' OR boost_active = 1`, counted by the job). Each bar is one of two series: **measured** (solid; Octopus's half-hourly gas for the hour less a learned hot-water baseline) or **estimated** (lighter; the minutes on times the boiler's learned effective kW, used until the gas arrives about 1.5 days later). Cost is the gas unit rate in force at the start of the hour, with no standing charge. An hour with too few Hive readings has no row, so it is a gap, never a zero. Hours with the heating off (on-minutes 0) are not drawn. The panel looks back over the dashboard's 14 days and shows nothing for the forward 7.
+Stacked bars of the gas cost of the heating in each completed half-hour, in pounds, read from the small `heating_interval` table that octopus-app's hourly job writes (ADR-0033 with the hour replaced by the half-hour, the gas meter's grain; [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)), so the panel does no heavy work on the Pi. Heating is any half-hour the thermostat called for heat or a boost was on (`state = 'ON' OR boost_active = 1`, counted by the job). Each bar is one of two series: **measured** (solid; Octopus's gas for the half-hour less a learned hot-water baseline) or **estimated** (lighter; the minutes on times the boiler's learned effective kW, used until the gas arrives about 1.5 days later). Cost is the gas unit rate in force at the start of the half-hour, with no standing charge. A half-hour with fewer than 12 of its 15 Hive readings has no row, so it is a gap, never a zero. Half-hours with the heating off (on-minutes 0) are not drawn. The panel looks back over the dashboard's 14 days and shows nothing for the forward 7.
 
 ```sql
 SELECT time, measured_cost_gbp, estimated_cost_gbp
 FROM (
   SELECT
-    h.hour_start AS time,
+    h.starts_at AS time,
     IF(h.source = 'measured', ROUND(h.cost_gbp, 4), NULL) AS measured_cost_gbp,
     IF(h.source = 'estimated', ROUND(h.cost_gbp, 4), NULL) AS estimated_cost_gbp
-  FROM heating_hour h
-  WHERE $__timeFilter(h.hour_start)
+  FROM heating_interval h
+  WHERE $__timeFilter(h.starts_at)
     AND h.on_minutes > 0
     AND h.cost_gbp IS NOT NULL
 ) d
@@ -394,7 +432,7 @@ ORDER BY time;
 
 ### Minutes Below Comfort (time series)
 
-Bars of minutes per London day in which the room was below the day's learned **Comfort Temperature** during a **Counted Hour** (a London clock hour in which the heating was on at least once in the 365 days before the day). octopus-app's hourly job works the figure out from the 2-minute thermostat readings and stores it in `comfort_day` ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)), so the panel reads one small row per day. Today's bar grows through the day; a finished day is settled once and never changes. A day with no comfort temperature yet (fewer than 5 boosts seen) or with no thermostat readings is a gap, not a zero. There are no settings: the old **Comfort target** and **Margin below target** text boxes are gone. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, octopus-app's `POLL_MINUTES` and `MIN_POLLS_PER_HOUR` must change too.
+Bars of minutes per London day in which the room was below the day's learned **Comfort Temperature** during a **Counted Hour** (a London clock hour in which the heating was on at least once in the 365 days before the day). octopus-app's hourly job works the figure out from the 2-minute thermostat readings and stores it in `comfort_day` ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)), so the panel reads one small row per day. Today's bar grows through the day; a finished day is settled once and never changes. A day with no comfort temperature yet (fewer than 5 boosts seen) or with no thermostat readings is a gap, not a zero. There are no settings: the old **Comfort target** and **Margin below target** text boxes are gone. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, octopus-app's `POLL_MINUTES` and `MIN_POLLS_PER_INTERVAL` must change too.
 
 ```sql
 SELECT time, minutes_below_comfort
@@ -551,9 +589,85 @@ LIMIT 1;
 
 **Checked read-only against the Pi on 16 October 2026:** 12.41 cost so far, 32.76 projected, the same figures as the latest gas row of `cost_forecast`.
 
+### Heating Plan and Room Model (time series)
+
+The live room forecast, every 10 minutes, read from the small `room_forecast_interval` table that octopus-app's hourly job writes ([ADR-0035](../../../.agent-docs/adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)). Bars are the minutes of heating in each 10 minutes (at most 10) under the current schedule and under the comfort plan; lines on the right axis are the gas cost of each, in pounds. Points at now: the newest thermal-model fit with the mean and worst error of its backtest, and the model state; the warm-up delay of that fit in minutes with whether it was learned, carried or not learned yet; the age of the live forecast in hours.
+
+Query A, forecast:
+
+```sql
+SELECT
+  r.starts_at AS time,
+  MAX(CASE WHEN r.scenario = 'current' THEN r.on_minutes END) AS current_minutes,
+  MAX(CASE WHEN r.scenario = 'plan' THEN r.on_minutes END) AS plan_minutes,
+  MAX(CASE WHEN r.scenario = 'current' THEN ROUND(r.cost_gbp, 3) END) AS current_cost,
+  MAX(CASE WHEN r.scenario = 'plan' THEN ROUND(r.cost_gbp, 3) END) AS plan_cost
+FROM room_forecast_interval r
+WHERE r.kind = 'live'
+  AND r.scenario IN ('current', 'plan')
+  AND $__timeFilter(r.starts_at)
+GROUP BY r.starts_at
+ORDER BY r.starts_at;
+```
+
+Query B, model backtest:
+
+```sql
+SELECT
+  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,
+  m.backtest_mean_error AS backtest_mean,
+  m.backtest_worst_error AS backtest_worst
+FROM thermal_model m
+ORDER BY m.fitted_at DESC, m.id DESC
+LIMIT 1;
+```
+
+Query C, model state:
+
+```sql
+SELECT
+  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,
+  CASE
+    WHEN m.usable = 1 THEN 0
+    WHEN m.unusable_reason = 'too_few_steps' THEN 1
+    WHEN m.unusable_reason = 'too_little_heating' THEN 2
+    WHEN m.unusable_reason = 'no_fit' THEN 3
+    WHEN m.unusable_reason = 'implausible' THEN 4
+    WHEN m.unusable_reason = 'too_few_backtest_days' THEN 5
+    WHEN m.unusable_reason = 'backtest_error_too_high' THEN 6
+  END AS model_state
+FROM thermal_model m
+ORDER BY m.fitted_at DESC, m.id DESC
+LIMIT 1;
+```
+
+Query D, forecast age:
+
+```sql
+SELECT
+  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,
+  ROUND(TIMESTAMPDIFF(MINUTE, MAX(r.computed_at), UTC_TIMESTAMP()) / 60, 1) AS forecast_age_hours
+FROM room_forecast_interval r
+WHERE r.kind = 'live';
+```
+
+Query E, warm-up delay (the Warm-Up Delay of the newest fit, in minutes, and how it was found; one point at now, drawn like the backtest figures; the state maps 0 to "learned", 1 to "carried" and 2 to "not learned yet"):
+
+```sql
+SELECT
+  LEAST(UTC_TIMESTAMP(), $__timeTo()) AS time,
+  m.warm_up_delay_minutes AS warm_up_delay,
+  CASE m.warm_up_delay_source WHEN 'learned' THEN 0 WHEN 'carried' THEN 1 ELSE 2 END AS warm_up_delay_state
+FROM thermal_model m
+ORDER BY m.fitted_at DESC, m.id DESC
+LIMIT 1;
+```
+
+Not yet run against MariaDB: it is checked in the single end-of-plan dashboard review.
+
 ### Schedule Today (table)
 
-The one table, an exception to the charts-only style. Two columns for today's London day, which changes at 00:00: "Current schedule" is the Hive schedule as programmed (every slot of the day) and "Comfort plan" is the plan's one slot, from when heating switches on (including the pre-heat) to when the comfort window closes. Each cell reads `hh:mm - hh:mm | N degrees`. Rows pair by slot position; a column with fewer slots is empty below. The last row is each scenario's estimated gas cost from the current hour to local midnight (the live `room_forecast_hour` rows), blank when that scenario has no slot today, and shown only when every hour from the current hour to midnight is present and priced (a weather gap or a missing gas rate blanks it rather than showing a partial total). The slots come from `room_forecast_slot`, written by the hourly room-forecast job, so deploy octopus-app before importing the dashboard that reads it.
+The one table, an exception to the charts-only style. Two columns for today's London day, which changes at 00:00: "Current schedule" is the Hive schedule as programmed (every slot of the day) and "Comfort plan" is the plan's one slot, from when heating switches on (including the pre-heat) to when the comfort window closes. Each cell reads `hh:mm - hh:mm | N degrees`. Rows pair by slot position; a column with fewer slots is empty below. The last row is each scenario's estimated gas cost from the start of the 10-minute row holding now to local midnight (the live `room_forecast_interval` rows), blank when that scenario has no slot today, and shown only when priced rows cover every minute of it (judged by `TIMESTAMPDIFF(MINUTE, starts_at, ends_at)` of each row, so a weather gap or a missing gas rate blanks it rather than showing a partial total). The slots come from `room_forecast_slot`, written by the hourly room-forecast job, so deploy octopus-app before importing the dashboard that reads it.
 
 ```sql
 SELECT `Current schedule`, `Comfort plan` FROM (
@@ -581,8 +695,8 @@ LEFT JOIN (SELECT position, starts_at, ends_at, target FROM room_forecast_slot W
 UNION ALL
 SELECT
   1000,
-  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_hour r WHERE r.kind = 'live' AND r.scenario = 'current' AND r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00') AND r.hour_start < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'current' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR, DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00'), CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC'))),
-  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_hour r WHERE r.kind = 'live' AND r.scenario = 'plan' AND r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00') AND r.hour_start < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'plan' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR, DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m-%d %H:00:00'), CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC')))
+  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_interval r WHERE r.kind = 'live' AND r.scenario = 'current' AND r.ends_at > UTC_TIMESTAMP() AND r.starts_at < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'current' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) HAVING MIN(r.starts_at) <= UTC_TIMESTAMP() AND SUM(IF(r.cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE, r.starts_at, LEAST(r.ends_at, CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC'))))) = TIMESTAMPDIFF(MINUTE, MIN(r.starts_at), CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC'))),
+  (SELECT CONCAT('Cost to midnight: £', FORMAT(SUM(r.cost_gbp), 2)) FROM room_forecast_interval r WHERE r.kind = 'live' AND r.scenario = 'plan' AND r.ends_at > UTC_TIMESTAMP() AND r.starts_at < CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC') AND EXISTS (SELECT 1 FROM room_forecast_slot s WHERE s.scenario = 'plan' AND s.day = DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))) HAVING MIN(r.starts_at) <= UTC_TIMESTAMP() AND SUM(IF(r.cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE, r.starts_at, LEAST(r.ends_at, CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC'))))) = TIMESTAMPDIFF(MINUTE, MIN(r.starts_at), CONVERT_TZ(DATE_ADD(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 1 DAY), '${timezone}', 'UTC')))
 ) t
 ORDER BY sort_order;
 ```
@@ -591,11 +705,11 @@ Not yet run against MariaDB: it is checked in the single end-of-plan dashboard r
 
 ### Daily Cost: Schedules vs Actual (time series)
 
-Three lines of daily gas cost of the heating, in pounds, for the last 30 completed London days; today is never shown. All three are heating only at the gas unit rate with no standing charge, so they are comparable and the gaps between them are about the schedule, not the bill. **Current Schedule (estimated)** and **Comfort Schedule (estimated)** are the sums of `room_forecast_hour.cost_gbp` for the `day_ahead` rows of the `current` and `plan` scenarios: the [Day-Ahead Forecast](../../../.agent-docs/context.md) as the last run before each day began left it (the job rewrites tomorrow's rows every run until midnight), never the `live` rows, which are replaced every hour. **Actual** is the sum of `heating_hour.cost_gbp` over both sources (measured and estimated), so a day whose gas has not arrived yet is still drawn from the minutes on. Off hours are rows with a cost of zero and count towards the day's hours.
+Three lines of daily gas cost of the heating, in pounds, for the last 30 completed London days; today is never shown. All three are heating only at the gas unit rate with no standing charge, so they are comparable and the gaps between them are about the schedule, not the bill. **Current Schedule (estimated)** and **Comfort Schedule (estimated)** are the sums of `room_forecast_interval.cost_gbp` for the `day_ahead` rows of the `current` and `plan` scenarios: the [Day-Ahead Forecast](../../../.agent-docs/context.md) as the last run before each day began left it (the job rewrites tomorrow's rows every run until midnight), never the `live` rows, which are replaced every hour. **Actual** is the sum of `heating_interval.cost_gbp` over both sources (measured and estimated), so a day whose gas has not arrived yet is still drawn from the minutes on. Off half-hours are rows with a cost of zero and count towards the day's minutes.
 
-A line has a point for a London day only when its count of priced hours equals the hours in that day (23, 24 or 25 across clock changes), so a day with a missing hour (too few Hive readings for `heating_hour`) or an unpriced hour (no gas rate) is a gap in that line, never a partial total and never a zero. The rule is applied per line, so one line can be a gap while another is drawn. The estimated lines start with the first stored `day_ahead` rows (about 2026-11-16) and fill in one day at a time; nothing is backfilled, while Actual shows every day that has a priced `heating_hour` row for each of its hours (its history starts where the hourly heating job first ran).
+A line has a point for a London day only when the minutes covered by its priced rows (each row's `ends_at` less its `starts_at`) equal the minutes in that day (1,380, 1,440 or 1,500 across clock changes), so a day with a missing half-hour (too few Hive readings for `heating_interval`) or an unpriced one (no gas rate) is a gap in that line, never a partial total and never a zero. The rule is applied per line, so one line can be a gap while another is drawn. The estimated lines start with the first stored `day_ahead` rows (about 2026-11-16) and fill in one day at a time; nothing is backfilled, while Actual shows every day whose priced `heating_interval` rows cover all of its minutes (the first run rebuilds its history from the thermostat polls).
 
-The window is fixed in the query, from London midnight 30 days ago up to, not including, London midnight today, so changing a relative dashboard time range never changes it. The panel's relative time override of 31 days only makes the axis long enough: each day's point sits at London noon, and the oldest day's noon is always less than 31 days before now. The query therefore uses no `$__timeFilter`. **Limit:** Grafana applies that override only while the dashboard range is relative. If the dashboard is zoomed or set to an absolute from and to, the override is ignored and the axis follows the selected range, so only the days inside it are drawn (the query itself still returns the same 30 days). Go back to a relative range such as the default to see the whole window. It reads only the two small tables `room_forecast_hour` (at most about 1,500 `day_ahead` rows in the window) and `heating_hour` (about 24 rows a day), so it does no heavy work on the Pi.
+The window is fixed in the query, from London midnight 30 days ago up to, not including, London midnight today, so changing a relative dashboard time range never changes it. The panel's relative time override of 31 days only makes the axis long enough: each day's point sits at London noon, and the oldest day's noon is always less than 31 days before now. The query therefore uses no `$__timeFilter`. **Limit:** Grafana applies that override only while the dashboard range is relative. If the dashboard is zoomed or set to an absolute from and to, the override is ignored and the axis follows the selected range, so only the days inside it are drawn (the query itself still returns the same 30 days). Go back to a relative range such as the default to see the whole window. It reads only the two small tables `room_forecast_interval` (at most about 8,600 `day_ahead` rows in the window: 144 a day for each of two scenarios) and `heating_interval` (about 48 rows a day), so it does no heavy work on the Pi.
 
 ```sql
 WITH bounds AS (
@@ -603,42 +717,42 @@ WITH bounds AS (
     CONVERT_TZ(CAST(DATE_SUB(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')), INTERVAL 30 DAY) AS DATETIME), '${timezone}', 'UTC') AS from_utc,
     CONVERT_TZ(CAST(DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}')) AS DATETIME), '${timezone}', 'UTC') AS to_utc
 ),
-hours AS (
-  SELECT 'current' AS series, r.hour_start, r.cost_gbp
-  FROM room_forecast_hour r
+spans AS (
+  SELECT 'current' AS series, r.starts_at, r.ends_at, r.cost_gbp
+  FROM room_forecast_interval r
   CROSS JOIN bounds b
   WHERE r.kind = 'day_ahead'
     AND r.scenario = 'current'
-    AND r.hour_start >= b.from_utc
-    AND r.hour_start < b.to_utc
+    AND r.starts_at >= b.from_utc
+    AND r.starts_at < b.to_utc
 
   UNION ALL
 
-  SELECT 'plan' AS series, r.hour_start, r.cost_gbp
-  FROM room_forecast_hour r
+  SELECT 'plan' AS series, r.starts_at, r.ends_at, r.cost_gbp
+  FROM room_forecast_interval r
   CROSS JOIN bounds b
   WHERE r.kind = 'day_ahead'
     AND r.scenario = 'plan'
-    AND r.hour_start >= b.from_utc
-    AND r.hour_start < b.to_utc
+    AND r.starts_at >= b.from_utc
+    AND r.starts_at < b.to_utc
 
   UNION ALL
 
-  SELECT 'actual' AS series, h.hour_start, h.cost_gbp
-  FROM heating_hour h
+  SELECT 'actual' AS series, h.starts_at, h.ends_at, h.cost_gbp
+  FROM heating_interval h
   CROSS JOIN bounds b
-  WHERE h.hour_start >= b.from_utc
-    AND h.hour_start < b.to_utc
+  WHERE h.starts_at >= b.from_utc
+    AND h.starts_at < b.to_utc
 ),
 daily AS (
   SELECT
     series,
-    DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}')) AS day,
+    DATE(CONVERT_TZ(starts_at, 'UTC', '${timezone}')) AS day,
     SUM(cost_gbp) AS cost
-  FROM hours
-  GROUP BY series, DATE(CONVERT_TZ(hour_start, 'UTC', '${timezone}'))
-  HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(
-    HOUR,
+  FROM spans
+  GROUP BY series, DATE(CONVERT_TZ(starts_at, 'UTC', '${timezone}'))
+  HAVING SUM(IF(cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE, starts_at, ends_at))) = TIMESTAMPDIFF(
+    MINUTE,
     CONVERT_TZ(CAST(day AS DATETIME), '${timezone}', 'UTC'),
     CONVERT_TZ(CAST(day + INTERVAL 1 DAY AS DATETIME), '${timezone}', 'UTC')
   )

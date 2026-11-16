@@ -16,13 +16,16 @@ mariadb:
 # Optional: when the room forecast's comfort plan holds the comfort temperature, in
 # local time (defaults shown; weekend is Saturday and Sunday). An end of "00:00" is
 # midnight at the end of the day. Quote every time: YAML reads an unquoted 7:45 as
-# the number 465 and the app refuses to start.
+# the number 465 and the app refuses to start. The forecast steps in 2 minutes, so
+# a time on an odd minute is rounded earlier to an even one (07:45 becomes 07:44)
+# and the log says so; a window whose different start and end round to the same
+# mark is refused at startup.
 # comfort_windows:
 #   weekday:
 #     start: "06:30"
 #     end: "00:00"
 #   weekend:
-#     start: "07:45"
+#     start: "07:44"
 #     end: "00:00"
 
 data_refresh:

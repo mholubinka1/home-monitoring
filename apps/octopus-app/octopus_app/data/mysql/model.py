@@ -205,6 +205,10 @@ class thermal_model(SQLBase):
     backtest_days = Column(Integer)
     backtest_mean_error = Column(_DOUBLE)
     backtest_worst_error = Column(_DOUBLE)
+    step_minutes = Column(Integer)  # NULL on rows fitted hourly, read as 60
+    warm_up_delay_minutes = Column(Integer)  # NULL on old rows, read as 0
+    warm_up_delay_source = Column(String(20))  # learned, carried or none
+    heating_starts = Column(Integer)
 
 
 class heating_forecast_day(SQLBase):
@@ -220,12 +224,14 @@ class heating_forecast_day(SQLBase):
     computed_at = Column(DateTime, nullable=False)
 
 
-class heating_hour(SQLBase):
-    __tablename__ = "heating_hour"
+class heating_interval(SQLBase):
+    __tablename__ = "heating_interval"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
-    # One row per completed UTC hour, recomputed each run.
-    hour_start = Column(DateTime, primary_key=True)
+    # One row per completed span, recomputed each run. Each row carries its own
+    # end, so a later change of grain needs no schema change.
+    starts_at = Column(DateTime, primary_key=True)
+    ends_at = Column(DateTime, nullable=False)
     poll_count = Column(Integer, nullable=False)
     on_minutes = Column(Integer, nullable=False)
     measured_kwh = Column(_DOUBLE)
@@ -250,17 +256,19 @@ class comfort_day(SQLBase):
     computed_at = Column(DateTime, nullable=False)
 
 
-class room_forecast_hour(SQLBase):
-    __tablename__ = "room_forecast_hour"
+class room_forecast_interval(SQLBase):
+    __tablename__ = "room_forecast_interval"
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
-    # One row per hour of each forecast (ADR-0035). kind is 'live' or
-    # 'day_ahead'; scenario is 'current' or 'plan'.
+    # One row per span of each forecast (ADR-0035, ADR-0036). kind is 'live' or
+    # 'day_ahead'; scenario is 'current' or 'plan'. Each row carries its own end,
+    # so a later change of grain needs no schema change.
     kind = Column(String(20), primary_key=True)
     scenario = Column(String(20), primary_key=True)
-    hour_start = Column(DateTime, primary_key=True)
-    room_temp = Column(_DOUBLE)  # predicted, at the hour's start
-    on_minutes = Column(Integer)
+    starts_at = Column(DateTime, primary_key=True)
+    ends_at = Column(DateTime, nullable=False)
+    room_temp = Column(_DOUBLE)  # predicted, at the span's start
+    on_minutes = Column(_DOUBLE)  # to one decimal
     heating_kwh = Column(_DOUBLE)
     cost_gbp = Column(_DOUBLE)
     computed_at = Column(DateTime, nullable=False)

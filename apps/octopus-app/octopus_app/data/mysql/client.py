@@ -36,10 +36,10 @@ from octopus_app.data.model import (
     DailyCostSummary,
     Energy,
     HeatingForecastRecord,
-    HeatingHourRecord,
+    HeatingIntervalRecord,
     HeatingModelRecord,
     HourlyWeather,
-    RoomForecastRecord,
+    RoomForecastIntervalRecord,
     RoomForecastSlotRecord,
     StoredHeatingModel,
     StoredThermalModel,
@@ -432,6 +432,19 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 ),
             )
 
+    def read_latest_warm_up_delay(self) -> int | None:
+        """The Warm-Up Delay, in minutes, of the newest fit that learned one or
+        carried one; None when none has."""
+        tm = model.thermal_model
+        with self.session_read_scope() as session:
+            row = (
+                session.query(tm.warm_up_delay_minutes)
+                .filter(tm.warm_up_delay_source.in_(("learned", "carried")))
+                .order_by(tm.fitted_at.desc(), tm.id.desc())
+                .first()
+            )
+        return None if row is None or row[0] is None else int(row[0])
+
     def _replace_all_rows(
         self, table: type[SQLBase], rows: list[SQLBase], description: str
     ) -> None:
@@ -802,6 +815,24 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         )
         return [(row.polled_at, row.state, row.boost_active) for row in rows]
 
+    def read_thermostat_polls(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float | None, str | None, bool | None]]:
+        """The (time, room temperature, state, boost) of the thermostat polls in
+        [start, end) (naive UTC), oldest first."""
+        hs = heating_status_table
+        rows = self._read_heating_status(
+            hs.c.polled_at,
+            hs.c.current_temp,
+            hs.c.state,
+            hs.c.boost_active,
+            where=(hs.c.polled_at >= start, hs.c.polled_at < end),
+        )
+        return [
+            (row.polled_at, row.current_temp, row.state, row.boost_active)
+            for row in rows
+        ]
+
     def read_boost_polls(
         self, start: datetime, end: datetime
     ) -> list[tuple[datetime, float | None]]:
@@ -844,12 +875,12 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 raise
             return None
 
-    def read_latest_heating_hour(self) -> datetime | None:
-        """The newest stored heating_hour start (naive UTC), if any."""
+    def read_latest_heating_interval_end(self) -> datetime | None:
+        """The end (naive UTC) of the newest stored heating_interval, if any."""
         with self.session_read_scope() as session:
             row = (
-                session.query(model.heating_hour.hour_start)
-                .order_by(model.heating_hour.hour_start.desc())
+                session.query(model.heating_interval.ends_at)
+                .order_by(model.heating_interval.starts_at.desc())
                 .first()
             )
         return None if row is None else row[0]
@@ -875,54 +906,55 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             )
         return None if row is None else float(row.unit_rate)
 
-    def read_heating_hours(
+    def read_heating_intervals(
         self, start: datetime, end: datetime
-    ) -> list[HeatingHourRecord]:
-        """The stored heating_hour rows in [start, end) (naive UTC)."""
-        hh = model.heating_hour
+    ) -> list[HeatingIntervalRecord]:
+        """The stored heating_interval rows starting in [start, end) (naive UTC)."""
+        hi = model.heating_interval
         with self.session_read_scope() as session:
             rows = (
-                session.query(hh)
-                .filter(hh.hour_start >= start, hh.hour_start < end)
-                .order_by(hh.hour_start)
+                session.query(hi)
+                .filter(hi.starts_at >= start, hi.starts_at < end)
+                .order_by(hi.starts_at)
                 .all()
             )
-            return [_record_of(HeatingHourRecord, row) for row in rows]
+            return [_record_of(HeatingIntervalRecord, row) for row in rows]
 
-    def replace_heating_hours(
-        self, start: datetime, end: datetime, rows: list[HeatingHourRecord]
+    def replace_heating_intervals(
+        self, start: datetime, end: datetime, rows: list[HeatingIntervalRecord]
     ) -> None:
-        """Replaces every heating_hour row in [start, end) (naive UTC) with rows."""
-        hh = model.heating_hour
+        """Replaces every heating_interval row starting in [start, end) (naive
+        UTC) with rows."""
+        hi = model.heating_interval
         try:
             with self.session_write_scope() as session:
-                session.query(hh).filter(
-                    hh.hour_start >= start, hh.hour_start < end
+                session.query(hi).filter(
+                    hi.starts_at >= start, hi.starts_at < end
                 ).delete(synchronize_session=False)
-                session.add_all(hh(**_values_of(row)) for row in rows)
+                session.add_all(hi(**_values_of(row)) for row in rows)
         except Exception as e:
-            logger.error(f"Failed to replace heating hours: {e}")
+            logger.error(f"Failed to replace heating intervals: {e}")
             raise MariaDBError(e) from e
 
     def replace_room_forecast(
         self,
         kind: str,
         scenario: str,
-        rows: list[RoomForecastRecord],
+        rows: list[RoomForecastIntervalRecord],
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> None:
         """Replaces the stored rows of the kind and scenario with rows. With
-        start and end (naive UTC), only the stored rows whose hour_start lies in
+        start and end (naive UTC), only the stored rows whose starts_at lies in
         [start, end) are replaced."""
-        rf = model.room_forecast_hour
+        rf = model.room_forecast_interval
         try:
             with self.session_write_scope() as session:
                 stale = session.query(rf).filter(
                     rf.kind == kind, rf.scenario == scenario
                 )
                 if start is not None and end is not None:
-                    stale = stale.filter(rf.hour_start >= start, rf.hour_start < end)
+                    stale = stale.filter(rf.starts_at >= start, rf.starts_at < end)
                 stale.delete(synchronize_session=False)
                 session.add_all(rf(**_values_of(row)) for row in rows)
         except Exception as e:
@@ -1029,17 +1061,17 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         return None if row is None else (row.polled_at, row.current_temp, row.mode)
 
     def read_heating_on_hours(self, start: datetime, end: datetime) -> list[datetime]:
-        """The starts (naive UTC) of the stored heating_hour rows in [start, end)
-        in which the heating was on."""
-        hh = model.heating_hour
+        """The starts (naive UTC) of the hours in [start, end) that contain a
+        stored heating_interval with minutes on."""
+        hi = model.heating_interval
         with self.session_read_scope() as session:
             rows = (
-                session.query(hh.hour_start)
-                .filter(hh.hour_start >= start, hh.hour_start < end, hh.on_minutes > 0)
-                .order_by(hh.hour_start)
+                session.query(hi.starts_at)
+                .filter(hi.starts_at >= start, hi.starts_at < end, hi.on_minutes > 0)
+                .order_by(hi.starts_at)
                 .all()
             )
-        return [row[0] for row in rows]
+        return sorted({row[0].replace(minute=0) for row in rows})
 
     def read_latest_comfort_day(self) -> tuple[date, datetime] | None:
         """The newest stored comfort_day's date and when it was written (naive

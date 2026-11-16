@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from octopus_app.common.config import ApplicationSettings, get_settings
+from octopus_app.common.config import ApplicationSettings, ComfortWindow, get_settings
 
 VALID_CONFIG: dict[str, Any] = {
     "octopus": {"account_number": "A-1234ABCD", "api_key": "sk_live_test"},
@@ -139,7 +139,7 @@ def test_a_configured_quoted_comfort_window_overrides_the_default(
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekend:\n    start: "8:15"\n    end: "23:00"\n',
+        + 'comfort_windows:\n  weekend:\n    start: "8:16"\n    end: "23:00"\n',
         encoding="utf-8",
     )
 
@@ -147,7 +147,7 @@ def test_a_configured_quoted_comfort_window_overrides_the_default(
     windows = get_settings(str(config_file)).comfort_windows
 
     # Then the weekend uses it and the weekday keeps its default
-    assert (windows.weekend.start, windows.weekend.end) == (time(8, 15), time(23, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(8, 16), time(23, 0))
     assert windows.weekday.start == time(6, 30)
 
 
@@ -180,7 +180,99 @@ def test_comfort_windows_default_to_the_household_hours() -> None:
     # When the settings load
     settings = ApplicationSettings.model_validate(VALID_CONFIG)
 
-    # Then weekdays are 06:30 to midnight and weekends 07:45 to midnight
+    # Then weekdays are 06:30 to midnight and weekends 07:44 to midnight, the
+    # household's 07:45 rounded earlier to a 2-minute mark
     windows = settings.comfort_windows
     assert (windows.weekday.start, windows.weekday.end) == (time(6, 30), time(0, 0))
-    assert (windows.weekend.start, windows.weekend.end) == (time(7, 45), time(0, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(0, 0))
+
+
+def test_a_comfort_time_on_an_odd_minute_is_rounded_earlier_and_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a weekend window configured at 07:45, an odd minute
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekend:\n    start: "07:45"\n    end: "23:59"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.warning", logged_messages.append
+    )
+
+    # When the settings load
+    windows = get_settings(str(config_file)).comfort_windows
+
+    # Then the window opens at 07:44 and closes at 23:58, and the log says so
+    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(23, 58))
+    assert any("07:45" in message and "07:44" in message for message in logged_messages)
+    assert any("23:59" in message and "23:58" in message for message in logged_messages)
+
+
+def test_a_comfort_time_on_an_even_minute_is_kept_and_not_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekend:\n    start: "08:16"\n    end: "23:00"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.warning", logged_messages.append
+    )
+
+    windows = get_settings(str(config_file)).comfort_windows
+
+    assert windows.weekend.start == time(8, 16)
+    assert not logged_messages
+
+
+def test_a_comfort_window_that_collapses_when_its_times_are_rounded_is_rejected() -> (
+    None
+):
+    # Given a one-minute window, 07:44 to 07:45, whose end rounds down to its start
+    # (and so would be read as lasting until the next day)
+    with pytest.raises(ValueError, match="2-minute marks"):
+        ComfortWindow.model_validate({"start": "07:44", "end": "07:45"})
+
+
+def test_a_window_ending_at_midnight_is_not_a_collapsed_window() -> None:
+    window = ComfortWindow.model_validate({"start": "07:45", "end": "00:00"})
+
+    assert (window.start, window.end) == (time(7, 44), time(0, 0))
+
+
+def test_a_collapsing_comfort_window_stops_startup_and_says_why(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a weekday window of 07:44 to 07:45, which rounds to nothing
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekday:\n    start: "07:44"\n    end: "07:45"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.critical", logged_messages.append
+    )
+
+    # When the settings load
+    with pytest.raises(SystemExit) as exit_info:
+        get_settings(str(config_file))
+
+    # Then startup stops naming the field and the reason
+    assert exit_info.value.code == 1
+    logged = " ".join(logged_messages)
+    assert "comfort_windows.weekday" in logged
+    assert "where it starts" in logged
+
+
+def test_a_window_whose_start_equals_its_end_is_accepted_and_still_rounded() -> None:
+    window = ComfortWindow.model_validate({"start": "07:45", "end": "07:45"})
+
+    assert (window.start, window.end) == (time(7, 44), time(7, 44))

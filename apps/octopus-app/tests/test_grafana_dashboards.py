@@ -203,16 +203,16 @@ def test_the_predictor_reads_the_gas_row_of_the_cost_forecast() -> None:
     assert "WHERE energy = 'G'" in predictor["targets"][0]["rawSql"]
 
 
-HEATING_COST = "Heating Cost per Hour"
+HEATING_COST = "Heating Cost per Half-Hour"
 
 
-def test_heating_cost_is_read_from_the_hourly_table_in_pounds() -> None:
+def test_heating_cost_is_read_from_the_half_hourly_table_in_pounds() -> None:
     sql = _panel(HEATING_COST)["targets"][0]["rawSql"]
 
-    assert "FROM heating_hour" in sql
+    assert "FROM heating_interval" in sql
     assert "AS measured_cost_gbp" in sql
     assert "AS estimated_cost_gbp" in sql
-    assert "$__timeFilter(h.hour_start)" in sql
+    assert "$__timeFilter(h.starts_at)" in sql
 
 
 def test_measured_and_estimated_heating_cost_are_stacked_bars() -> None:
@@ -664,7 +664,8 @@ def test_the_temperature_panel_draws_the_two_room_forecasts_as_dotted_lines() ->
         ), series
     sql = {t["refId"]: t["rawSql"] for t in _panel(TEMPERATURES)["targets"]}
     forecast_sql = " ".join(sql.values())
-    assert "room_forecast_hour" in forecast_sql
+    assert "FROM room_forecast_interval" in forecast_sql
+    assert "room_forecast_hour" not in forecast_sql
     assert "'live'" in forecast_sql
 
 
@@ -691,7 +692,7 @@ def test_the_plan_panel_compares_the_two_schedules_in_minutes_and_pounds() -> No
     assert "r.on_minutes" in sql
     assert "ROUND(r.cost_gbp, 3)" in sql
     assert "kind = 'live'" in sql
-    assert "$__timeFilter(r.hour_start)" in sql
+    assert "$__timeFilter(r.starts_at)" in sql
 
 
 def test_the_plan_panel_draws_the_newest_backtest_fit_in_celsius() -> None:
@@ -791,11 +792,30 @@ def test_the_age_of_the_live_forecast_is_one_point_at_now_so_a_stale_line_shows(
     assert overrides["custom.showPoints"] == "always"
 
 
+def test_the_plan_panel_shows_the_warm_up_delay_and_whether_it_was_learned() -> None:
+    sql = _plan_panel_sql()
+    overrides = _panel_overrides(PLAN_PANEL)
+    state = overrides["warm_up_delay_state"]
+
+    assert "m.warm_up_delay_minutes AS warm_up_delay" in sql
+    assert "AS warm_up_delay_state" in sql
+    assert "ORDER BY m.fitted_at DESC, m.id DESC" in sql
+    assert overrides["warm_up_delay"]["unit"] == "m"
+    assert overrides["warm_up_delay"]["custom.showPoints"] == "always"
+    (mapping,) = state["mappings"]
+    assert {key: option["text"] for key, option in mapping["options"].items()} == {
+        "0": "learned",
+        "1": "carried",
+        "2": "not learned yet",
+    }
+    assert "WHEN 'learned' THEN 0 WHEN 'carried' THEN 1 ELSE 2" in sql
+
+
 def test_the_plan_panel_reads_only_the_small_forecast_and_model_tables() -> None:
     sql = _plan_panel_sql()
 
     assert set(re.findall(r"\bFROM (\w+)", sql)) == {
-        "room_forecast_hour",
+        "room_forecast_interval",
         "thermal_model",
     }
     for heavy in ("weather_observation", "daily_consumption_summary", "heating_status"):
@@ -812,15 +832,18 @@ def test_the_schedule_table_ends_with_each_scenarios_cost_to_midnight() -> None:
     # the rest of the local day, from the live forecast hours of each scenario,
     # and nothing for a column that has no slots
     assert sql.count("Cost to midnight") == 2
-    assert "FROM room_forecast_hour" in sql
+    assert "FROM room_forecast_interval" in sql
     assert "r.kind = 'live'" in sql
     assert "r.scenario = 'current'" in sql
     assert "r.scenario = 'plan'" in sql
     assert "INTERVAL 1 DAY" in sql
     assert sql.count("EXISTS (SELECT 1 FROM room_forecast_slot") == 2
-    assert sql.count("r.hour_start >= DATE_FORMAT(UTC_TIMESTAMP()") == 2
-    # a total only when every hour to midnight is present and priced
-    assert sql.count("HAVING COUNT(r.cost_gbp) = TIMESTAMPDIFF(HOUR") == 2
+    assert sql.count("r.ends_at > UTC_TIMESTAMP()") == 2
+    assert sql.count("HAVING MIN(r.starts_at) <= UTC_TIMESTAMP()") == 2
+    # a total only when priced rows cover every minute to midnight, whatever
+    # length each row has
+    assert sql.count("SUM(IF(r.cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE") == 2
+    assert "COUNT(r.cost_gbp)" not in sql
     # the cost row lists its columns as the slot rows do: sort key first
     assert "UNION ALL\nSELECT\n  1000,\n  (SELECT CONCAT('Cost to midnight" in sql
 
@@ -872,7 +895,8 @@ def test_the_cost_comparison_panel_draws_two_dashed_estimates_and_a_solid_actual
 def test_the_cost_comparison_estimates_are_the_frozen_day_ahead_forecast() -> None:
     sql = _cost_comparison_sql()
 
-    assert "FROM room_forecast_hour" in sql
+    assert "FROM room_forecast_interval" in sql
+    assert "room_forecast_hour" not in sql
     assert sql.count("r.kind = 'day_ahead'") == 2  # both estimate branches
     assert "'live'" not in sql
     # each series label sits in the branch that reads its own scenario
@@ -883,7 +907,7 @@ def test_the_cost_comparison_estimates_are_the_frozen_day_ahead_forecast() -> No
             re.DOTALL,
         ), series
     actual_branch = sql[sql.index("'actual' AS series") :]
-    assert "FROM heating_hour" in actual_branch
+    assert "FROM heating_interval" in actual_branch
     assert "h.source" not in sql  # measured and estimated hours both count
 
 
@@ -901,25 +925,27 @@ def test_the_cost_comparison_covers_thirty_london_days_and_never_today() -> None
     assert "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))" in sql
     # the window starts at London midnight 30 days ago and ends at London
     # midnight today, with nothing added to it, so the current day never gets in
-    bounds = sql[: sql.index("hours AS (")]
+    bounds = sql[: sql.index("spans AS (")]
     london_today = "DATE(CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', '${timezone}'))"
     assert f"DATE_SUB({london_today}, INTERVAL 30 DAY)" in bounds
     to_utc = bounds[bounds.index("CONVERT_TZ(CAST(" + london_today + " AS DATETIME)") :]
     to_expression, _, _ = to_utc.partition("AS to_utc")
     assert to_expression.endswith(", '${timezone}', 'UTC') ")
     assert "INTERVAL" not in to_expression
-    # every hour is taken from the window start up to, not including, today
-    assert sql.count(".hour_start >= b.from_utc") == 3
-    assert sql.count(".hour_start < b.to_utc") == 3
+    # every span is taken from the window start up to, not including, today
+    assert sql.count(" >= b.from_utc") == 3
+    assert sql.count(" < b.to_utc") == 3
     assert "INTERVAL 12 HOUR" in sql  # a day's point is at London noon
 
 
-def test_the_cost_comparison_keeps_a_day_only_when_every_hour_is_priced() -> None:
+def test_the_cost_comparison_keeps_a_day_only_when_every_minute_is_priced() -> None:
     sql = _cost_comparison_sql()
 
     # one shared rule, applied per series because it groups by series first
-    assert sql.count("HAVING COUNT(cost_gbp) = TIMESTAMPDIFF(") == 1
-    assert sql.index("GROUP BY series,") < sql.index("HAVING COUNT(")
+    covered = "SUM(IF(cost_gbp IS NULL, 0, TIMESTAMPDIFF(MINUTE, starts_at, ends_at)))"
+    assert sql.count(f"HAVING {covered} = TIMESTAMPDIFF(") == 1
+    assert sql.index("GROUP BY series,") < sql.index("HAVING SUM(")
+    assert "COUNT(cost_gbp)" not in sql
     # each output column takes its own series, so no two lines can be swapped
     for series, column in (
         ("current", "current_cost"),
@@ -938,4 +964,7 @@ def test_the_cost_comparison_reads_only_the_small_forecast_and_heating_tables() 
 
     ctes = set(re.findall(r"\b(\w+) AS \(", sql))
     tables = set(re.findall(r"\b(?:FROM|JOIN) (\w+)", sql)) - ctes
-    assert tables == {"room_forecast_hour", "heating_hour"}
+    assert tables == {"room_forecast_interval", "heating_interval"}
+
+
+QUERIES_DOCUMENT = GRAFANA_DIR / "mariadb" / "gas-heating-queries.md"

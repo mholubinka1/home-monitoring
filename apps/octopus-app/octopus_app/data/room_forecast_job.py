@@ -1,7 +1,9 @@
 """Runs the thermal model forward from the room's newest reading to the end of
-tomorrow and stores the hourly forecast (ADR-0035)."""
+tomorrow in 2-minute steps and stores the forecast every 10 minutes (ADR-0035,
+ADR-0036)."""
 
 import logging.config
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
@@ -9,14 +11,15 @@ from logging import Logger, getLogger
 from common import local_day
 from octopus_app.common.config import ComfortWindows
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import heating_hours, room_forecast
+from octopus_app.data import heating_intervals, room_forecast
 from octopus_app.data.model import (
     HourlyWeather,
-    RoomForecastRecord,
+    RoomForecastIntervalRecord,
     RoomForecastSlotRecord,
     ThermalModelRecord,
 )
 from octopus_app.data.mysql.client import MariaDBClient
+from octopus_app.data.room_forecast import STEP, STEP_MINUTES
 from octopus_app.data.thermal import (
     MINUTES_PER_HOUR,
     ONE_HOUR,
@@ -34,19 +37,35 @@ CURRENT = "current"
 PLAN = "plan"
 OFF_MODE = "OFF"
 MAX_READING_AGE = timedelta(minutes=30)
+STORED_MINUTES = 10  # one row per this many minutes
+STORED_SPAN = timedelta(minutes=STORED_MINUTES)
+
+
+class _UnitRates:
+    """The gas unit rate by hour start, each hour read once for a whole run."""
+
+    def __init__(self, read: Callable[[datetime], float | None]) -> None:
+        self._read = read
+        self._rates: dict[datetime, float | None] = {}
+
+    def at(self, hour: datetime) -> float | None:
+        if hour not in self._rates:
+            self._rates[hour] = self._read(hour)
+        return self._rates[hour]
 
 
 @dataclass(frozen=True)
-class _Inputs:
+class _Inputs:  # pylint: disable=too-many-instance-attributes
     """What both forecasts start from."""
 
-    numbers: ThermalNumbers
+    model: room_forecast.RoomModel
     start: room_forecast.Start
     hours: list[datetime]  # naive UTC starts, to the first weather gap
     weather: list[room_forecast.ForecastHour]  # the same hours, local starts
     boiler_kw: float
     now: datetime
     tomorrow: tuple[datetime, datetime]  # [start, end) of its local day, naive UTC
+    unit_rates: _UnitRates  # shared by both forecasts of the run
 
 
 class RoomForecastJob:
@@ -62,14 +81,14 @@ class RoomForecastJob:
 
     def refresh(self, now: datetime | None = None) -> None:
         """Replaces the live forecasts, current schedule and comfort plan, each on
-        its own inputs: hourly, from the hour containing the newest reading, and
-        from the reading's time on, to the end of tomorrow's local day."""
+        its own inputs: in 2-minute steps from the step containing the newest
+        reading, to the end of tomorrow's local day, stored every 10 minutes."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         end = _naive_utc_start_of(local_day.to_local_date(now) + 2 * ONE_DAY)
         stored = self._mariadb.read_latest_thermal_model()
         status = self._mariadb.read_latest_heating_status()
-        numbers = None if stored is None else _numbers_of(stored.model)
-        if numbers is None:
+        model = None if stored is None else _room_model_of(stored.model)
+        if model is None:
             logger.info("Room forecast: no usable thermal model, nothing stored.")
             return
         if status is None or status[1] is None:
@@ -86,18 +105,16 @@ class RoomForecastJob:
             logger.info("Room forecast: no weather for the first hour, nothing stored.")
             return
         inputs = _Inputs(
-            numbers,
+            model,
             room_forecast.Start(
-                status[1],
-                self._previous_fraction(first),
-                _local(status[0]),
-                self._seen_fraction(first, status[0]),
+                status[1], _local(status[0]), self._recorded_demand(model, status[0])
             ),
             hours,
             [
                 room_forecast.ForecastHour(
                     _local(hour),
                     weather[hour].temp,
+                    weather[hour + ONE_HOUR].temp,
                     (weather[hour + ONE_HOUR].radiation or 0.0) / WATTS_PER_KILOWATT,
                 )
                 for hour in hours
@@ -105,6 +122,9 @@ class RoomForecastJob:
             self._boiler_kw(now),
             now,
             (_naive_utc_start_of(local_day.to_local_date(now) + ONE_DAY), end),
+            _UnitRates(
+                lambda hour: self._mariadb.read_gas_unit_rate(self._region_code, hour)
+            ),
         )
         self._store_current(inputs, status[2] == OFF_MODE)
         self._store_plan(inputs, local_day.to_local_date(now))
@@ -125,14 +145,14 @@ class RoomForecastJob:
             return
         self._store_slots(schedule, local_day.to_local_date(inputs.now), inputs.now)
         planned = room_forecast.hold_forecast(
-            inputs.numbers,
+            inputs.model,
             inputs.start,
             inputs.weather,
             lambda local: (
                 # the thermostat will not heat
-                [room_forecast.Part(1.0, room_forecast.NO_TARGET)]
+                room_forecast.NO_TARGET
                 if heating_off
-                else room_forecast.schedule_parts(schedule, local)
+                else room_forecast.schedule_target_at_step(schedule, local)
             ),
         )
         self._store(CURRENT, inputs, planned)
@@ -183,7 +203,7 @@ class RoomForecastJob:
         target = room_forecast.round_up_to_half(comfort)
         self._store_plan_slots(inputs, target)
         planned = room_forecast.comfort_plan(
-            inputs.numbers, inputs.start, inputs.weather, target, self._windows
+            inputs.model, inputs.start, inputs.weather, target, self._windows
         )
         self._store(PLAN, inputs, planned)
 
@@ -193,7 +213,7 @@ class RoomForecastJob:
         rows: list[RoomForecastSlotRecord] = []
         # Each slot belongs to the day its window opened on.
         for day, slot in room_forecast.plan_slots(
-            inputs.numbers, inputs.start, inputs.weather, target, self._windows
+            inputs.model, inputs.start, inputs.weather, target, self._windows
         ):
             starts_at, ends_at = _instants_of(slot)
             if ends_at <= starts_at:
@@ -226,25 +246,23 @@ class RoomForecastJob:
         self,
         scenario: str,
         inputs: _Inputs,
-        planned: list[room_forecast.PlannedHour],
+        planned: list[room_forecast.PlannedStep],
     ) -> None:
-        rows = [
-            self._row(scenario, hour, step, inputs)
-            for hour, step in zip(inputs.hours, planned)
-        ]
+        rows = self._interval_rows(scenario, inputs, planned)
         self._mariadb.replace_room_forecast(LIVE, scenario, rows)
-        logger.info(f"Room forecast: stored {len(rows)} {scenario} hour(s).")
-        # Tomorrow's hours are also kept as the day-ahead forecast: rewritten by
-        # each run until midnight, then no run touches them again. A run cut short
-        # by a weather gap leaves the earlier rows, so a frozen day is never
-        # shortened.
+        logger.info(f"Room forecast: stored {len(rows)} {scenario} row(s).")
+        # Tomorrow's rows are also kept as the day-ahead forecast: rewritten by
+        # each run until midnight, then no run touches them again. A run that
+        # does not cover every minute of tomorrow (a weather gap) leaves the
+        # earlier rows, so a frozen day is never shortened.
         tomorrow_start, tomorrow_end = inputs.tomorrow
         tomorrow = [
             replace(row, kind=DAY_AHEAD)
             for row in rows
-            if tomorrow_start <= row.hour_start < tomorrow_end
+            if tomorrow_start <= row.starts_at < tomorrow_end
         ]
-        if len(tomorrow) < (tomorrow_end - tomorrow_start) // ONE_HOUR:
+        covered = sum((row.ends_at - row.starts_at for row in tomorrow), timedelta())
+        if covered < tomorrow_end - tomorrow_start:
             logger.info(
                 f"Room forecast: {scenario} does not cover all of tomorrow, "
                 "day-ahead rows left as they were."
@@ -254,55 +272,78 @@ class RoomForecastJob:
             DAY_AHEAD, scenario, tomorrow, tomorrow_start, tomorrow_end
         )
 
-    def _row(
+    def _interval_rows(
         self,
         scenario: str,
-        hour: datetime,
-        step: room_forecast.PlannedHour,
         inputs: _Inputs,
-    ) -> RoomForecastRecord:
-        on_minutes = round(step.fraction * MINUTES_PER_HOUR)
-        kwh, cost = heating_hours.estimated_cost(
-            on_minutes,
-            self._mariadb.read_gas_unit_rate(self._region_code, hour),
-            inputs.boiler_kw,
-        )
-        return RoomForecastRecord(
-            kind=LIVE,
-            scenario=scenario,
-            hour_start=hour,
-            room_temp=step.room,
-            on_minutes=on_minutes,
-            heating_kwh=kwh,
-            cost_gbp=cost,
-            computed_at=inputs.now.replace(tzinfo=None),
-        )
+        planned: list[room_forecast.PlannedStep],
+    ) -> list[RoomForecastIntervalRecord]:
+        """One row per 10 minutes: the room at its start (the first row holds the
+        reading), the minutes demanded over its steps, and the gas they cost at
+        the rate in force at its start."""
+        by_start: dict[datetime, list[room_forecast.PlannedStep]] = {}
+        for step in planned:
+            at = inputs.hours[0] + timedelta(minutes=step.offset_minutes)
+            by_start.setdefault(_stored_start_of(at), []).append(step)
+        rows: list[RoomForecastIntervalRecord] = []
+        for starts_at, steps in by_start.items():
+            on_minutes = round(sum(step.demand_minutes for step in steps), 1)
+            kwh, cost = heating_intervals.estimated_cost(
+                on_minutes,
+                inputs.unit_rates.at(starts_at.replace(minute=0)),
+                inputs.boiler_kw,
+            )
+            rows.append(
+                RoomForecastIntervalRecord(
+                    kind=LIVE,
+                    scenario=scenario,
+                    starts_at=starts_at,
+                    ends_at=starts_at + STORED_SPAN,
+                    room_temp=steps[0].room,
+                    on_minutes=on_minutes,
+                    heating_kwh=kwh,
+                    cost_gbp=cost,
+                    computed_at=inputs.now.replace(tzinfo=None),
+                )
+            )
+        return rows
 
     def _boiler_kw(self, now: datetime) -> float:
-        """The boiler kW learned from the measured hours of the 28 days before now."""
-        end = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
-        earlier = self._mariadb.read_heating_hours(
-            end - timedelta(days=heating_hours.BASELINE_DAYS), end
+        """The boiler kW learned from the measured half-hours of the 28 days before
+        now."""
+        end = heating_intervals.interval_start_of(now.replace(tzinfo=None))
+        earlier = self._mariadb.read_heating_intervals(
+            end - timedelta(days=heating_intervals.BASELINE_DAYS), end
         )
-        return heating_hours.learned_boiler_kw(
+        return heating_intervals.learned_boiler_kw(
             (row.on_minutes, row.heating_kwh or 0.0)
             for row in earlier
-            if row.source == heating_hours.MEASURED
+            if row.source == heating_intervals.MEASURED
         )
 
-    def _previous_fraction(self, first: datetime) -> float:
-        """The heating of the hour before the first, as a fraction; none stored
-        counts as none."""
-        stored = self._mariadb.read_heating_hours(first - ONE_HOUR, first)
-        return stored[0].on_minutes / MINUTES_PER_HOUR if stored else 0.0
-
-    def _seen_fraction(self, first: datetime, reading: datetime) -> float:
-        """The heating already seen in the first hour, as a fraction: the minutes
-        its polls before the reading were on, at most the minutes gone by."""
-        on = heating_hours.on_poll_minutes(
-            self._mariadb.read_heating_polls(first, reading)
+    def _recorded_demand(
+        self, model: room_forecast.RoomModel, reading: datetime
+    ) -> list[float]:
+        """The minutes the thermostat demanded in each 2-minute step before the
+        step containing the reading, over the delay plus the model's step, oldest
+        first: the heat that has not finished arriving by the reading."""
+        first_step = reading.replace(
+            minute=reading.minute // STEP_MINUTES * STEP_MINUTES,
+            second=0,
+            microsecond=0,
         )
-        return min(on, (reading - first) / timedelta(minutes=1)) / MINUTES_PER_HOUR
+        count = (model.delay_minutes + model.step_minutes) // STEP_MINUTES
+        begin = first_step - count * STEP
+        on_steps = {
+            (polled_at - begin) // STEP
+            for polled_at, state, boost in self._mariadb.read_heating_polls(
+                begin, first_step
+            )
+            if heating_intervals.poll_is_on(state, boost)
+        }
+        return [
+            float(STEP_MINUTES) if index in on_steps else 0.0 for index in range(count)
+        ]
 
 
 def _hours_with_weather(
@@ -316,6 +357,15 @@ def _hours_with_weather(
         hours.append(hour)
         hour += ONE_HOUR
     return hours
+
+
+def _stored_start_of(moment: datetime) -> datetime:
+    """The start of the 10-minute row holding a moment (naive UTC)."""
+    return moment.replace(
+        minute=moment.minute // STORED_MINUTES * STORED_MINUTES,
+        second=0,
+        microsecond=0,
+    )
 
 
 def _naive_utc_start_of(day: date) -> datetime:
@@ -340,17 +390,17 @@ def _instants_of(slot: room_forecast.Slot) -> tuple[datetime, datetime]:
     return starts, max(starts, _utc_of(slot.end))
 
 
-def _local(hour: datetime) -> datetime:
-    """A naive UTC hour as naive local wall-clock time."""
+def _local(moment: datetime) -> datetime:
+    """A naive UTC moment as naive local wall-clock time."""
     return (
-        hour.replace(tzinfo=UTC)
+        moment.replace(tzinfo=UTC)
         .astimezone(local_day.get_local_timezone())
         .replace(tzinfo=None)
     )
 
 
-def _numbers_of(record: ThermalModelRecord) -> ThermalNumbers | None:
-    """The model's numbers, or None when it is unusable."""
+def _room_model_of(record: ThermalModelRecord) -> room_forecast.RoomModel | None:
+    """The model as the forecast uses it, or None when it is unusable."""
     numbers = [
         record.loss_per_degree,
         record.heating_gain,
@@ -360,4 +410,12 @@ def _numbers_of(record: ThermalModelRecord) -> ThermalNumbers | None:
     ]
     if not record.usable or any(number is None for number in numbers):
         return None
-    return ThermalNumbers(*numbers)  # type: ignore[arg-type]
+    return room_forecast.RoomModel(
+        ThermalNumbers(*numbers),  # type: ignore[arg-type]
+        step_minutes=(
+            MINUTES_PER_HOUR if record.step_minutes is None else record.step_minutes
+        ),
+        delay_minutes=(
+            0 if record.warm_up_delay_minutes is None else record.warm_up_delay_minutes
+        ),
+    )

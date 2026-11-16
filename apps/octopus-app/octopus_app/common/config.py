@@ -5,7 +5,14 @@ from datetime import time
 from logging import Logger, getLogger
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -15,6 +22,7 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 _CLOCK_TIME = re.compile(r"(\d{1,2}):(\d{2})")
+COMFORT_TIME_STEP_MINUTES = 2
 
 
 class OctopusAPISettings(BaseModel):
@@ -48,10 +56,38 @@ class ComfortWindow(BaseModel):
             raise ValueError('use a quoted clock time such as "07:45"')
         return time(int(match[1]), int(match[2]))
 
+    @model_validator(mode="after")
+    def _times_must_stay_apart_on_the_forecast_steps(self) -> "ComfortWindow":
+        """Rounds both times to the forecast's 2-minute marks. A window whose times
+        differ but would end where it starts once rounded is refused: it would
+        otherwise be read as lasting until the next day. A start equal to its end
+        is left as it is."""
+        start, end = _earlier_even_minute(self.start), _earlier_even_minute(self.end)
+        if start == end and self.start != self.end:
+            raise ValueError(
+                f"comfort window {self.start:%H:%M} to {self.end:%H:%M} would end "
+                "where it starts once its times are rounded earlier to 2-minute marks"
+            )
+        self.start, self.end = start, end
+        return self
+
+
+def _earlier_even_minute(clock_time: time) -> time:
+    """The room forecast steps in 2 minutes, so a comfort time on an odd minute
+    is rounded earlier to the 2-minute mark."""
+    if clock_time.minute % COMFORT_TIME_STEP_MINUTES == 0:
+        return clock_time
+    rounded = clock_time.replace(minute=clock_time.minute - 1)
+    logger.warning(
+        f"Comfort window time {clock_time:%H:%M} is not on a 2-minute mark; "
+        f"using {rounded:%H:%M}."
+    )
+    return rounded
+
 
 class ComfortWindows(BaseModel):
     weekday: ComfortWindow = ComfortWindow(start=time(6, 30), end=time(0, 0))
-    weekend: ComfortWindow = ComfortWindow(start=time(7, 45), end=time(0, 0))
+    weekend: ComfortWindow = ComfortWindow(start=time(7, 44), end=time(0, 0))
 
 
 class ApplicationSettings(BaseModel):
@@ -83,9 +119,10 @@ def get_settings(
         invalid_fields = ", ".join(
             ".".join(str(part) for part in error["loc"]) for error in e.errors()
         )
+        reasons = "; ".join(error["msg"] for error in e.errors())
         logger.critical(
             f"Failed to load application settings from {config_file_path}: "
-            f"invalid or missing field(s): {invalid_fields}"
+            f"invalid or missing field(s): {invalid_fields} ({reasons})"
         )
         sys.exit(1)
     except Exception as e:
