@@ -138,7 +138,9 @@ Example: at 06:00 the room is at 16.0 °C and it is 6 °C outside, before sunris
 
 Example (made up): the thermostat calls for heat at 05:40 and the room only starts to warm at 05:54, a delay of 14 minutes. Fitted with a 14-minute delay, the model explains the readings better than with any other.
 
-The first refit after this change is the assessment of how long the household's radiators take, nobody has measured it before. The figure and whether it was learned are on the Heating Plan and Room Model panel, and the number of heating starts is stored with each fit.
+The first refit after this change was the assessment of how long the household's radiators take, which nobody had measured before. On 16 November 2026 it learned a delay of **8 minutes** (source: learned), from **37 heating starts** in the 60 days. That fit used 5,012 complete 10-minute steps, was usable, and its backtest replayed 7 days with a mean miss of 0.24 °C and a worst miss of 0.85 °C. The delay is not at the top of the 0 to 40 minute range, so the range is long enough. The figure and whether it was learned are on the Heating Plan and Room Model panel, and the number of heating starts is stored with each fit.
+
+The same fit gives a heating gain of about 0.68 °C per hour of heating and a carried gain of about 0.75, against about 1.4 and 0.2 on the hourly fit. They are not comparable: the delay and the carried heat now take part of what the hourly model counted as heating, and the carried gain refers to the 10 minutes after the heat arrives. The loss (0.021), sunshine gain (0.31) and constant gain (0.083) are close to the hourly fit's.
 
 **How it is checked.** A model that fits the past is not proof that it predicts. So each time it is relearned it is given a test it has not seen the answers to, called a [backtest](https://en.wikipedia.org/wiki/Backtesting):
 
