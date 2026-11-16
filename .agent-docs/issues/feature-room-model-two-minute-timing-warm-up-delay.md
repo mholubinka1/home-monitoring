@@ -109,7 +109,7 @@ Bring the heating guide into line with the new rules, record the first learned d
 ### Acceptance criteria
 
 - [x] Given `docs/heating-model.md`, when read, then sections 10 and 12 describe half-hourly cost, 10-minute learning, 2-minute timing and the warm-up delay with a worked example.
-- [ ] Given the guide after the first refit with a learned delay, when read, then it records the delay, its source and the number of Heating Starts.
+- [x] Given the guide after the first refit with a learned delay, when read, then it records the delay, its source and the number of Heating Starts.
 - [x] Given the queries document, when read, then it lists `heating_hour` and `room_forecast_hour` as retired, with the statements to drop them by hand after the dashboard review.
 
 ---
