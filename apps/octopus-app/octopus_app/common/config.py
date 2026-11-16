@@ -58,9 +58,10 @@ class ComfortWindow(BaseModel):
 
     @model_validator(mode="after")
     def _times_must_stay_apart_on_the_forecast_steps(self) -> "ComfortWindow":
-        """Rounds both times to the forecast's 2-minute marks. A window that would
-        end where it starts once rounded is refused: it would otherwise be read as
-        lasting until the next day."""
+        """Rounds both times to the forecast's 2-minute marks. A window whose times
+        differ but would end where it starts once rounded is refused: it would
+        otherwise be read as lasting until the next day. A start equal to its end
+        is left as it is."""
         start, end = _earlier_even_minute(self.start), _earlier_even_minute(self.end)
         if start == end and self.start != self.end:
             raise ValueError(

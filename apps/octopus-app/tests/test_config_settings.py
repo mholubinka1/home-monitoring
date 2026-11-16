@@ -270,3 +270,9 @@ def test_a_collapsing_comfort_window_stops_startup_and_says_why(
     logged = " ".join(logged_messages)
     assert "comfort_windows.weekday" in logged
     assert "where it starts" in logged
+
+
+def test_a_window_whose_start_equals_its_end_is_accepted_and_still_rounded() -> None:
+    window = ComfortWindow.model_validate({"start": "07:45", "end": "07:45"})
+
+    assert (window.start, window.end) == (time(7, 44), time(7, 44))
