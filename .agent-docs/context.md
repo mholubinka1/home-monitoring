@@ -258,7 +258,7 @@ The least heating that keeps the room at the Comfort Temperature (rounded up to 
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Window**:
-The configured hours the Comfort Plan keeps comfortable: 06:30 to midnight on weekdays and 07:44 to midnight at weekends by default (the household's 07:45, rounded earlier), each time rounded earlier to a 2-minute mark (a window whose start and end round to the same mark is refused at startup). Distinct from Counted Hours, which are learned.
+The configured hours the Comfort Plan keeps comfortable: 06:30 to midnight on weekdays and 07:44 to midnight at weekends by default (the household's 07:45, rounded earlier), each time rounded earlier to a 2-minute mark (a window whose different start and end round to the same mark is refused at startup). Distinct from Counted Hours, which are learned.
 
 ### Hive and Weather
 

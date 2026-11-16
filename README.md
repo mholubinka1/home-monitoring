@@ -77,8 +77,8 @@ providing:
   Defaults are 06:30 to 00:00 on weekdays and 07:44 to 00:00 at weekends (Saturday and
   Sunday); an end of `00:00` is midnight at the end of the day. The forecast steps in
   2 minutes, so a time on an odd minute is rounded earlier to an even one (`07:45`
-  becomes `07:44`) and the log says so; a window whose start and end round to the same
-  mark is refused at startup. Quote the times
+  becomes `07:44`) and the log says so; a window whose different start and end round to
+  the same mark is refused at startup. Quote the times
   (`start: "07:45"`), because YAML reads an unquoted `7:45` as a number and the app
   stops at startup, naming the field.
 
