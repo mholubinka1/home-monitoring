@@ -164,8 +164,8 @@ A one-off live check, runnable at any time, that posts `{"schedule": {...}}` for
 
 ### Acceptance criteria
 
-- [ ] Given the live account, when a made-up schedule (05:40–06:25 at 19 °C) is posted to one weekday and read back, then the research note records acceptance, the start-time grain, the slot limit and any 200-but-unstored behaviour, and the original week is restored.
-- [ ] Given the 2.0 beta's source at a named version, when the spike is written up, then the note lists its `set_schedule` validation rules and whether the live account agreed with them.
+- [x] Given the live account, when a made-up schedule (05:40–06:25 at 19 °C) is posted to one weekday and read back, then the research note records acceptance, the start-time grain, the slot limit and any 200-but-unstored behaviour, and the original week is restored.
+- [x] Given the 2.0 beta's source at a named version, when the spike is written up, then the note lists its `set_schedule` validation rules and whether the live account agreed with them.
 
 ---
 
