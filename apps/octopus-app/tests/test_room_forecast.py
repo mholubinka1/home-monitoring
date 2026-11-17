@@ -24,6 +24,12 @@ from octopus_app.data.room_forecast import (
 )
 from octopus_app.data.thermal import ThermalNumbers
 
+# Pinned, so that changing the household's default windows leaves these times alone.
+PINNED_WINDOWS = ComfortWindows(
+    weekday=ComfortWindow(start=time(6, 30), end=time(0, 0)),
+    weekend=ComfortWindow(start=time(7, 44), end=time(0, 0)),
+)
+
 NUMBERS = ThermalNumbers(
     loss_per_degree=0.02,
     heating_gain=1.3,
@@ -142,7 +148,7 @@ def test_the_plan_target_rounds_up_to_the_next_half_degree(
 
 
 def test_weekdays_start_at_0630_and_weekends_at_0744_both_ending_at_midnight() -> None:
-    windows = ComfortWindows()
+    windows = PINNED_WINDOWS
 
     assert comfort_window(windows, TUESDAY) == (
         datetime(2026, 11, 17, 6, 30),
@@ -371,7 +377,7 @@ def test_the_room_is_at_the_target_at_the_opening_with_the_shortest_whole_step_l
     start = Start(17.0, datetime(2026, 11, 17, 4, 0))
     hours = _hours(datetime(2026, 11, 17, 4), 6)
 
-    plan = comfort_plan(HOURLY_MODEL, start, hours, 18.5, ComfortWindows())
+    plan = comfort_plan(HOURLY_MODEL, start, hours, 18.5, PINNED_WINDOWS)
 
     # Then the room is at the target at 06:30 (150 minutes in)
     assert _room_at(plan, 150) >= 18.5 - 1e-9
@@ -402,7 +408,7 @@ def test_a_room_already_warm_enough_needs_no_preheat() -> None:
         start,
         _hours(datetime(2026, 11, 17, 6), 3),
         19.0,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     # Then nothing is demanded
@@ -416,7 +422,7 @@ def test_a_target_out_of_reach_heats_from_the_start_of_the_forecast() -> None:
         Start(14.0, datetime(2026, 11, 17, 6, 10)),
         _hours(datetime(2026, 11, 17, 6), 2, outdoor=-10.0),
         19.0,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     # Then it heats from the first step
@@ -427,9 +433,9 @@ def test_a_warm_up_delay_moves_the_start_of_the_preheat_earlier_by_the_delay() -
     start = Start(17.0, datetime(2026, 11, 17, 4, 0))
     hours = _hours(datetime(2026, 11, 17, 4), 6)
 
-    without_delay = comfort_plan(HOURLY_MODEL, start, hours, 18.5, ComfortWindows())
+    without_delay = comfort_plan(HOURLY_MODEL, start, hours, 18.5, PINNED_WINDOWS)
     delayed_model = RoomModel(NUMBERS, step_minutes=60, delay_minutes=14)
-    delayed = comfort_plan(delayed_model, start, hours, 18.5, ComfortWindows())
+    delayed = comfort_plan(delayed_model, start, hours, 18.5, PINNED_WINDOWS)
 
     # Then gas is demanded 14 minutes earlier and the room is still at the target
     # at the opening
@@ -448,14 +454,14 @@ def test_the_weekend_window_opens_at_0744_so_the_plan_starts_later_than_a_weekda
         start,
         _hours(datetime(2026, 11, 17, 4), 6),
         18.5,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
     saturday = comfort_plan(
         HOURLY_MODEL,
         saturday_start,
         _hours(datetime(2026, 11, 21, 4), 6),
         18.5,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     # The Saturday window opens 74 minutes after Tuesday's
@@ -509,8 +515,8 @@ def test_plan_slots_start_at_the_opening_less_the_lead_and_end_at_the_close() ->
     start = Start(17.0, datetime(2026, 11, 17, 4, 0))
     hours = _hours(datetime(2026, 11, 17, 4), 6)
 
-    plan = comfort_plan(HOURLY_MODEL, start, hours, 18.5, ComfortWindows())
-    slots = plan_slots(HOURLY_MODEL, start, hours, 18.5, ComfortWindows())
+    plan = comfort_plan(HOURLY_MODEL, start, hours, 18.5, PINNED_WINDOWS)
+    slots = plan_slots(HOURLY_MODEL, start, hours, 18.5, PINNED_WINDOWS)
 
     day, slot = slots[0]
     assert day == TUESDAY
@@ -537,7 +543,7 @@ def test_on_a_spring_forward_day_the_preheat_can_start_in_the_hour_before_the_ch
         Start(10.0, datetime(2026, 3, 29, 0, 0)),
         hours,
         19.0,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     # Then it heats from the forecast's first step, not from 01:00 (which never
@@ -559,7 +565,7 @@ def test_on_a_fall_back_day_an_out_of_reach_target_heats_from_the_first_step() -
         Start(5.0, datetime(2026, 10, 25, 0, 0)),
         hours,
         19.0,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     assert _first_demand(plan) == 0
@@ -577,7 +583,7 @@ def test_a_reachable_target_across_the_spring_forward_gap_is_at_the_opening() ->
         Start(15.0, datetime(2026, 3, 29, 0, 0)),
         hours,
         19.0,
-        ComfortWindows(),
+        PINNED_WINDOWS,
     )
 
     # Then the pre-heat starts part-way through the forecast, and the room is at the

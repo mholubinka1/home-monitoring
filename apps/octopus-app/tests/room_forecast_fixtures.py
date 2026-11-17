@@ -2,11 +2,12 @@
 
 London is on GMT in November, so local time is UTC."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
 
+from octopus_app.common.config import ComfortWindow, ComfortWindows
 from octopus_app.data.model import ComfortDayRecord, ThermalModelRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import (
@@ -22,6 +23,12 @@ ONE_HOUR = timedelta(hours=1)
 HALF_HOUR = timedelta(minutes=30)
 LOCATION = "51.50,-0.10"
 REGION = "A"
+# The comfort windows these tests were written against, pinned so that changing
+# the household's defaults does not move their expected times.
+PINNED_WINDOWS = ComfortWindows(
+    weekday=ComfortWindow(start=time(6, 30), end=time(0, 0)),
+    weekend=ComfortWindow(start=time(7, 44), end=time(0, 0)),
+)
 DAYS = (
     "monday",
     "tuesday",

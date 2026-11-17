@@ -19,6 +19,7 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     DAYS,
     NOW,
     ONE_HOUR,
+    PINNED_WINDOWS,
     REGION,
     live_rows,
     seed_comfort,
@@ -50,7 +51,7 @@ def test_forecast_under_the_current_schedule_runs_from_now_to_the_end_of_tomorro
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then live `current` rows run every 10 minutes from the one containing the
     # newest reading to the end of tomorrow, starting from that reading
@@ -79,7 +80,7 @@ def test_a_slot_target_above_the_room_is_held_with_the_least_heating(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the heating stops once the room is at 19 C, at 14:50. The heat alone
     # would need about (19 - 18 + 0.07) / 1.3 of an hour, 49 minutes; it stores
@@ -101,7 +102,7 @@ def test_heating_kwh_and_cost_follow_the_learned_boiler_kw_and_the_gas_rate(
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the first row's 6 minutes (14:04 to 14:10) is 6/60 * 6 = 0.6 kWh, costing
     # 0.6 * 6 / 100 = 0.036 pounds
@@ -123,7 +124,7 @@ def test_a_model_fitted_hourly_forecasts_the_same_room_each_hour_as_the_hourly_f
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the room at each whole hour is what the hourly forecast gave, each hour
     # changing it by 0.02 * (10 - room) + 0.08, to a few thousandths of a degree:
@@ -146,7 +147,7 @@ def test_mode_off_forecasts_no_heating(client: MariaDBClient) -> None:
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then no row heats, and the room cools to 17.992 C at 14:10
     rows = live_rows(client, "current")
@@ -175,7 +176,7 @@ def test_an_unreadable_or_missing_schedule_stores_no_current_rows(
 
     # When the job runs
     with caplog.at_level("WARNING"):
-        RoomForecastJob(client, REGION).refresh(NOW)
+        RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then nothing is stored, rather than a forecast of no heating, and a warning
     # says why
@@ -186,12 +187,12 @@ def test_an_unreadable_or_missing_schedule_stores_no_current_rows(
 def test_a_second_run_replaces_the_earlier_live_rows(client: MariaDBClient) -> None:
     # Given a first run from a room of 18 C
     seed_heating_forecast_inputs(client)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # When a fresher reading of 20 C arrives and the job runs again
     later = NOW + timedelta(minutes=10)
     seed_reading(client, later - timedelta(minutes=1), room=20.0)
-    RoomForecastJob(client, REGION).refresh(later)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(later)
 
     # Then only the second run's rows are stored
     rows = live_rows(client, "current")
@@ -205,7 +206,7 @@ def test_cost_is_empty_without_a_gas_rate(client: MariaDBClient) -> None:
     seed_heating_forecast_inputs(client)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the energy is estimated, 6 minutes at 12 kW, and there is no cost
     first = live_rows(client, "current")[0]
@@ -218,11 +219,11 @@ def test_a_reading_more_than_30_minutes_old_stores_nothing(
 ) -> None:
     # Given a forecast stored from a fresh reading at 14:05
     seed_heating_forecast_inputs(client)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # When the job runs an hour later and no newer reading has arrived, so the
     # newest is 65 minutes old
-    RoomForecastJob(client, REGION).refresh(NOW + ONE_HOUR)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + ONE_HOUR)
 
     # Then nothing new is stored and the earlier rows are left as they were
     rows = live_rows(client, "current")
@@ -239,7 +240,7 @@ def test_a_reading_exactly_30_minutes_old_is_fresh(client: MariaDBClient) -> Non
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then it counts as fresh and the forecast is stored, from the 13:40 row
     # holding the reading, so 20 minutes short of 35 hours
@@ -254,7 +255,7 @@ def test_an_unusable_newest_model_stores_nothing_and_never_falls_back(
     # Given a forecast stored under the usable model, then a newer model that is
     # not usable
     seed_heating_forecast_inputs(client)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     unusable = replace(
         usable_model(),
         fitted_at=NOW - timedelta(hours=1),
@@ -265,7 +266,7 @@ def test_an_unusable_newest_model_stores_nothing_and_never_falls_back(
     seed_reading(client, NOW + timedelta(minutes=9), room=21.0)
 
     # When the job runs again
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(minutes=10))
 
     # Then the older usable model is not used and the earlier rows are as they were
     rows = live_rows(client, "current")
@@ -297,11 +298,11 @@ def test_no_weather_for_the_first_hour_leaves_the_earlier_rows(
 ) -> None:
     # Given a forecast stored earlier, and weather that ends at 00:00 on the 19th
     seed_heating_forecast_inputs(client)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     seed_reading(client, later - timedelta(minutes=1), room=20.0)
 
     # When the job runs at a time whose first hour (or its radiation) has no weather
-    RoomForecastJob(client, REGION).refresh(later)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(later)
 
     # Then the earlier rows are not deleted or replaced
     rows = live_rows(client, "current")
@@ -314,7 +315,7 @@ def test_a_weather_gap_later_in_the_horizon_stops_the_forecast_there(
 ) -> None:
     # Given a forecast stored earlier, then weather only to 20:00 for the next run
     seed_heating_forecast_inputs(client)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     seed_reading(client, NOW + timedelta(minutes=9), room=20.0)
     with client.session_write_scope() as session:
         session.execute(
@@ -324,7 +325,7 @@ def test_a_weather_gap_later_in_the_horizon_stops_the_forecast_there(
         )
 
     # When the job runs again
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(minutes=10))
 
     # Then the rows run up to the last hour whose radiation is known, replacing
     # the earlier ones
@@ -349,7 +350,7 @@ def test_an_unknown_radiation_counts_as_no_sunshine_and_keeps_the_hour(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then every hour is kept and the room cools as with no sunshine, to 17.992 C
     # at 14:10
@@ -377,7 +378,7 @@ def test_an_hours_temperature_pairs_with_the_next_stamps_radiation(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the 14:00 hour takes 15:00's 1 kW/m2, and its outdoor temperature runs
     # in a straight line from its own 10 C to 15:00's 14 C: three steps, at 14:04,
@@ -420,7 +421,7 @@ def test_the_horizon_ends_at_the_last_hour_of_tomorrows_local_day(
     seed_weather_forecast(client, first=first, last=first + ONE_HOUR * 40)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(now)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(now)
 
     # Then the rows end at the last 10 minutes of tomorrow's local day
     rows = live_rows(client, "current")
@@ -459,7 +460,7 @@ def test_the_plan_reaches_its_target_at_the_local_window_start_across_a_clock_ch
     seed_comfort(client, now.date(), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(now)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(now)
 
     # Then the plan covers the same rows as the current ones, and the room is at
     # 19 C at the first 10-minute row after 07:44 local
@@ -491,7 +492,7 @@ def test_the_plan_holds_the_rounded_up_comfort_temperature_with_the_shortest_pre
     seed_comfort(client, NOW.date(), 19.3)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the plan covers the same hours as the current rows
     rows = live_rows(client, "plan")
@@ -534,7 +535,7 @@ def test_the_weekend_plan_starts_at_0744(client: MariaDBClient) -> None:
     seed_comfort(client, friday.date(), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(friday)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(friday)
 
     # Then the room is at 19 C at 07:50, the first row after the 07:44 opening
     # (the household's 07:45, rounded earlier to a 2-minute mark), and the pre-heat
@@ -574,7 +575,7 @@ def test_no_comfort_temperature_stores_no_plan_but_the_current_rows(
     seed_plan_inputs(client)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then no plan rows are stored and the current rows are
     assert live_rows(client, "plan") == []
@@ -590,7 +591,7 @@ def test_a_day_with_no_comfort_temperature_uses_the_newest_earlier_one(
     seed_comfort(client, NOW.date(), None)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the plan holds 19 C: the first row heats 18 C flat out from the 14:04
     # step, 6 minutes
@@ -607,7 +608,7 @@ def test_plan_hours_carry_kwh_and_cost_like_the_current_rows(
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the first plan row, 6 minutes, is 0.6 kWh and 0.036 pounds
     first = live_rows(client, "plan")[0]
@@ -629,7 +630,7 @@ def test_an_unreadable_schedule_stores_the_plan_and_no_current_rows(
     seed_comfort(client, NOW.date(), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the plan is stored on its own inputs
     assert live_rows(client, "current") == []
@@ -646,7 +647,7 @@ def test_mode_off_does_not_stop_the_plan(client: MariaDBClient) -> None:
     seed_comfort(client, NOW.date(), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then the current rows do not heat but the plan does
     assert {row.on_minutes for row in live_rows(client, "current")} == {0}
@@ -685,12 +686,12 @@ def test_an_unreadable_schedule_removes_the_earlier_current_rows_and_keeps_the_p
     # Given both forecasts stored from a readable schedule
     seed_plan_inputs(client)
     seed_comfort(client, NOW.date(), 19.0)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     assert live_rows(client, "current")
 
     # When Hive's schedule becomes unreadable and the job runs again
     seed_schedule(client, {"monday": "not slots"})
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(minutes=10))
 
     # Then the old current-schedule line is gone, not left drawn as today's, and
     # the plan is refreshed
@@ -706,12 +707,12 @@ def test_no_comfort_temperature_removes_the_earlier_plan_rows_and_keeps_the_curr
     # Given both forecasts stored from a comfort temperature of 19 C
     seed_plan_inputs(client)
     seed_comfort(client, NOW.date(), 19.0)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     assert live_rows(client, "plan")
 
     # When the comfort temperature is gone and the job runs again
     seed_comfort(client, NOW.date(), None)
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(minutes=10))
 
     # Then the old plan line is gone and the current-schedule line is refreshed
     assert live_rows(client, "plan") == []

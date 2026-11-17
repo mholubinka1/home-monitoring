@@ -12,6 +12,7 @@ from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
     NOW,
+    PINNED_WINDOWS,
     REGION,
     live_rows,
     seed_comfort,
@@ -55,7 +56,7 @@ def test_a_run_today_stores_day_ahead_rows_for_every_ten_minutes_of_tomorrow_onl
     seed_comfort(client, NOW.date(), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then each scenario has day-ahead rows for every 10 minutes of Wednesday and
     # none for today, and they match the live rows of those minutes
@@ -77,12 +78,12 @@ def test_a_later_run_the_same_day_rewrites_tomorrows_day_ahead_rows(
 ) -> None:
     # Given a run at 14:10 on a reading of 18 C
     seed_plan_inputs(client, room=18.0)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # When a run an hour later reads a different room temperature
     later = NOW + timedelta(hours=1)
     seed_reading(client, later - timedelta(minutes=5), room=20.0)
-    RoomForecastJob(client, REGION).refresh(later)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(later)
 
     # Then tomorrow's day-ahead rows are the second run's, still every 10 minutes
     day_ahead = day_ahead_rows(client, "current")
@@ -106,7 +107,7 @@ def test_once_midnight_passes_that_days_day_ahead_rows_stay_frozen(
         client, first=datetime(2026, 11, 17, 23), last=datetime(2026, 11, 21, 0)
     )
     seed_reading(client, last_run - timedelta(minutes=5), room=18.0)
-    RoomForecastJob(client, REGION).refresh(last_run)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(last_run)
     frozen = [
         (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "current")
@@ -116,7 +117,7 @@ def test_once_midnight_passes_that_days_day_ahead_rows_stay_frozen(
     # When a run after midnight reads a different room temperature
     after_midnight = datetime(2026, 11, 18, 0, 20, tzinfo=UTC)
     seed_reading(client, after_midnight - timedelta(minutes=5), room=21.0)
-    RoomForecastJob(client, REGION).refresh(after_midnight)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(after_midnight)
 
     # Then Wednesday's day-ahead rows are as the 23:30 run wrote them, Thursday's
     # are written, and nothing is stored for Tuesday
@@ -137,14 +138,14 @@ def test_a_skipped_run_leaves_the_day_ahead_rows_untouched(
 ) -> None:
     # Given day-ahead rows from a run
     seed_plan_inputs(client, room=18.0)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     before = [
         (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "current")
     ]
 
     # When a later run finds the newest reading stale
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(hours=1))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(hours=1))
 
     # Then the day-ahead rows are as they were
     assert [
@@ -160,7 +161,7 @@ def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
     # Given a full day-ahead stored for Wednesday by a run on Tuesday
     seed_plan_inputs(client)
     seed_comfort(client, NOW.date(), 19.0)
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     before = [
         (row.starts_at, row.room_temp, row.computed_at)
         for row in day_ahead_rows(client, "plan")
@@ -175,7 +176,7 @@ def test_a_run_cut_short_by_a_weather_gap_leaves_the_day_ahead_whole(
                 weather_forecast_hour_table.c.forecast_at > datetime(2026, 11, 18, 18)
             )
         )
-    RoomForecastJob(client, REGION).refresh(NOW + timedelta(minutes=10))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW + timedelta(minutes=10))
 
     # Then the live forecast stops at the gap, but the frozen comparison is not
     # shortened, in either scenario

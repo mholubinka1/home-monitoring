@@ -165,13 +165,13 @@ While the newest model is not usable, no new forecast is made. The last forecast
 **The room forecast.** Once an hour the model is run forward from the room's latest reading to the end of tomorrow in 2-minute steps, the thermostat's own reading interval, using the weather forecast, and stored every 10 minutes. It is run twice:
 
 - **Under your Hive schedule as programmed.** The thermostat heats just enough to hold each slot's target, and nothing while Hive's mode is OFF. If the weekly schedule cannot be read, this forecast is left out for that run and the log says so, rather than showing a house with no heating. Slots are followed to the step: a slot beginning at 05:40 heats from 05:40. A slot that starts on an odd minute takes effect from the 2-minute step before it, so one that starts at 06:25 takes over at 06:24.
-- **Under the comfort plan.** This is advice only: nothing is ever sent to Hive. The plan holds your comfort temperature (section 11), rounded up to the half degree Hive accepts, from 06:30 on weekdays and 07:44 at weekends until midnight. The windows are in the octopus-app config, and a time on an odd minute is rounded earlier to an even one (07:45 becomes 07:44) with a line in the log, and a window whose different start and end would round to the same mark is refused at startup. The target is held from the step the window opens until the step it closes, and before the opening the plan heats for the shortest whole number of 2-minute steps that has the room at the target at that minute, allowing for the warm-up delay.
+- **Under the comfort plan.** This is advice only: nothing is ever sent to Hive. The plan holds your comfort temperature (section 11), rounded up to the half degree Hive accepts, from 07:30 until 23:00 on weekdays and from 08:30 until midnight at weekends. The windows are in the octopus-app config, and a time on an odd minute is rounded earlier to an even one (07:45 becomes 07:44) with a line in the log, and a window whose different start and end would round to the same mark is refused at startup. The target is held from the step the window opens until the step it closes, and before the opening the plan heats for the shortest whole number of 2-minute steps that has the room at the target at that minute, allowing for the warm-up delay.
 
 With a warm-up delay the forecast treats heat as arriving that long after the thermostat asks for it. Nothing arrives for the first delay of a slot, and heat already asked for keeps arriving for the delay after the slot ends. Gas is counted when the thermostat asks, not when the room responds. The first row is forecast only from the latest reading onwards, and the heating asked for just before it, which has not yet finished arriving, still warms the room in the forecast (its gas is not counted again).
 
 Example: a slot at 19 C from 05:40 to 06:25 and a warm-up delay of 14 minutes. Gas is counted from 05:40. The room line follows its unheated course until 05:54, then climbs. Demand stops at 06:24; heat keeps arriving until 06:38.
 
-Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C, and the delay is 14 minutes. The room at 06:30 needs 42 minutes of arriving heat to reach 19.5 °C. Heat takes 14 minutes to arrive, so the plan switches on 42 plus 14 minutes before 06:30, at 05:34, and holds 19.5 °C from 06:30. With no delay it would have switched on 14 minutes later and the room would reach the target at the same time.
+Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C, and the delay is 14 minutes. The room at 07:30 needs 42 minutes of arriving heat to reach 19.5 °C. Heat takes 14 minutes to arrive, so the plan switches on 42 plus 14 minutes before 07:30, at 06:34, and holds 19.5 °C from 07:30. With no delay it would have switched on 14 minutes later and the room would reach the target at the same time.
 
 **A known limit.** If Hive's mode is MANUAL (a temperature set by hand, held until changed), the schedule forecast still follows the programmed slots as though the mode were SCHEDULE, so it will not show the manual temperature. Only OFF is treated differently.
 
@@ -195,7 +195,7 @@ What this cannot tell you: it describes one room, the one with the thermostat. I
 
 **Comfort plan.** The least heating that keeps the room at the comfort temperature (rounded up to a half degree) through the comfort window, including the pre-heat before it. Advice only.
 
-**Comfort window.** The hours of a day the comfort plan keeps comfortable: 06:30 to midnight on weekdays and 07:44 to midnight at weekends, set in the config.
+**Comfort window.** The hours of a day the comfort plan keeps comfortable: 07:30 to 23:00 on weekdays and 08:30 to midnight at weekends by default, set in the config.
 
 **Counted hour.** A clock hour in which the heating has been on in the last 365 days; only these count towards minutes below comfort.
 

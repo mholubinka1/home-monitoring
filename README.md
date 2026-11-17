@@ -74,7 +74,7 @@ providing:
   the summary's counted days reach back less than 6 months, and needs no configuration.
 - Optional `comfort_windows` (`weekday` and `weekend`, each with a `start` and an `end`
   local time): when the room forecast's comfort plan holds the comfort temperature.
-  Defaults are 06:30 to 00:00 on weekdays and 07:44 to 00:00 at weekends (Saturday and
+  Defaults are 07:30 to 23:00 on weekdays and 08:30 to 00:00 at weekends (Saturday and
   Sunday); an end of `00:00` is midnight at the end of the day. The forecast steps in
   2 minutes, so a time on an odd minute is rounded earlier to an even one (`07:45`
   becomes `07:44`) and the log says so; a window whose different start and end round to

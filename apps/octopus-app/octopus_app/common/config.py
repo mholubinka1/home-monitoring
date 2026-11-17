@@ -86,8 +86,8 @@ def _earlier_even_minute(clock_time: time) -> time:
 
 
 class ComfortWindows(BaseModel):
-    weekday: ComfortWindow = ComfortWindow(start=time(6, 30), end=time(0, 0))
-    weekend: ComfortWindow = ComfortWindow(start=time(7, 44), end=time(0, 0))
+    weekday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
+    weekend: ComfortWindow = ComfortWindow(start=time(8, 30), end=time(0, 0))
 
 
 class ApplicationSettings(BaseModel):

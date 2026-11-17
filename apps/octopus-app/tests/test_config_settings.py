@@ -148,7 +148,7 @@ def test_a_configured_quoted_comfort_window_overrides_the_default(
 
     # Then the weekend uses it and the weekday keeps its default
     assert (windows.weekend.start, windows.weekend.end) == (time(8, 16), time(23, 0))
-    assert windows.weekday.start == time(6, 30)
+    assert windows.weekday.start == time(7, 30)
 
 
 def test_an_unquoted_comfort_time_stops_startup_telling_the_user_to_quote_it(
@@ -180,11 +180,10 @@ def test_comfort_windows_default_to_the_household_hours() -> None:
     # When the settings load
     settings = ApplicationSettings.model_validate(VALID_CONFIG)
 
-    # Then weekdays are 06:30 to midnight and weekends 07:44 to midnight, the
-    # household's 07:45 rounded earlier to a 2-minute mark
+    # Then weekdays are 07:30 to 23:00 and weekends 08:30 to midnight
     windows = settings.comfort_windows
-    assert (windows.weekday.start, windows.weekday.end) == (time(6, 30), time(0, 0))
-    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(0, 0))
+    assert (windows.weekday.start, windows.weekday.end) == (time(7, 30), time(23, 0))
+    assert (windows.weekend.start, windows.weekend.end) == (time(8, 30), time(0, 0))
 
 
 def test_a_comfort_time_on_an_odd_minute_is_rounded_earlier_and_logged(

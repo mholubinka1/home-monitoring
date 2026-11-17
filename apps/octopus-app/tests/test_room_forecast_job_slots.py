@@ -16,6 +16,7 @@ from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
     NOW,
+    PINNED_WINDOWS,
     REGION,
     live_rows,
     seed_comfort,
@@ -52,7 +53,7 @@ def test_a_slot_ending_on_an_odd_minute_heats_every_step_up_to_the_one_it_ends_i
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then the 05:40 to 06:10 rows each store 10 minutes of heating, the 06:20 row
     # 4 (the 7 C slot that starts at 06:25 takes effect from the 06:24 step), and
@@ -78,7 +79,7 @@ def test_every_stored_row_is_ten_minutes_long_and_starts_on_a_ten_minute_mark(
         client, first=datetime(2026, 11, 17, 5), last=datetime(2026, 11, 19, 0)
     )
 
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     rows = live_rows(client, "current")
     assert rows[0].starts_at == datetime(2026, 11, 17, 5, 0)
@@ -99,7 +100,7 @@ def test_the_first_row_holds_the_reading_and_only_the_steps_from_its_step_on(
         client, first=datetime(2026, 11, 17, 5), last=datetime(2026, 11, 19, 0)
     )
 
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     first = live_rows(client, "current")[0]
     assert first.starts_at == datetime(2026, 11, 17, 5, 0)
@@ -119,7 +120,7 @@ def test_stored_kwh_and_cost_follow_the_minutes_of_each_row(
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then 10 minutes is 10/60 * 6 = 1 kWh costing 1 * 6 / 100 = 0.06 pounds, and
     # 4 minutes is 0.4 kWh costing 0.024 pounds
@@ -148,7 +149,7 @@ def test_the_gas_unit_rate_is_read_once_per_hour_of_a_run(
 
     monkeypatch.setattr(client, "read_gas_unit_rate", counting_read)
 
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # 5:00 on the 17th to 23:00 on the 18th is 43 hours, read once each
     assert len(asked) == len(set(asked)) == 43
@@ -165,7 +166,7 @@ def test_a_room_that_reaches_the_target_part_way_through_a_slot_stops_heating(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then the room, drifting 0.02 * (10 - 18.8) + 0.08 = -0.096 C an hour, is
     # about 18.744 C at 05:40 and needs (19 - 18.744 + 0.02) / 1.3 of an hour, about
@@ -202,7 +203,7 @@ def test_two_slot_changes_inside_an_hour_each_heat_for_at_most_their_own_length(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then heating is flat out for the slot's 30 minutes (05:20 to 05:50) and
     # nothing else
@@ -230,7 +231,7 @@ def test_a_slot_starting_on_an_odd_minute_heats_from_the_step_before_it(
         client, first=datetime(2026, 11, 17, 5), last=datetime(2026, 11, 19, 0)
     )
 
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then the 05:40 step is heated, so the 05:40 row holds 10 minutes
     assert _on_minutes_by_start(client)[datetime(2026, 11, 17, 5, 40)] == 10.0
@@ -245,7 +246,7 @@ def test_mode_off_heats_no_row_even_in_a_slot(client: MariaDBClient) -> None:
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then no row heats
     rows: list[Any] = live_rows(client, "current")
@@ -278,7 +279,7 @@ def test_with_a_delay_the_room_stays_on_its_unheated_course_until_the_heat_arriv
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then gas is counted from 05:40 as before, but the room only cools until the
     # heat arrives at 05:54, so it is cooler at 05:50 than at 05:40 and warmer at
@@ -311,13 +312,13 @@ def test_with_a_delay_the_plan_switches_on_that_much_earlier_and_is_still_warm_a
     )
     seed_comfort(client, date(2026, 11, 17), 19.0)
     client.write_thermal_model(_model_with_delay(0, fitted_hours_ago=2))
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
     today = date(2026, 11, 17)
     without_delay = next(row for row in slot_rows(client, "plan") if row.day == today)
 
     # When a model with a delay of 14 minutes is fitted and the job runs again
     client.write_thermal_model(_model_with_delay(14))
-    RoomForecastJob(client, REGION).refresh(EARLY)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(EARLY)
 
     # Then today's plan slot starts 14 minutes earlier and the room is at 19 C at
     # the 06:30 opening, as before
