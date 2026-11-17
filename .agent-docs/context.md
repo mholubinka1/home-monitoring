@@ -317,17 +317,17 @@ _Avoid_: away, empty house, unoccupied
 How long no Phone may make a DNS lookup before No One Is Home begins: 30 minutes by default, configurable.
 
 **Presence Unknown**:
-The state while Pi-hole cannot be read. It is treated as Someone Is Home for control, so a failed signal never turns the heating down.
+The state while Pi-hole cannot be read. For its first 10 minutes control keeps the last known state, so a brief Pi-hole restart changes nothing. After that it is treated as Someone Is Home, so a failed signal never keeps the heating down.
 
 **Presence Period**:
 One unbroken stretch of Someone Is Home, No One Is Home or Presence Unknown, stored with its start and, once over, its end.
 
 **Away Override**:
-The thermostat held in MANUAL mode at the Away Temperature while No One Is Home, replaced by SCHEDULE mode when someone returns. The household's Hive schedule is never edited by it.
+The thermostat held in MANUAL mode at the Away Temperature while No One Is Home, replaced by SCHEDULE mode when someone returns. A thermostat that is OFF is left alone, since OFF already heats nothing. The household's Hive schedule is never edited by it.
 _Avoid_: away schedule, holiday mode (Hive's own feature, not used)
 
 **Away Temperature**:
-The configured target the Away Override holds, 7 °C by default.
+The configured target held outside the Comfort Window by the Comfort Schedule, and throughout by the Away Override; 7 °C by default.
 _Avoid_: frost temperature, setback
 
 ### Repository and Containers
