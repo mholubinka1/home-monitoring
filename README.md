@@ -161,7 +161,7 @@ When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 - Every intended write is stored in `heating_control_action` with its outcome. A
   failed write is logged, stored as `failed` and retried at the next poll.
 
-`presence.control` has three settings. `off` records and writes nothing. `dry_run`
+`presence.control` has three settings. `off` applies no new override and records nothing. `dry_run`
 records what would be written (one override and one restore per absence) and logs
 "would set …", but never calls Hive, so a week of it can be compared with the
 household's real comings and goings. `on` writes to Hive, and is refused at startup

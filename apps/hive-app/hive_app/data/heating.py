@@ -107,7 +107,7 @@ class PresenceHeatingControl:
         if self._already_at_away_temperature(status):
             self._adopt_away_temperature(now)
             return
-        if self._dry_run and self._mariadb.read_away_override_in_force(True):
+        if self._dry_run and self._mariadb.read_away_override_in_force(dry_run=True):
             return
         self._write(
             now,
@@ -121,7 +121,7 @@ class PresenceHeatingControl:
         force (a write that failed after landing, or a hand change): with control
         on, record it as applied so the return restores it. Nothing is sent."""
         if self._control != CONTROL_ON or self._mariadb.read_away_override_in_force(
-            False
+            dry_run=False
         ):
             return
         self._mariadb.write_heating_control_action(
@@ -139,7 +139,7 @@ class PresenceHeatingControl:
         control off, the once-per-poll real restore in apply has already done it."""
         if status.boost_active or self._control == CONTROL_OFF:
             return
-        if self._mariadb.read_away_override_in_force(self._dry_run):
+        if self._mariadb.read_away_override_in_force(dry_run=self._dry_run):
             self._restore_schedule(now, status, self._dry_run)
 
     def _restore_real_override_once(self, now: datetime, status: HeatingStatus) -> None:
@@ -148,7 +148,7 @@ class PresenceHeatingControl:
         force and is retried at the next poll; once restored this does nothing."""
         if status.boost_active:
             return
-        if self._mariadb.read_away_override_in_force(False):
+        if self._mariadb.read_away_override_in_force(dry_run=False):
             self._restore_schedule(now, status, False)
 
     def _restore_schedule(
@@ -178,7 +178,7 @@ class PresenceHeatingControl:
     def _write(
         self,
         now: datetime,
-        write: "_Write",
+        write: _Write,
         send: Callable[[], str],
         dry_run: bool,
     ) -> None:

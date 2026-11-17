@@ -306,6 +306,18 @@ def test_presence_unknown_keeps_the_override_for_nine_minutes_then_restores(
     assert source.writes == [("restore_schedule", None)]
 
 
+def test_presence_unknown_with_no_earlier_period_counts_as_someone_home(
+    mariadb_client: MariaDBClient,
+) -> None:
+    mariadb_client.change_presence_state(UNKNOWN, 0, NOW - timedelta(minutes=1))
+    source = _FakeHiveSource(mariadb_client, _status(mode="SCHEDULE"))
+
+    _retriever(mariadb_client, source).refresh(NOW)
+
+    assert not source.writes
+    assert not _actions(mariadb_client)
+
+
 def test_restore_waits_for_a_running_boost_to_end(
     mariadb_client: MariaDBClient,
 ) -> None:
