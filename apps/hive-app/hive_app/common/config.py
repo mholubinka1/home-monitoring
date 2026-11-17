@@ -66,6 +66,13 @@ class PiholeSettings(BaseModel):
             raise ValueError("must not be blank")
         return value
 
+    @field_validator("url")
+    @classmethod
+    def _url_must_name_its_scheme(cls, value: str) -> str:
+        if not value.strip().lower().startswith(("http://", "https://")):
+            raise ValueError("must start with http:// or https://")
+        return value
+
 
 class PresenceSettings(BaseModel):
     control: Literal["off", "dry_run", "on"] = "off"

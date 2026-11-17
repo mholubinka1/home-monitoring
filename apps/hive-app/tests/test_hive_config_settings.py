@@ -253,6 +253,15 @@ def test_a_blank_pihole_url_or_password_is_refused(field: str, blank: str) -> No
         )
 
 
+def test_a_pihole_url_without_a_scheme_is_refused() -> None:
+    pihole = {**PRESENCE_CONFIG["pihole"], "url": "192.0.2.50"}
+
+    with pytest.raises(ValidationError, match="http"):
+        HiveApplicationSettings.model_validate(
+            {**VALID_CONFIG, "presence": {"pihole": pihole}}
+        )
+
+
 @pytest.mark.parametrize("delay", [0, -5])
 def test_a_non_positive_away_delay_is_refused(delay: int) -> None:
     with pytest.raises(ValidationError, match="away_delay_minutes"):

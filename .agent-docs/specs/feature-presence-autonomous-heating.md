@@ -247,7 +247,7 @@ A state-timeline panel on the gas and heating dashboard shows the last 7 days of
 - **Write path.** pyhive-integration 1.0.10 has no schedule setter, and its `setState` turns every value into a quoted string, so a nested schedule can't go through it. hive-app sends `POST /nodes/heating/{id}` with the JSON body `{"schedule": {...}}` through 1.0.10's authenticated `api.request`, copying the 2.0 beta's `set_schedule` rules (2.0.0b5, [spike note](../research/hive-schedule-write-spike.md)):
   - all seven days are sent;
   - each day is non-empty, with integer `start` minutes 0–1439, unique and sorted;
-  - the product is re-read afterwards, and the write counts only if Hive stored exactly what was sent.
+  - the product is re-read afterwards, and the write counts only if Hive stored exactly what was sent. A differing first read is read again after a few seconds before the write is called `not_verified`: the spike saw a whole-week write read back different 2 seconds later and identical minutes later.
 
   hive-app adds two checks of its own, which neither the beta nor Hive enforces: the first entry of each day is at 00:00, and targets are on half degrees. The spike proved on the live account that Hive stores one-minute starts, any target (19.3 was kept) and at least 48 slots a day, and showed no 200-but-unstored write.
 

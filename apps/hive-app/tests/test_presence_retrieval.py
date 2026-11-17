@@ -197,6 +197,21 @@ def test_an_unreachable_pihole_opens_an_unknown_period_without_raising_or_loggin
     assert PASSWORD not in caplog.text
 
 
+def test_a_pihole_outage_logs_one_warning_not_one_per_minute(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = FakePiholeSource([])
+    source.error = PiholeError("Pi-hole could not be read (ConnectTimeout)")
+    retriever = PresenceRetriever(source, mariadb_client, _settings())
+
+    with caplog.at_level(logging.WARNING):
+        for minute in range(3):
+            retriever.refresh(NOW + timedelta(minutes=minute))
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+
+
 def test_a_transition_is_logged_with_the_phone_count_and_no_hostname_at_info(
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:

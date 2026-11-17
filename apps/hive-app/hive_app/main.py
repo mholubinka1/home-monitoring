@@ -313,7 +313,8 @@ def _build_weather_retriever(
 
 
 def _exit_on_sigterm(_signal_number: int, _frame: FrameType | None) -> None:
-    """Lets `docker stop` unwind main()'s finally block, which logs out of Pi-hole."""
+    """Lets `docker stop` unwind main()'s finally block, which logs out of Pi-hole.
+    A job running at that moment is interrupted, as a kill would have done."""
     raise SystemExit(0)
 
 

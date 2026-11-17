@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from logging import Logger, getLogger
 
@@ -33,17 +34,20 @@ class PresenceRetriever:
         self._away_delay = timedelta(minutes=settings.away_delay_minutes)
 
     def refresh(self, now: datetime) -> None:
-        state, phones_seen = self._decide(now)
-        if state == self._mariadb.read_open_presence_state():
+        open_state = self._mariadb.read_open_presence_state()
+        state, phones_seen = self._decide(now, open_state)
+        if state == open_state:
             return
         self._mariadb.change_presence_state(state, phones_seen, now)
         logger.info(f"Presence is now {state} ({phones_seen} phone(s) active).")
 
-    def _decide(self, now: datetime) -> tuple[str, int]:
+    def _decide(self, now: datetime, open_state: str | None) -> tuple[str, int]:
         try:
             devices = self._source.read_devices()
         except PiholeError as error:
-            logger.warning(f"Presence unknown: {error}")
+            # Once per outage: the next runs, every minute, would only repeat it.
+            level = logging.DEBUG if open_state == UNKNOWN else logging.WARNING
+            logger.log(level, f"Presence unknown: {error}")
             return UNKNOWN, 0
         active_phones = [
             device for device in devices if self._is_active_phone(device, now)
