@@ -162,6 +162,21 @@ def test_weekdays_start_at_0630_and_weekends_at_0744_both_ending_at_midnight() -
     assert comfort_window(windows, date(2026, 11, 23))[0].time() == time(6, 30)
 
 
+def test_the_default_windows_are_0730_to_2300_on_weekdays_and_0830_to_midnight_at_weekends() -> (
+    None
+):
+    windows = ComfortWindows()
+
+    assert comfort_window(windows, TUESDAY) == (
+        datetime(2026, 11, 17, 7, 30),
+        datetime(2026, 11, 17, 23, 0),
+    )
+    assert comfort_window(windows, SATURDAY) == (
+        datetime(2026, 11, 21, 8, 30),
+        datetime(2026, 11, 22, 0, 0),
+    )
+
+
 def test_with_no_target_the_room_drifts_and_nothing_is_demanded() -> None:
     # Given a room of 18 C at 05:00 and no target
     start = Start(18.0, datetime(2026, 11, 17, 5, 0))
