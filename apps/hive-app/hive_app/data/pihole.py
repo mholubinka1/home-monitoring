@@ -66,6 +66,7 @@ class PiholeApiSource:
             requests.RequestException,
             KeyError,
             TypeError,
+            AttributeError,
             ValueError,
             OverflowError,
             OSError,

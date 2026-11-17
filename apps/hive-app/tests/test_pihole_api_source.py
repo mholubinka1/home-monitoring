@@ -138,6 +138,13 @@ def test_a_login_that_returns_no_session_id_is_a_pihole_error() -> None:
         {"status": 500},
         {"body": "not json", "status": 200},
         {"json": {"unexpected": []}},
+        {
+            "json": {
+                "devices": [
+                    {"hwaddr": "c2:00:00:00:00:01", "lastQuery": 0, "ips": [None]}
+                ]
+            }
+        },
     ],
 )
 def test_every_kind_of_failure_is_one_pihole_error_without_the_password(
