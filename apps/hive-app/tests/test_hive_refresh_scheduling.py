@@ -26,6 +26,7 @@ from hive_app.main import (
     build_hive_watchdog_job,
     build_presence_job,
     build_presence_watchdog_job,
+    build_presence_watchdog_jobs,
     register_heating_refresh_job,
     register_hive_watchdog_job,
     register_presence_job,
@@ -284,3 +285,47 @@ def test_the_presence_watchdog_job_swallows_a_failing_check() -> None:
     job.run()
 
     watchdog.check.assert_called_once()
+
+
+def test_a_failed_night_check_is_retried_on_the_next_tick(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts: list[datetime] = []
+
+    def flaky(_db: MariaDBClient, now: datetime) -> None:
+        attempts.append(now)
+        if len(attempts) == 1:
+            raise RuntimeError("database restarting")
+
+    monkeypatch.setattr("hive_app.main.warn_if_house_empty", flaky)
+    clock = [datetime(2026, 11, 17, 3, 5, tzinfo=UTC)]
+    monkeypatch.setattr("hive_app.main.datetime", Mock(now=lambda _tz: clock[0]))
+    job = register_presence_night_check_job(Scheduler(), mariadb_client)
+
+    job.run()
+    clock[0] = datetime(2026, 11, 17, 3, 6, tzinfo=UTC)
+    job.run()
+    clock[0] = datetime(2026, 11, 17, 3, 7, tzinfo=UTC)
+    job.run()
+
+    assert len(attempts) == 2
+
+
+def test_presence_watchdog_jobs_exist_only_when_presence_is_configured(
+    mariadb_client: MariaDBClient,
+) -> None:
+    ntfy = NtfySettings(topic_url=TOPIC_URL)
+    presence = PresenceSettings(
+        pihole=PiholeSettings(url="http://pihole.example.lan", password="secret")
+    )
+
+    assert not build_presence_watchdog_jobs(Scheduler(), mariadb_client, None, ntfy)
+    assert (
+        len(build_presence_watchdog_jobs(Scheduler(), mariadb_client, presence, ntfy))
+        == 2
+    )
+    # Without ntfy only the night check remains.
+    assert (
+        len(build_presence_watchdog_jobs(Scheduler(), mariadb_client, presence, None))
+        == 1
+    )

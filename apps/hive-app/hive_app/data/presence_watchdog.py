@@ -103,5 +103,5 @@ def warn_if_house_empty(mariadb: MariaDBClient, now: datetime) -> None:
     if period is not None and period[0] == NO_ONE_HOME:
         logger.warning(
             f"The house has been empty for {describe_duration(now - period[1])} "
-            f"at {NIGHT_CHECK_TIME}."
+            "at the night check."
         )

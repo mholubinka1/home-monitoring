@@ -43,11 +43,16 @@ def test_presence_unknown_for_31_minutes_sends_a_signal_lost_alert(
 class FakeNotifier:
     def __init__(self) -> None:
         self.sent: list[tuple[str, timedelta, bool]] = []
+        self.failing = False
 
     def notify_presence_lost(self, age: timedelta, reminder: bool = False) -> None:
+        if self.failing:
+            raise RuntimeError("ntfy unreachable")
         self.sent.append(("lost", age, reminder))
 
     def notify_presence_restored(self, outage: timedelta) -> None:
+        if self.failing:
+            raise RuntimeError("ntfy unreachable")
         self.sent.append(("restored", outage, False))
 
 
@@ -133,3 +138,53 @@ def test_someone_home_at_the_night_check_logs_no_warning(
         warn_if_house_empty(mariadb_client, NOW)
 
     assert caplog.text == ""
+
+
+def test_a_failed_lost_alert_is_retried_on_the_next_check(
+    mariadb_client: MariaDBClient,
+) -> None:
+    notifier = FakeNotifier()
+    watchdog = PresenceWatchdog(mariadb_client, notifier)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+
+    notifier.failing = True
+    watchdog.check(NOW)
+    notifier.failing = False
+    watchdog.check(NOW + timedelta(minutes=1))
+
+    assert [(kind, reminder) for kind, _, reminder in notifier.sent] == [
+        ("lost", False)
+    ]
+
+
+def test_a_failed_restored_message_is_retried_and_sent_once(
+    mariadb_client: MariaDBClient,
+) -> None:
+    notifier = FakeNotifier()
+    watchdog = PresenceWatchdog(mariadb_client, notifier)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+    watchdog.check(NOW)
+    _open_period(mariadb_client, "someone_home", NOW + timedelta(minutes=5))
+
+    notifier.failing = True
+    watchdog.check(NOW + timedelta(minutes=6))
+    notifier.failing = False
+    watchdog.check(NOW + timedelta(minutes=7))
+    watchdog.check(NOW + timedelta(minutes=8))
+
+    assert [kind for kind, _, _ in notifier.sent] == ["lost", "restored"]
+
+
+def test_an_unseen_outage_end_is_reported_before_the_next_outage_alert(
+    mariadb_client: MariaDBClient,
+) -> None:
+    notifier = FakeNotifier()
+    watchdog = PresenceWatchdog(mariadb_client, notifier)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+    watchdog.check(NOW)
+    _open_period(mariadb_client, "someone_home", NOW + timedelta(minutes=5))
+    _open_period(mariadb_client, "unknown", NOW + timedelta(minutes=10))
+
+    watchdog.check(NOW + timedelta(minutes=45))
+
+    assert [kind for kind, _, _ in notifier.sent] == ["lost", "restored", "lost"]

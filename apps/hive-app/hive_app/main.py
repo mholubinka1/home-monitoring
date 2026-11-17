@@ -238,22 +238,38 @@ def register_presence_night_check_job(
     # A late tick still counts, but a process started at 10am must not.
     end_minute = due.hour * 60 + due.minute + NIGHT_CHECK_WINDOW_MINUTES
     window_end = day_time(min(end_minute // 60, 23), end_minute % 60)
-    last_run: list[date] = []
+    last_run_date: date | None = None
 
     def check_safely() -> None:
+        nonlocal last_run_date
         now = datetime.now(UTC)
         local = now.astimezone(get_local_timezone())
-        if not due <= local.time() < window_end or (
-            last_run and last_run[-1] == local.date()
-        ):
+        if not due <= local.time() < window_end or last_run_date == local.date():
             return
-        last_run[:] = [local.date()]
         try:
             warn_if_house_empty(mariadb, now)
         except Exception:
+            # Not marked done, so the next tick inside the window retries.
             logger.exception("Presence night check failed.")
+            return
+        last_run_date = local.date()
 
     return scheduler.every(PRESENCE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
+
+
+def build_presence_watchdog_jobs(
+    scheduler: Scheduler,
+    mariadb: MariaDBClient,
+    presence_settings: PresenceSettings | None,
+    ntfy: NtfySettings | None,
+) -> list[Job]:
+    """The signal-lost watchdog (needs ntfy) and the night check, both only when
+    a `presence` section is configured."""
+    if presence_settings is None:
+        return []
+    watchdog_job = build_presence_watchdog_job(scheduler, mariadb, ntfy)
+    jobs = [register_presence_night_check_job(scheduler, mariadb)]
+    return jobs if watchdog_job is None else [watchdog_job, *jobs]
 
 
 def register_weather_observation_refresh_job(
@@ -413,9 +429,9 @@ def main() -> None:
 
     pihole = PiholeApiSource(settings.presence.pihole) if settings.presence else None
     build_presence_job(default_scheduler, mariadb, settings.presence, pihole)
-    if settings.presence is not None:
-        build_presence_watchdog_job(default_scheduler, mariadb, settings.ntfy)
-        register_presence_night_check_job(default_scheduler, mariadb)
+    build_presence_watchdog_jobs(
+        default_scheduler, mariadb, settings.presence, settings.ntfy
+    )
 
     if pihole is not None:
         signal.signal(signal.SIGTERM, _exit_on_sigterm)
