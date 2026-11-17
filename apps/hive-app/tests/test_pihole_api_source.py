@@ -122,6 +122,15 @@ def test_a_rejected_password_is_a_pihole_error_that_does_not_reveal_it(
 
 
 @responses.activate
+def test_a_login_that_returns_no_session_id_is_a_pihole_error() -> None:
+    responses.add(responses.POST, AUTH_URL, json={"session": {"sid": None}})
+    responses.add(responses.GET, DEVICES_URL, json=DEVICES_BODY)
+
+    with pytest.raises(PiholeError):
+        _source().read_devices()
+
+
+@responses.activate
 @pytest.mark.parametrize(
     "failure",
     [

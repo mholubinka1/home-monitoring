@@ -109,7 +109,7 @@ Settings validation refuses at startup:
 
 - a non-positive Away Delay;
 - an Away Temperature outside 5–32 °C (the library's defaults for this thermostat type) or not on a half degree;
-- a blank Pi-hole URL or password while a `presence` section is present;
+- a blank Pi-hole URL or password, or a URL that doesn't start with `http://` or `https://`, while a `presence` section is present;
 - `presence.control: on` unless `comfort_schedule.control` is `on`.
 
 The Away Override reads the Away Temperature from `comfort_schedule`, with the 7 °C default when that section is absent (only possible in presence `dry_run`). The Away Override issue introduces `comfort_schedule.away_temperature` and refuses `presence.control: on` outright. The Comfort Schedule issue adds `comfort_schedule.control` and relaxes the refusal to "unless `comfort_schedule.control` is `on`".
@@ -167,7 +167,7 @@ Each presence job run:
 2. Otherwise, counts the Phones whose last lookup is no more than the Away Delay before now (a lookup exactly 30:00 ago still counts): one or more is **Someone Is Home**, none is **No One Is Home**. The decision uses Pi-hole's own last-lookup times, so the first run after a restart is right immediately; there is no warm-up.
 3. If the state differs from the open Presence Period, closes it (`ended_at` = now) and opens a new one (`started_at` = now). Otherwise it changes nothing. A restart continues the open period when the state is unchanged.
 
-Transitions are logged at INFO with the number of Phones seen. Hostnames are logged at DEBUG only.
+Transitions are logged at INFO with the number of Phones seen. A Pi-hole failure is logged at WARNING once, when the period becomes Presence Unknown, and at DEBUG while it stays so, so an outage doesn't write a line a minute. Hostnames are logged at DEBUG only.
 
 The presence job is scheduled like the Hive data watchdog, not through the retry-with-backoff wrapper: a Pi-hole error is already Presence Unknown, and anything else (for example a database error) is caught and logged, since the next run is 60 seconds away. A backoff would hold the worker for up to 15 minutes and skip the runs in between.
 

@@ -69,9 +69,10 @@ class PiholeSettings(BaseModel):
     @field_validator("url")
     @classmethod
     def _url_must_name_its_scheme(cls, value: str) -> str:
-        if not value.strip().lower().startswith(("http://", "https://")):
+        trimmed = value.strip()
+        if not trimmed.lower().startswith(("http://", "https://")):
             raise ValueError("must start with http:// or https://")
-        return value
+        return trimmed
 
 
 class PresenceSettings(BaseModel):

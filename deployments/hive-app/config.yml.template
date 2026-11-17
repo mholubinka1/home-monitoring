@@ -48,6 +48,8 @@ presence:
   # off | dry_run | on. Only records presence for now; leave it as off.
   # control: off
   pihole:
+    # Use http://: Pi-hole's own HTTPS certificate is self-signed, which
+    # requests refuses.
     url:
     # A Pi-hole app password (Settings -> Web interface / API), not the web
     # login password. Keep the real value only in the Pi's config.yml.
@@ -56,6 +58,8 @@ presence:
   # away_delay_minutes: 30
   # Hostnames (the part before the first dot, case-insensitive) always counted
   # as a phone, e.g. a phone whose name the rule does not recognise.
+  # A person's name can also trip the rule (Mac-s-iPhone contains "mac", a
+  # computer word); list such a phone here.
   # phone_hostnames: ["Alex-s-Phone"]
   # Hostnames never counted as a phone; these win over everything else.
   # ignored_hostnames: ["Spare-Pixel-8"]

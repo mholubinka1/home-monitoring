@@ -262,6 +262,17 @@ def test_a_pihole_url_without_a_scheme_is_refused() -> None:
         )
 
 
+def test_a_pihole_url_with_stray_spaces_is_stored_trimmed() -> None:
+    pihole = {**PRESENCE_CONFIG["pihole"], "url": " http://pihole.example.lan "}
+
+    settings = HiveApplicationSettings.model_validate(
+        {**VALID_CONFIG, "presence": {"pihole": pihole}}
+    )
+
+    assert settings.presence is not None
+    assert settings.presence.pihole.url == "http://pihole.example.lan"
+
+
 @pytest.mark.parametrize("delay", [0, -5])
 def test_a_non_positive_away_delay_is_refused(delay: int) -> None:
     with pytest.raises(ValidationError, match="away_delay_minutes"):

@@ -48,6 +48,8 @@ Validation (`_normalise_schedule` and `_normalise_slot`), raised as `ValueError`
 
 After validation it sends one POST of the whole normalised week, then re-reads the product and returns `True` only if the stored schedule equals what it sent; a mismatch is logged as "Hive accepted the request … but the stored schedule does not match". `set_schedule` returns `False` when the product doesn't support schedules.
 
+The live run did not probe the beta's other rules (an empty day, duplicate starts, a start above 1439, a missing day, unsorted slots), so the note records only the beta's behaviour for them, not Hive's; hive-app sends none of them.
+
 The beta checks neither "the first slot is at 00:00" nor "targets are on half degrees", and neither does the live account (see the findings above). It also has no per-day slot limit.
 
 ## Spec follow-up

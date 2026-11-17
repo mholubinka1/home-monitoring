@@ -104,4 +104,7 @@ class PiholeApiSource:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        return str(response.json()["session"]["sid"])
+        session_id = response.json()["session"]["sid"]
+        if not session_id:
+            raise ValueError("Pi-hole returned no session id")
+        return str(session_id)
