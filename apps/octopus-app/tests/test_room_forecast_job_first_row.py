@@ -15,6 +15,7 @@ from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
     NOW,
+    PINNED_WINDOWS,
     REGION,
     live_rows,
     seed_comfort,
@@ -53,7 +54,9 @@ def test_a_reading_taken_just_after_a_slot_has_ended_stores_no_heating_for_the_r
     _seed_weather(client, 6)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 35, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 35, tzinfo=UTC)
+    )
 
     # Then the rest of the day is at 7 C, below the room, so it stores no heating,
     # and the first row, 06:30, still shows the reading
@@ -72,7 +75,9 @@ def test_a_reading_taken_inside_a_slot_stores_only_the_minutes_from_the_reading_
     _seed_weather(client, 6)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 15, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 15, tzinfo=UTC)
+    )
 
     # Then the 06:10 row heats flat out for its 10 minutes and the 06:20 row for
     # the 4 minutes up to the 06:24 step, where the 7 C slot takes effect: the room
@@ -94,7 +99,9 @@ def test_heating_asked_for_before_the_reading_still_warms_the_room_afterwards(
     _seed_weather(client, 6)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 25, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 25, tzinfo=UTC)
+    )
 
     # Then nothing more is stored for heating, and two hours on the room is about
     # 0.082 C warmer than the unheated course: each minute of heat seen gives the
@@ -122,7 +129,9 @@ def test_a_model_fitted_on_10_minutes_carries_the_heat_seen_for_10_minutes(
     _seed_weather(client, 6)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 25, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 25, tzinfo=UTC)
+    )
 
     # Then only the last 10 minutes of that heating still count, as 0.3 C an hour of
     # heating for the 10 minutes after each: in the 2-minute steps from 06:20 the
@@ -144,7 +153,9 @@ def test_heating_asked_for_long_before_the_reading_is_forgotten(
     _seed_weather(client, 6)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 25, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 25, tzinfo=UTC)
+    )
 
     # Then the room follows the unheated course
     assert _by_start(client)[datetime(2026, 11, 17, 8, 20)].room_temp == pytest.approx(
@@ -161,7 +172,9 @@ def test_a_reading_late_in_an_hour_starts_the_rows_at_its_own_ten_minutes(
     _seed_weather(client, 6)
 
     # When the job runs at 07:05, fifteen minutes after the reading
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 7, 5, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 7, 5, tzinfo=UTC)
+    )
 
     # Then the rows start at 06:50, which holds the reading and heats flat out
     rows = live_rows(client, "current")
@@ -181,7 +194,9 @@ def test_the_plans_preheat_is_searched_from_the_reading_not_the_top_of_the_hour(
     seed_comfort(client, date(2026, 11, 17), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 6, 25, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 6, 25, tzinfo=UTC)
+    )
 
     # Then the first row shows the reading, and the pre-heat is the shortest that
     # has the room at 19 C at 06:30 from 18.9 C at 06:20: the ten minutes before
@@ -207,7 +222,9 @@ def test_a_preheat_that_began_before_the_reading_is_searched_from_the_reading(
     seed_comfort(client, date(2026, 11, 17), 19.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(datetime(2026, 11, 17, 5, 55, tzinfo=UTC))
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(
+        datetime(2026, 11, 17, 5, 55, tzinfo=UTC)
+    )
 
     # Then the room is at 19 C at 06:30, and the pre-heat starts after the reading
     # (the 05:50 row is the first and holds the reading)

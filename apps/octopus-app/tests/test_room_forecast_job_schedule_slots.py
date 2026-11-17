@@ -14,6 +14,7 @@ from octopus_app.data.room_forecast_job import RoomForecastJob
 
 from . import room_forecast_fixtures
 from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-import
+    PINNED_WINDOWS,
     REGION,
     SLOT_END,
     SLOT_START,
@@ -51,7 +52,7 @@ def test_the_days_slots_run_from_each_start_to_the_next_and_the_last_to_midnight
     seed_inputs(client, tuesday_slot_schedule())
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then today's current slots run 00:00-05:40 at 7, 05:40-06:25 at 19 and
     # 06:25-00:00 at 7
@@ -76,7 +77,7 @@ def test_a_first_slot_after_midnight_is_preceded_by_the_previous_days_last_targe
     seed_inputs(client, schedule)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then Monday's 9 C runs from 00:00 to 05:40
     today = [row for row in slot_rows(client, "current") if row.day.day == 17]
@@ -100,7 +101,7 @@ def test_consecutive_slots_with_the_same_target_are_stored_as_one(
     seed_inputs(client, schedule)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then today is one slot from 00:00 to 00:00
     today = [row for row in slot_rows(client, "current") if row.day.day == 17]
@@ -114,12 +115,12 @@ def test_an_unreadable_schedule_removes_the_earlier_slots(
 ) -> None:
     # Given slots stored by an earlier run
     seed_inputs(client, tuesday_slot_schedule())
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
     assert slot_rows(client, "current")
 
     # When the weekly schedule becomes unreadable and the job runs
     seed_schedule(client, {"tuesday": "unreadable"})
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then no current slots remain
     assert not slot_rows(client, "current")
@@ -132,7 +133,7 @@ def test_the_slots_are_stored_when_the_mode_is_off(client: MariaDBClient) -> Non
     seed_gas_rate(client, unit_rate_p=6.0)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
 
     # Then today's slots are still stored, and no hour costs anything
     assert len([row for row in slot_rows(client, "current") if row.day.day == 17]) == 3
@@ -157,7 +158,7 @@ def test_the_stored_times_are_the_correct_instants_on_a_clock_change_day(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(now)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(now)
 
     # Then 05:40 BST is 04:40 UTC, and the day runs from 00:00 GMT to 23:00 UTC
     sunday = [row for row in slot_rows(client, "current") if row.day.day == 29]
@@ -187,7 +188,7 @@ def test_a_slot_boundary_in_the_spring_forward_gap_never_ends_before_it_starts(
     )
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(now)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(now)
 
     # Then no stored slot ends before it starts or has no length, and the
     # positions run from 0
@@ -213,7 +214,7 @@ def test_the_plan_slot_ends_at_the_correct_instant_on_a_clock_change_day(
     seed_comfort(client, now.date(), 19.3)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(now)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(now)
 
     # Then the window closes at midnight BST, which is 23:00 UTC
     sunday = [row for row in slot_rows(client, "plan") if row.day.day == 29]
@@ -229,7 +230,7 @@ def test_the_plan_slot_runs_from_its_pre_heat_start_to_midnight_at_a_rounded_tar
     seed_comfort(client, NOW_PLAN.date(), 19.3)
 
     # When the job runs
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then tomorrow's plan slot starts before 06:30 (the pre-heat), ends at
     # midnight and holds 19.5 C, the comfort temperature rounded up to a half
@@ -270,7 +271,7 @@ def test_a_plan_start_that_has_passed_is_kept_while_the_end_and_target_update(
     store_plan_slot(client, 17, datetime(2026, 11, 17, 5, 50), 18.0)
 
     # When a later run recomputes
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then the start stays and the end and target are the new ones
     today = [row for row in slot_rows(client, "plan") if row.day.day == 17]
@@ -286,7 +287,7 @@ def test_a_plan_start_that_is_exactly_now_is_kept(client: MariaDBClient) -> None
     store_plan_slot(client, 17, NOW_PLAN.replace(tzinfo=None), 18.0)
 
     # When the job runs at that minute
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then the start is still that minute
     today = [row for row in slot_rows(client, "plan") if row.day.day == 17]
@@ -302,7 +303,7 @@ def test_a_plan_start_still_ahead_is_replaced_by_the_new_one(
     store_plan_slot(client, 18, datetime(2026, 11, 18, 5, 0), 19.5)
 
     # When a later run recomputes
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then the start is the newly calculated one
     tomorrow = [row for row in slot_rows(client, "plan") if row.day.day == 18]
@@ -316,12 +317,12 @@ def test_no_comfort_temperature_removes_the_earlier_plan_slots(
     # Given plan slots stored by an earlier run
     seed_plan_inputs(client, room=14.0)
     seed_comfort(client, NOW_PLAN.date(), 19.3)
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
     assert slot_rows(client, "plan")
 
     # When the comfort temperature is gone and the job runs
     seed_comfort(client, NOW_PLAN.date(), None)
-    RoomForecastJob(client, REGION).refresh(NOW_PLAN)
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then no plan slots remain
     assert not slot_rows(client, "plan")

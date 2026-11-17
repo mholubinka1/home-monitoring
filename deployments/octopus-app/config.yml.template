@@ -22,10 +22,10 @@ mariadb:
 # mark is refused at startup.
 # comfort_windows:
 #   weekday:
-#     start: "06:30"
-#     end: "00:00"
+#     start: "07:30"
+#     end: "23:00"
 #   weekend:
-#     start: "07:44"
+#     start: "08:30"
 #     end: "00:00"
 
 data_refresh:
