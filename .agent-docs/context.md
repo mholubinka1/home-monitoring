@@ -254,8 +254,12 @@ _Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
 The Room Forecast for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
 
 **Comfort Plan**:
-The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. It switches on and off on 2-minute marks, the thermostat's reading interval. Advice only; nothing is written to Hive.
+The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. It switches on and off on 2-minute marks, the thermostat's reading interval. Once the Comfort Schedule is enabled it is written to Hive; until then it is advice only.
 _Avoid_: recommended schedule, optimised schedule
+
+**Comfort Schedule**:
+The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close, the Away Temperature at all other times. It replaces the household's hand-set schedule.
+_Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
 The configured hours the Comfort Plan keeps comfortable: 07:30 to 23:00 on weekdays and 08:30 to midnight at weekends by default, each time rounded earlier to a 2-minute mark (a window whose different start and end round to the same mark is refused at startup). Distinct from Counted Hours, which are learned.
@@ -295,8 +299,36 @@ _Avoid_: household location (implies a user-entered setting)
 The Octopus account's property postcode, written by octopus-app to the one-row `account_postcode` table in `common` and read by hive-app to derive the Weather Location. octopus-app is its only writer.
 
 **Presence-Based Heating Control**:
-A deferred, last-phase capability to stop heating when nobody is home, most likely via Hive's own geofencing rather than a new integration. It is control (writing to Hive), not passive data-gathering, and is contingent on `apyhiveapi` exposing that state.
-_Avoid_: smart heating, occupancy detection (until the actual signal is confirmed)
+Turning the heating down while No One Is Home and back up when someone returns, decided from household phones seen on the home network. It is control (writing to Hive), not passive data-gathering. Hive's own geofencing is not used: `apyhiveapi` does not expose it.
+_Avoid_: smart heating, occupancy detection
+
+**Phone**:
+A device on the home network whose activity counts as someone being home: one the Phone Rule calls a phone, or one whose hostname is configured as a phone, unless its hostname is configured as ignored. Guests' phones count.
+_Avoid_: household device, client (Pi-hole's word for any device)
+
+**Phone Rule**:
+The fixed, ordered test that calls a device a phone from Pi-hole's record of it: a randomised MAC address, then words in its hostname (exclusions such as tablet or watch first, then phone words and brands). The same MAC and hostname always give the same answer.
+
+**No One Is Home**:
+The state once no Phone has made a DNS lookup for the configured Away Delay (30 minutes by default). Its opposite, **Someone Is Home**, begins at the first lookup by any Phone. Boosts never change it, since a boost can be started from outside the house.
+_Avoid_: away, empty house, unoccupied
+
+**Away Delay**:
+How long no Phone may make a DNS lookup before No One Is Home begins: 30 minutes by default, configurable.
+
+**Presence Unknown**:
+The state while Pi-hole cannot be read. It is treated as Someone Is Home for control, so a failed signal never turns the heating down.
+
+**Presence Period**:
+One unbroken stretch of Someone Is Home, No One Is Home or Presence Unknown, stored with its start and, once over, its end.
+
+**Away Override**:
+The thermostat held in MANUAL mode at the Away Temperature while No One Is Home, replaced by SCHEDULE mode when someone returns. The household's Hive schedule is never edited by it.
+_Avoid_: away schedule, holiday mode (Hive's own feature, not used)
+
+**Away Temperature**:
+The configured target the Away Override holds, 7 °C by default.
+_Avoid_: frost temperature, setback
 
 ### Repository and Containers
 
@@ -325,5 +357,5 @@ The Octopus Energy data-gathering container, at `apps/octopus-app/octopus_app/`.
 _Avoid_: the app, main app (ambiguous once `hive-app` exists)
 
 **hive-app**:
-The data-gathering container for British Gas Hive heating data and outdoor weather, at `apps/hive-app/hive_app/`. Scoped to heating only, since no hot water, plugs, lights or sensors exist on the account.
+The data-gathering container for British Gas Hive heating data and outdoor weather, at `apps/hive-app/hive_app/`. Scoped to heating only, since no hot water, plugs, lights or sensors exist on the account. It also reads Pi-hole to decide whether Someone Is Home, and is the only writer to Hive.
 _Avoid_: hive (ambiguous with Apache Hive)
