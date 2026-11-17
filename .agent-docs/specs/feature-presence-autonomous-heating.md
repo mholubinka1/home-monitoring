@@ -207,14 +207,15 @@ After storing the Heating Status, HeatingRetriever applies a pure control policy
 | --- | --- | --- | --- |
 | No One Is Home | `boost_active` | any | none, the boost runs |
 | No One Is Home | OFF | any | none, OFF is left alone |
-| No One Is Home | MANUAL at Away Temperature | any | none |
+| No One Is Home | MANUAL at Away Temperature | yes | none |
+| No One Is Home | MANUAL at Away Temperature | no | none written; with control `on`, record `away_override` as `applied` with detail `adopted`, so the return restores it. In `dry_run` nothing is recorded: the real thermostat never moves, so there is no real override to adopt |
 | No One Is Home | anything else | any | apply away override |
 | Someone Is Home | `boost_active` | yes | none; the restore waits until the boost ends and Hive falls back to the override |
 | Someone Is Home | OFF | yes | nothing sent; record `restore_schedule` as `skipped`, which ends the override |
 | Someone Is Home | anything else | yes | restore schedule (the Comfort Schedule, when on, is written first) |
 | Someone Is Home | any | no | none |
 
-"Override in force" means the newest recorded `away_override` action that applied, or was a dry run, has no later `restore_schedule` action that applied, was a dry run, or was skipped. A failed restore leaves the override in force, so the next poll retries. While the household is home and in control (for example MANUAL 21 °C for a party), the app writes nothing.
+"Override in force" means the newest recorded `away_override` action that applied, was `not_verified` (Hive accepted the write but the read-back disagreed, so it may have landed), or was a dry run, has no later `restore_schedule` action that applied, was a dry run, or was skipped. A `failed` or `not_verified` restore leaves the override in force, so the next poll retries. A write that failed after it landed (a timeout, say) leaves no override recorded, but the next poll finds the thermostat at MANUAL on the Away Temperature and adopts it (the second row above), so the return still restores it. A hand-set MANUAL on the Away Temperature while away is adopted the same way, which is right: it is restored on return too. While the household is home and in control (for example MANUAL 21 °C for a party), the app writes nothing.
 
 In `dry_run`, the policy runs and records the same actions with `dry_run` true and outcome `dry_run`, and logs "would set …" at INFO, but nothing is sent to Hive. Because the real thermostat never moves, a dry-run override in force stands in for "MANUAL at Away Temperature". A day out therefore records one `away_override` and one `restore_schedule`, as `on` would. Hand changes while away aren't simulated.
 

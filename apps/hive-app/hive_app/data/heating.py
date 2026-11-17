@@ -5,12 +5,15 @@ from datetime import UTC, datetime, timedelta
 from logging import Logger, getLogger
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.mysql.model import (
     ACTION_AWAY_OVERRIDE,
     ACTION_RESTORE_SCHEDULE,
+    OUTCOME_APPLIED,
     OUTCOME_DRY_RUN,
     OUTCOME_FAILED,
     OUTCOME_SKIPPED,
@@ -75,6 +78,18 @@ class PresenceHeatingControl:
         self._dry_run = control == CONTROL_DRY_RUN
 
     def apply(self, now: datetime, status: HeatingStatus) -> None:
+        """Apply the policy. A database error is logged and not raised: the
+        heating status is already stored, and a raise would retry the job and
+        store a second row."""
+        try:
+            self._apply(now, status)
+        except SQLAlchemyError as error:
+            logger.warning(
+                "Heating control skipped after a database error: %s",
+                type(error).__name__,
+            )
+
+    def _apply(self, now: datetime, status: HeatingStatus) -> None:
         if self._control != CONTROL_ON:
             self._restore_real_override_once(now, status)
         presence = self._presence_for_control(now)
@@ -90,6 +105,7 @@ class PresenceHeatingControl:
         if self._control == CONTROL_OFF or self._leaves_heating_alone(status):
             return
         if self._already_at_away_temperature(status):
+            self._adopt_away_temperature(now)
             return
         if self._dry_run and self._mariadb.read_away_override_in_force(True):
             return
@@ -100,9 +116,28 @@ class PresenceHeatingControl:
             self._dry_run,
         )
 
+    def _adopt_away_temperature(self, now: datetime) -> None:
+        """The thermostat already holds the away temperature with no override in
+        force (a write that failed after landing, or a hand change): with control
+        on, record it as applied so the return restores it. Nothing is sent."""
+        if self._control != CONTROL_ON or self._mariadb.read_away_override_in_force(
+            False
+        ):
+            return
+        self._mariadb.write_heating_control_action(
+            now,
+            ACTION_AWAY_OVERRIDE,
+            MODE_MANUAL,
+            self._away_temperature,
+            False,
+            OUTCOME_APPLIED,
+            "adopted",
+        )
+
     def _return_to_schedule(self, now: datetime, status: HeatingStatus) -> None:
-        """Someone Is Home: end an away override in force, unless boosted."""
-        if status.boost_active:
+        """Someone Is Home: end an away override in force, unless boosted. With
+        control off, the once-per-poll real restore in apply has already done it."""
+        if status.boost_active or self._control == CONTROL_OFF:
             return
         if self._mariadb.read_away_override_in_force(self._dry_run):
             self._restore_schedule(now, status, self._dry_run)
@@ -171,8 +206,10 @@ class PresenceHeatingControl:
         UNKNOWN_HOLD counts as the state before it; from UNKNOWN_HOLD, or with no
         earlier period, it counts as Someone Is Home."""
         period = self._mariadb.read_open_presence_period()
-        if period is None or period[0] != UNKNOWN:
-            return period[0] if period is not None else None
+        if period is None:
+            return None
+        if period[0] != UNKNOWN:
+            return period[0]
         before = self._mariadb.read_presence_state_before(period[1])
         if before is None or now - period[1] >= UNKNOWN_HOLD:
             return SOMEONE_HOME

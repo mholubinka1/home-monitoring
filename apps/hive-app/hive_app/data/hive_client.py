@@ -21,6 +21,7 @@ from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.mysql.model import OUTCOME_APPLIED, OUTCOME_NOT_VERIFIED
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -500,13 +501,13 @@ class HiveApiSource:
             reported_target = await hive.heating.getTargetTemperature(device)
 
         if reported_mode != mode:
-            return "not_verified"
+            return OUTCOME_NOT_VERIFIED
         if target is not None and not (
             isinstance(reported_target, int | float)
             and abs(float(reported_target) - target) < 0.05
         ):
-            return "not_verified"
-        return "applied"
+            return OUTCOME_NOT_VERIFIED
+        return OUTCOME_APPLIED
 
     @staticmethod
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:

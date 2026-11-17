@@ -7,8 +7,10 @@ the writes it is asked to make, and the real MariaDB test client underneath."""
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from hive_app.common.logging import APP_LOGGER_NAME
 from hive_app.data.heating import HeatingRetriever
@@ -30,6 +32,8 @@ class _FakeHiveSource:
         self.status = status
         self.writes: list[tuple[str, float | None]] = []
         self.write_error: Exception | None = None
+        self.override_outcome = "applied"
+        self.restore_outcomes = ["applied"]
 
     def fetch_heating_status(self) -> HeatingStatus:
         return self.status
@@ -39,11 +43,14 @@ class _FakeHiveSource:
 
     def apply_away_override(self, temperature: float) -> str:
         self._record_write("away_override", temperature)
-        return "applied"
+        return self.override_outcome
 
     def restore_schedule(self) -> str:
         self._record_write("restore_schedule", None)
-        return "applied"
+        # Each restore uses the next scripted outcome; the last one repeats.
+        if len(self.restore_outcomes) > 1:
+            return self.restore_outcomes.pop(0)
+        return self.restore_outcomes[0]
 
     def _record_write(self, action: str, temperature: float | None) -> None:
         if self.write_error is not None:
@@ -150,7 +157,97 @@ def test_nothing_is_written_when_the_thermostat_already_holds_the_away_temperatu
     _retriever(mariadb_client, source).refresh(NOW)
 
     assert not source.writes
-    assert not _actions(mariadb_client)
+    [action] = _actions(mariadb_client)
+    assert (action.action, action.outcome, action.detail) == (
+        "away_override",
+        "applied",
+        "adopted",
+    )
+
+
+def test_an_adopted_away_temperature_is_restored_when_someone_comes_home(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(
+        mariadb_client, _status(mode="MANUAL", target=AWAY_TEMPERATURE)
+    )
+    retriever = _retriever(mariadb_client, source)
+    retriever.refresh(NOW)
+    _someone_home(mariadb_client)
+
+    _poll(retriever, source, _status(mode="MANUAL", target=AWAY_TEMPERATURE))
+
+    assert source.writes == [("restore_schedule", None)]
+
+
+def test_an_override_that_hive_accepted_but_could_not_confirm_is_still_restored(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(mode="SCHEDULE"))
+    source.override_outcome = "not_verified"
+    retriever = _retriever(mariadb_client, source)
+    retriever.refresh(NOW)
+    source.writes.clear()
+    _someone_home(mariadb_client)
+
+    _poll(retriever, source, _status(mode="MANUAL", target=AWAY_TEMPERATURE))
+
+    assert source.writes == [("restore_schedule", None)]
+
+
+def test_a_restore_that_could_not_be_confirmed_is_attempted_again(
+    mariadb_client: MariaDBClient,
+) -> None:
+    source, retriever = _house_left_with_the_override_in_force(mariadb_client)
+    _someone_home(mariadb_client)
+    source.restore_outcomes = ["not_verified", "applied"]
+    at_away = _status(mode="MANUAL", target=AWAY_TEMPERATURE)
+
+    _poll(retriever, source, at_away)
+    _poll(retriever, source, at_away)
+    _poll(retriever, source, at_away)
+
+    assert source.writes == [
+        ("restore_schedule", None),
+        ("restore_schedule", None),
+    ]
+
+
+def test_with_control_off_a_failing_restore_is_tried_once_per_poll(
+    mariadb_client: MariaDBClient,
+) -> None:
+    source, _ = _house_left_with_the_override_in_force(mariadb_client)
+    _someone_home(mariadb_client)
+    restarted = _retriever(mariadb_client, source, control="off")
+    source.write_error = TimeoutError()
+
+    _poll(restarted, source, _status(mode="MANUAL", target=AWAY_TEMPERATURE))
+
+    failed = [a for a in _actions(mariadb_client) if a.outcome == "failed"]
+    assert len(failed) == 1
+
+
+def test_a_database_error_while_controlling_does_not_break_the_stored_poll(
+    mariadb_client: MariaDBClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(mode="SCHEDULE"))
+    monkeypatch.setattr(
+        mariadb_client,
+        "read_open_presence_period",
+        Mock(side_effect=OperationalError("SELECT", {}, Exception("gone"))),
+    )
+
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    with mariadb_client.session_read_scope() as session:
+        assert session.query(model.heating_status).count() == 1
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_a_running_boost_is_not_interrupted_while_no_one_is_home(

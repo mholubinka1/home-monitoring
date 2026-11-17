@@ -71,6 +71,7 @@ ACTION_RESTORE_SCHEDULE = "restore_schedule"
 OUTCOME_APPLIED = "applied"
 OUTCOME_DRY_RUN = "dry_run"
 OUTCOME_FAILED = "failed"
+OUTCOME_NOT_VERIFIED = "not_verified"
 OUTCOME_SKIPPED = "skipped"
 
 
