@@ -75,6 +75,32 @@ class NtfyDataNotifier:
         )
         logger.info("Sent Hive data-restored notice to the configured ntfy.sh topic.")
 
+    def notify_presence_lost(self, age: timedelta, reminder: bool = False) -> None:
+        self._post(
+            f"Presence is unknown: no Pi-hole reading for {describe_duration(age)}.",
+            {
+                "Title": (
+                    "hive-app: presence signal still lost"
+                    if reminder
+                    else "hive-app: presence signal lost"
+                ),
+                "Priority": "high",
+                "Tags": "warning",
+            },
+        )
+        logger.info("Sent presence-lost alert to the configured ntfy.sh topic.")
+
+    def notify_presence_restored(self, outage: timedelta) -> None:
+        self._post(
+            f"Presence is known again after {describe_duration(outage)}.",
+            {
+                "Title": "hive-app: presence signal restored",
+                "Priority": "default",
+                "Tags": "white_check_mark",
+            },
+        )
+        logger.info("Sent presence-restored notice to the configured ntfy.sh topic.")
+
     def _post(self, body: str, headers: dict[str, str]) -> None:
         response = requests.post(
             self._topic_url,

@@ -5,13 +5,14 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from datetime import time as day_time
 from logging import Logger, getLogger
 from types import FrameType
 
 from schedule import Job, Scheduler, default_scheduler
 
-from common.local_day import set_local_timezone
+from common.local_day import get_local_timezone, set_local_timezone
 from hive_app.common.config import (
     LocationSettings,
     NtfySettings,
@@ -27,6 +28,11 @@ from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
 from hive_app.data.pihole import PiholeApiSource
 from hive_app.data.presence import PresenceRetriever
+from hive_app.data.presence_watchdog import (
+    NIGHT_CHECK_TIME,
+    PresenceWatchdog,
+    warn_if_house_empty,
+)
 from hive_app.data.watchdog import HEATING_REFRESH_JOB, HiveDataWatchdog
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
@@ -45,6 +51,9 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 HEATING_REFRESH_INTERVAL_SECONDS = 120
 HIVE_WATCHDOG_INTERVAL_SECONDS = 60
 PRESENCE_INTERVAL_SECONDS = 60
+PRESENCE_WATCHDOG_INTERVAL_SECONDS = 60
+# How long after NIGHT_CHECK_TIME a late tick still runs the night check.
+NIGHT_CHECK_WINDOW_MINUTES = 25
 WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"
 WEATHER_OBSERVATION_REFRESH_INTERVAL_MINUTES = 60
 WEATHER_FORECAST_REFRESH_JOB = "weather_forecast_refresh"
@@ -189,6 +198,78 @@ def build_presence_job(
     return register_presence_job(
         scheduler, PresenceRetriever(pihole, mariadb, presence_settings)
     )
+
+
+def register_presence_watchdog_job(
+    scheduler: Scheduler, watchdog: PresenceWatchdog
+) -> Job:
+    def check_safely() -> None:
+        try:
+            watchdog.check(datetime.now(UTC))
+        except Exception:
+            logger.exception("Presence watchdog check failed.")
+
+    return scheduler.every(PRESENCE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
+
+
+def build_presence_watchdog_job(
+    scheduler: Scheduler, mariadb: MariaDBClient, ntfy: NtfySettings | None
+) -> Job | None:
+    """Registers the presence signal watchdog only when ntfy is configured."""
+    if ntfy is None or not ntfy.topic_url:
+        logger.warning(
+            "ntfy is not configured; hive-app will not send a live alert if "
+            "the presence signal is lost."
+        )
+        return None
+    return register_presence_watchdog_job(
+        scheduler,
+        PresenceWatchdog(mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours),
+    )
+
+
+def register_presence_night_check_job(
+    scheduler: Scheduler, mariadb: MariaDBClient
+) -> Job:
+    """Runs warn_if_house_empty once a day at NIGHT_CHECK_TIME in the configured
+    timezone. shortcut: a once-a-minute job gated on local time, because
+    schedule's own timezone support needs pytz, which is not a dependency."""
+    due = day_time.fromisoformat(NIGHT_CHECK_TIME)
+    # A late tick still counts, but a process started at 10am must not.
+    end_minute = due.hour * 60 + due.minute + NIGHT_CHECK_WINDOW_MINUTES
+    window_end = day_time(min(end_minute // 60, 23), end_minute % 60)
+    last_run_date: date | None = None
+
+    def check_safely() -> None:
+        nonlocal last_run_date
+        now = datetime.now(UTC)
+        local = now.astimezone(get_local_timezone())
+        if not due <= local.time() < window_end or last_run_date == local.date():
+            return
+        try:
+            warn_if_house_empty(mariadb, now)
+        except Exception:
+            # Not marked done, so the next tick inside the window retries.
+            logger.exception("Presence night check failed.")
+            return
+        last_run_date = local.date()
+
+    return scheduler.every(PRESENCE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
+
+
+def build_presence_watchdog_jobs(
+    scheduler: Scheduler,
+    mariadb: MariaDBClient,
+    presence_settings: PresenceSettings | None,
+    ntfy: NtfySettings | None,
+) -> list[Job]:
+    """The signal-lost watchdog (needs ntfy) and the night check, both only when
+    a `presence` section is configured."""
+    if presence_settings is None:
+        return []
+    watchdog_job = build_presence_watchdog_job(scheduler, mariadb, ntfy)
+    jobs = [register_presence_night_check_job(scheduler, mariadb)]
+    return jobs if watchdog_job is None else [watchdog_job, *jobs]
 
 
 def register_weather_observation_refresh_job(
@@ -348,6 +429,9 @@ def main() -> None:
 
     pihole = PiholeApiSource(settings.presence.pihole) if settings.presence else None
     build_presence_job(default_scheduler, mariadb, settings.presence, pihole)
+    build_presence_watchdog_jobs(
+        default_scheduler, mariadb, settings.presence, settings.ntfy
+    )
 
     if pihole is not None:
         signal.signal(signal.SIGTERM, _exit_on_sigterm)

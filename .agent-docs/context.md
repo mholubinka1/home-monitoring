@@ -281,6 +281,10 @@ _Avoid_: average indoor temperature (ambiguous with the all-day mean)
 The ntfy.sh message hive-app sends when the newest `heating_status` row is more than 30 minutes old, checked every minute. It repeats hourly while data is missing, followed by a recovered notice; nothing is sent during quiet hours. Recovery from a genuine re-authentication failure is operator-run via `python -m hive_app.login` ([ADR-0031](adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md)).
 _Avoid_: re-auth alert (removed), alert (too general)
 
+**Presence Signal Lost Notification**:
+The ntfy.sh message hive-app sends when the open Presence Period has been Presence Unknown for more than 30 minutes, checked every minute. It repeats hourly, followed by a restored notice; nothing is sent during quiet hours. Not built without ntfy configured. Separate from the 03:05 warning, a log line only, written when the open period is No One Is Home.
+_Avoid_: alert (too general)
+
 **Weather Observation**:
 Recent and historical hourly outdoor readings from Open-Meteo at the Weather Location, stored per source, location key and hour so a re-written hour updates its row. Earlier history from 2024-07-24 is backfilled from Open-Meteo's archive and labelled `open-meteo-archive` ([ADR-0029](adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)).
 _Avoid_: weather data (ambiguous between the two)
