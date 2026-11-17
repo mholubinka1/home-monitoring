@@ -6,6 +6,7 @@ import pytest
 import responses
 from schedule import Scheduler
 
+from common.local_day import set_local_timezone
 from hive_app.common.config import (
     NtfySettings,
     PiholeSettings,
@@ -18,6 +19,7 @@ from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.pihole import PiholeApiSource
 from hive_app.data.presence import PresenceRetriever
+from hive_app.data.presence_watchdog import PresenceWatchdog
 from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.main import (
     build_hive_watchdog,
@@ -28,6 +30,7 @@ from hive_app.main import (
     register_hive_watchdog_job,
     register_presence_job,
     register_presence_night_check_job,
+    register_presence_watchdog_job,
     run_pending_safely,
 )
 
@@ -251,3 +254,33 @@ def test_the_night_check_runs_once_a_day_only_just_after_0305_local_time(
         job.run()
 
     assert calls == [datetime(2026, 11, 17, 3, 5, tzinfo=UTC)]
+
+
+def test_the_night_check_is_read_in_the_configured_local_timezone(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # In June London is an hour ahead of UTC, so 03:05 local is 02:05 UTC.
+    set_local_timezone("Europe/London")
+    calls: list[datetime] = []
+    monkeypatch.setattr(
+        "hive_app.main.warn_if_house_empty", lambda _db, now: calls.append(now)
+    )
+    clock = [datetime(2026, 6, 17, 3, 5, tzinfo=UTC)]
+    monkeypatch.setattr("hive_app.main.datetime", Mock(now=lambda _tz: clock[0]))
+    job = register_presence_night_check_job(Scheduler(), mariadb_client)
+
+    job.run()
+    clock[0] = datetime(2026, 6, 17, 2, 5, tzinfo=UTC)
+    job.run()
+
+    assert calls == [datetime(2026, 6, 17, 2, 5, tzinfo=UTC)]
+
+
+def test_the_presence_watchdog_job_swallows_a_failing_check() -> None:
+    watchdog = Mock(spec=PresenceWatchdog)
+    watchdog.check.side_effect = RuntimeError("database down")
+
+    job = register_presence_watchdog_job(Scheduler(), watchdog)
+    job.run()
+
+    watchdog.check.assert_called_once()

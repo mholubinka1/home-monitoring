@@ -128,6 +128,7 @@ class MariaDBClient(MariaDBClientBase):
                     sql_model.presence_period.started_at,
                 )
                 .filter(sql_model.presence_period.ended_at.is_(None))
+                .order_by(sql_model.presence_period.started_at.desc())
                 .first()
             )
         return (row[0], row[1].replace(tzinfo=UTC)) if row is not None else None

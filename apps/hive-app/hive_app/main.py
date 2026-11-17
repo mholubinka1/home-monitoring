@@ -52,6 +52,8 @@ HEATING_REFRESH_INTERVAL_SECONDS = 120
 HIVE_WATCHDOG_INTERVAL_SECONDS = 60
 PRESENCE_INTERVAL_SECONDS = 60
 PRESENCE_WATCHDOG_INTERVAL_SECONDS = 60
+# How long after NIGHT_CHECK_TIME a late tick still runs the night check.
+NIGHT_CHECK_WINDOW_MINUTES = 25
 WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"
 WEATHER_OBSERVATION_REFRESH_INTERVAL_MINUTES = 60
 WEATHER_FORECAST_REFRESH_JOB = "weather_forecast_refresh"
@@ -234,7 +236,8 @@ def register_presence_night_check_job(
     schedule's own timezone support needs pytz, which is not a dependency."""
     due = day_time.fromisoformat(NIGHT_CHECK_TIME)
     # A late tick still counts, but a process started at 10am must not.
-    window_end = day_time(due.hour, due.minute + 25)
+    end_minute = due.hour * 60 + due.minute + NIGHT_CHECK_WINDOW_MINUTES
+    window_end = day_time(min(end_minute // 60, 23), end_minute % 60)
     last_run: list[date] = []
 
     def check_safely() -> None:

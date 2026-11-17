@@ -148,12 +148,14 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 
 ### ntfy notifications (hive-app)
 
-hive-app sends one kind of ntfy.sh alert: **Hive data lost**, when no new heating status
-has arrived for 30 minutes, whatever the cause (see
+hive-app sends two kinds of ntfy.sh alert. **Hive data lost** fires when no new heating
+status has arrived for 30 minutes, whatever the cause (see
 [ADR-0031](.agent-docs/adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md), which
 replaced the re-authentication alerts of
 [ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
-stays on `job_run` and the dashboard. A job checks the newest `heating_status` row every
+stays on `job_run` and the dashboard. **Presence signal lost** fires when the open
+presence period has been Presence Unknown for 30 minutes (Pi-hole can't be read), when a
+`presence` section is configured. A job checks the newest `heating_status` row every
 minute, so it works across restarts. It does not fire if the hive-app container itself is
 down.
 
@@ -174,12 +176,20 @@ down.
 | Data lost | `hive-app: Hive data lost` | `high` | `warning` | the [runbook](deployments/hive-app/REAUTH_RUNBOOK.md) on `main` |
 | Still lost (hourly) | `hive-app: Hive data still lost` | `high` | `warning` | the runbook |
 | Data restored | `hive-app: Hive data restored` | `default` | `white_check_mark` | none |
+| Presence signal lost | `hive-app: presence signal lost` | `high` | `warning` | none |
+| Presence signal still lost (hourly) | `hive-app: presence signal still lost` | `high` | `warning` | none |
+| Presence signal restored | `hive-app: presence signal restored` | `default` | `white_check_mark` | none |
 
 The body of a lost message gives how long data has been missing and the first line of
 the latest failed poll reason (posted to the public topic as is, so errors must not carry
 secrets). A restart forgets what was already sent: you may get one repeat "lost" message,
 and no "restored" message if the data returns before it. "Restored" is only sent after a lost message was actually delivered, and gives
-the outage length.
+the outage length. The presence alerts follow the same rules, judged from the open
+presence period.
+
+Separately, a daily job at 03:05 (configured timezone) logs a WARNING, with how long it has
+lasted, if the open presence period is No One Is Home. It is not an ntfy message and
+ignores quiet hours.
 
 ## Running
 
