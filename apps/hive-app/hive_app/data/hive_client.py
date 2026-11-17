@@ -487,10 +487,10 @@ class HiveApiSource:
             if target is not None:
                 kwargs["target"] = target
             resp = await hive.api.setState("heating", device["hiveID"], **kwargs)
-            if not isinstance(resp, dict) or resp.get("original") != 200:
+            response_status = resp.get("original") if isinstance(resp, dict) else None
+            if response_status != 200:
                 raise RuntimeError(
-                    "Hive rejected the heating write "
-                    f"(response status {resp.get('original') if isinstance(resp, dict) else None!r})."
+                    f"Hive rejected the heating write (response status {response_status!r})."
                 )
             # No check on the response body: the read-back below is what proves
             # the write landed, and Hive's body for a mode change is unobserved.

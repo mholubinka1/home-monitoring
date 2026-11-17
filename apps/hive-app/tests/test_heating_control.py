@@ -423,6 +423,15 @@ def test_a_dry_run_absence_records_one_override_and_one_restore_and_calls_hive_n
     assert any("would set" in r.getMessage() for r in caplog.records)
 
 
+def test_an_unknown_control_setting_is_refused_rather_than_treated_as_on(
+    mariadb_client: MariaDBClient,
+) -> None:
+    source = _FakeHiveSource(mariadb_client, _status())
+
+    with pytest.raises(ValueError, match="dryrun"):
+        HeatingRetriever(source, mariadb_client, control="dryrun")
+
+
 def test_with_control_off_nothing_is_written_or_recorded_while_no_one_is_home(
     mariadb_client: MariaDBClient,
 ) -> None:

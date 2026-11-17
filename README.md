@@ -150,7 +150,8 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 
 While No One Is Home, hive-app sets the thermostat to MANUAL at the Away
 Temperature (`comfort_schedule.away_temperature`, 7 °C by default, 5–32 °C in half
-degrees) and writes it again at every heating poll, so a hand change doesn't last.
+degrees) and writes it again at any poll where the thermostat isn't already there, so a hand
+change doesn't last.
 When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 
 - A running boost is never interrupted, and a restore waits for the boost to end.
@@ -161,7 +162,7 @@ When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 - Every intended write is stored in `heating_control_action` with its outcome. A
   failed write is logged, stored as `failed` and retried at the next poll.
 
-`presence.control` has three settings. `off` applies no new override and records nothing. `dry_run`
+`presence.control` has three settings. `off` applies no new override. `dry_run`
 records what would be written (one override and one restore per absence) and logs
 "would set …", but never calls Hive, so a week of it can be compared with the
 household's real comings and goings. `on` writes to Hive, and is refused at startup

@@ -226,6 +226,8 @@ class HeatingRetriever:
         control: str = CONTROL_OFF,
         away_temperature: float = 7.0,
     ) -> None:
+        if control not in (CONTROL_OFF, CONTROL_DRY_RUN, CONTROL_ON):
+            raise ValueError(f"Unknown heating control setting: {control!r}")
         self._client = client
         self._presence_control = (
             PresenceHeatingControl(client, mariadb, control, away_temperature)
