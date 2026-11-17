@@ -88,8 +88,8 @@ heating polling; `location`, `ntfy` and `presence` are optional and each
 template section is commented with what uses it.
 `presence` records, from Pi-hole (v6, an app password and its `http://` URL; an
 `https://` URL works only with a certificate `requests` trusts), whether any phone on
-the network is home; its `control` setting gates only
-the heating actions, which are not built yet.
+the network is home; its `control` setting gates the heating actions described in
+[Presence-based heating control](#presence-based-heating-control-hive-app).
 
 Run the first Hive login, and any later
 re-authentication (a Hive data-lost alert whose cause is a lost device), with
@@ -145,6 +145,38 @@ afterwards will not rotate the existing MariaDB user's password. See
 one small overlap remains rather than being engineered away. `MARIADB_DATABASE` and
 `MARIADB_RANDOM_ROOT_PASSWORD` are not in `.env` — they're hardcoded directly in
 `deployments/mariadb/docker-compose.yml`, since neither is a secret.
+
+### Presence-based heating control (hive-app)
+
+While No One Is Home, hive-app sets the thermostat to MANUAL at the Away
+Temperature (`comfort_schedule.away_temperature`, 7 °C by default, 5–32 °C in half
+degrees) and writes it again at any poll where the thermostat isn't already there, so a hand
+change doesn't last.
+When Someone Is Home again it writes SCHEDULE back. The rules, in short:
+
+- A running boost is never interrupted, and a restore waits for the boost to end.
+- A thermostat switched OFF is left alone; its restore is recorded as `skipped`.
+- Presence Unknown keeps the earlier state for 10 minutes, then counts as home.
+- While the household is home and in control (MANUAL 21 °C for a party, say), hive-app
+  writes nothing.
+- Every intended write is stored in `heating_control_action` with its outcome. A
+  failed write is logged, stored as `failed` and retried at the next poll.
+- With control `on`, a thermostat found at MANUAL on the Away Temperature with no
+  override recorded (set by hand while away) is recorded as `adopted` without a
+  write, so the return restores it. `dry_run` never adopts.
+
+`presence.control` has three settings. `off` applies no new override. `dry_run`
+records what would be written (one override and one restore per absence) and logs
+"would set …", but never calls Hive, so a week of it can be compared with the
+household's real comings and goings. `on` writes to Hive, and is refused at startup
+until the Comfort Schedule exists. If a real override is still in force when control
+is switched to `dry_run` or `off` (or the `presence` section is removed), the next
+poll restores SCHEDULE once.
+
+Accepted limit: the Away Delay is 30 minutes, so a phone that makes no DNS lookup for
+that long overnight reads as away. If it is the only phone home, the thermostat is held
+at the Away Temperature until the phone's next lookup, and the morning pre-heat can be
+late. Lengthen `away_delay_minutes` if that bites.
 
 ### ntfy notifications (hive-app)
 

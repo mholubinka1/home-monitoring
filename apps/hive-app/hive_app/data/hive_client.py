@@ -19,8 +19,10 @@ from apyhiveapi.helper import hive_exceptions
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
+from hive_app.data.heating import MODE_MANUAL, MODE_SCHEDULE
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.mysql.model import OUTCOME_APPLIED, OUTCOME_NOT_VERIFIED
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -463,6 +465,53 @@ class HiveApiSource:
             working=working,
             weekly_schedule=weekly_schedule,
         )
+
+    # -- HiveSource: heating write verbs --
+
+    def apply_away_override(self, temperature: float) -> str:
+        return asyncio.run(self._write_heating(MODE_MANUAL, temperature))
+
+    def restore_schedule(self) -> str:
+        return asyncio.run(self._write_heating(MODE_SCHEDULE, None))
+
+    async def _write_heating(self, mode: str, target: float | None) -> str:
+        """Set the thermostat mode (and target, for MANUAL) in this call's own
+        session, then re-read it: "applied" when it reports what was sent, else
+        "not_verified". A non-OK API response raises."""
+        state = self.read_auth_state()
+        async with self._hive_session() as hive:
+            await self._establish_session(hive, state)
+            self.persist_auth_state(self._auth_state_from_session(hive))
+
+            device = self._climate_device(hive)
+            kwargs: dict[str, Any] = {"mode": mode}
+            if target is not None:
+                kwargs["target"] = target
+            resp = await hive.api.setState("heating", device["hiveID"], **kwargs)
+            response_status = resp.get("original") if isinstance(resp, dict) else None
+            if response_status != 200:
+                raise RuntimeError(
+                    f"Hive rejected the heating write (response status {response_status!r})."
+                )
+            # No check on the response body: the read-back below is what proves
+            # the write landed, and Hive's body for a mode change is unobserved.
+
+            # Fresh read of every product, not the cached one. getDevices returns
+            # False on a timeout or API error and keeps its cached data, so the
+            # getters below would then report pre-write values.
+            if not await hive.session.getDevices(device["hiveID"]):
+                return OUTCOME_NOT_VERIFIED
+            reported_mode = await hive.heating.getMode(device)
+            reported_target = await hive.heating.getTargetTemperature(device)
+
+        if reported_mode != mode:
+            return OUTCOME_NOT_VERIFIED
+        if target is not None and not (
+            isinstance(reported_target, int | float)
+            and abs(float(reported_target) - target) < 0.05
+        ):
+            return OUTCOME_NOT_VERIFIED
+        return OUTCOME_APPLIED
 
     @staticmethod
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
