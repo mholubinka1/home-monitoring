@@ -105,8 +105,11 @@ presence:
   ignored_hostnames: []   # wins over both the Phone Rule and phone_hostnames
 ```
 
+`control` is read as a word whichever way YAML spells it: an unquoted `off` or `on` (YAML 1.1 booleans) means "off" or "on". Every YAML boolean spelling is read the same way, so `no` means "off" and `yes` means "on".
+
 Settings validation refuses at startup:
 
+- an unknown key inside `presence` or `presence.pihole` (a typo such as `ignored_hostname` would otherwise be dropped silently);
 - a non-positive Away Delay;
 - an Away Temperature outside 5–32 °C (the library's defaults for this thermostat type) or not on a half degree;
 - a blank Pi-hole URL or password, or a URL that doesn't start with `http://` or `https://`, while a `presence` section is present;
@@ -121,7 +124,7 @@ A **PiholeSource** Protocol with one verb, returning every device Pi-hole knows:
 - `POST /api/auth` with the app password returns a session ID. The ID is sent as the `X-FTL-SID` header and reused across polls. A 401 triggers one fresh login and one retry. The session is released with `DELETE /api/auth` at shutdown, best effort, because Pi-hole caps concurrent sessions.
 - `GET /api/network/devices?max_devices=<n>&max_addresses=<m>` returns the devices, most recent lookup first (about 11 KB for the 43 devices on this network). Both parameters are always sent, as named constants well above this network's size (for example 500 and 20). Pi-hole's API documents a default of 10 devices, and one real device already returned exactly 3 addresses, which looks like the address cap in effect. Each device's `hwaddr`, `ips[].name` and `lastQuery` (epoch seconds, 0 = never) are what the rule needs.
 - `hwaddr` is not always a MAC address. FTL stores `ip-<address>` for a client whose MAC it can't find (for example an IPv6 client missing from the neighbour cache). The source passes it through unchanged, and the Phone Rule handles it.
-- Requests time out after 10 seconds. Any failure (timeout, connection error, rejected password, malformed body) surfaces as one source error. The password never appears in logs or exceptions.
+- Requests time out after 10 seconds. Any failure (timeout, connection error, rejected password, malformed body) surfaces as one source error. A body counts as malformed when `devices` or a device's `ips` is not a list (an empty `{}` or `""` is not an empty list), or a field has the wrong type. A list with no devices is also a source error: this network has dozens of devices, so an empty list means Pi-hole has lost its table (for example after a restart), and recording No One Is Home from it would be a false absence. The password never appears in logs or exceptions.
 
 Unlike HiveApiSource, whose Cognito login can't be faked cheaply, the real client is plain HTTP and is tested with faked HTTP responses: session reuse, a fresh login on 401, the explicit `max_devices` and `max_addresses`, one source error for every failure, and the password absent from logs and errors. The dry-run week still verifies it against the real Pi-hole.
 
@@ -167,7 +170,7 @@ Each presence job run:
 2. Otherwise, counts the Phones whose last lookup is no more than the Away Delay before now (a lookup exactly 30:00 ago still counts): one or more is **Someone Is Home**, none is **No One Is Home**. The decision uses Pi-hole's own last-lookup times, so the first run after a restart is right immediately; there is no warm-up.
 3. If the state differs from the open Presence Period, closes it (`ended_at` = now) and opens a new one (`started_at` = now). Otherwise it changes nothing. A restart continues the open period when the state is unchanged.
 
-Transitions are logged at INFO with the number of Phones seen. A Pi-hole failure is logged at WARNING once, when the period becomes Presence Unknown, and at DEBUG while it stays so, so an outage doesn't write a line a minute. Hostnames are logged at DEBUG only.
+Transitions are logged at INFO with the number of Phones seen (Presence Unknown has no count). A Pi-hole failure is logged at WARNING once, when the period becomes Presence Unknown, and at DEBUG while it stays so, so an outage doesn't write a line a minute. Hostnames are logged at DEBUG only.
 
 The presence job is scheduled like the Hive data watchdog, not through the retry-with-backoff wrapper: a Pi-hole error is already Presence Unknown, and anything else (for example a database error) is caught and logged, since the next run is 60 seconds away. A backoff would hold the worker for up to 15 minutes and skip the runs in between.
 
@@ -246,7 +249,7 @@ A state-timeline panel on the gas and heating dashboard shows the last 7 days of
 - **Spike first.** It depends on nothing else in this spec and can run at any time. On the live account, the spike writes a made-up schedule to one weekday (for example 05:40–06:25 at 19 °C, Away Temperature otherwise) via the raw POST below, reads it back, and restores the original week. A research note records whether Hive accepted it, the start-time grain (Hive's app uses coarser steps than the plan's 2-minute marks), the slot limit per day and whether a 200 can come back unstored. It also records the 2.0 beta's `set_schedule` validation rules from its source at a named version, since the rules below are taken from it and no note records them yet. The production write depends on its findings.
 - **Write path.** pyhive-integration 1.0.10 has no schedule setter, and its `setState` turns every value into a quoted string, so a nested schedule can't go through it. hive-app sends `POST /nodes/heating/{id}` with the JSON body `{"schedule": {...}}` through 1.0.10's authenticated `api.request`, copying the 2.0 beta's `set_schedule` rules (2.0.0b5, [spike note](../research/hive-schedule-write-spike.md)):
   - all seven days are sent;
-  - each day is non-empty, with integer `start` minutes 0–1439, unique and sorted;
+  - each day is non-empty, with integer `start` minutes 0–1439 and unique (the beta sorts the slots itself; hive-app writes them sorted), each slot shaped `{"start": <minutes>, "value": {"target": <°C>}}`;
   - the product is re-read afterwards, and the write counts only if Hive stored exactly what was sent. A differing first read is read again after a few seconds before the write is called `not_verified`: the spike saw a whole-week write read back different 2 seconds later and identical minutes later.
 
   hive-app adds two checks of its own, which neither the beta nor Hive enforces: the first entry of each day is at 00:00, and targets are on half degrees. The spike proved on the live account that Hive stores one-minute starts, any target (19.3 was kept) and at least 48 slots a day, and showed no 200-but-unstored write.

@@ -5,7 +5,7 @@ from logging import Logger, getLogger
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -55,6 +55,8 @@ class LocationSettings(BaseModel):
 
 
 class PiholeSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     url: str
     # repr=False keeps the app password out of any logged settings object.
     password: str = Field(repr=False)
@@ -76,11 +78,23 @@ class PiholeSettings(BaseModel):
 
 
 class PresenceSettings(BaseModel):
+    # A mistyped key (ignored_hostname) must refuse startup, not be dropped:
+    # the device the household meant to ignore would still count as a phone.
+    model_config = ConfigDict(extra="forbid")
+
     control: Literal["off", "dry_run", "on"] = "off"
     pihole: PiholeSettings
     away_delay_minutes: int = Field(default=30, gt=0)
     phone_hostnames: list[str] = []
     ignored_hostnames: list[str] = []
+
+    @field_validator("control", mode="before")
+    @classmethod
+    def _read_yaml_booleans_as_the_words(cls, value: object) -> object:
+        """YAML 1.1 reads an unquoted off, no, on or yes as False or True."""
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        return value
 
 
 class HiveApplicationSettings(BaseModel):

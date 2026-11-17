@@ -122,8 +122,32 @@ def test_a_rejected_password_is_a_pihole_error_that_does_not_reveal_it(
 
 
 @responses.activate
-def test_a_login_that_returns_no_session_id_is_a_pihole_error() -> None:
-    responses.add(responses.POST, AUTH_URL, json={"session": {"sid": None}})
+@pytest.mark.parametrize(
+    "login_body", [{}, {"session": None}, {"session": {}}, [], "text"]
+)
+def test_a_malformed_login_body_is_one_pihole_error(login_body: object) -> None:
+    responses.add(responses.POST, AUTH_URL, json=login_body)
+    responses.add(responses.GET, DEVICES_URL, json=DEVICES_BODY)
+
+    with pytest.raises(PiholeError):
+        _source().read_devices()
+
+
+@responses.activate
+def test_a_login_answered_with_a_page_instead_of_json_is_one_pihole_error() -> None:
+    responses.add(responses.POST, AUTH_URL, body="<html>bad gateway</html>")
+    responses.add(responses.GET, DEVICES_URL, json=DEVICES_BODY)
+
+    with pytest.raises(PiholeError):
+        _source().read_devices()
+
+
+@responses.activate
+@pytest.mark.parametrize("sid", [None, ""])
+def test_a_login_that_returns_no_session_id_is_a_pihole_error(
+    sid: str | None,
+) -> None:
+    responses.add(responses.POST, AUTH_URL, json={"session": {"sid": sid}})
     responses.add(responses.GET, DEVICES_URL, json=DEVICES_BODY)
 
     with pytest.raises(PiholeError):
@@ -146,6 +170,41 @@ def test_a_login_that_returns_no_session_id_is_a_pihole_error() -> None:
             }
         },
         {"json": {"devices": [{"hwaddr": 12345, "lastQuery": 0, "ips": []}]}},
+        {"json": {"devices": []}},
+        {"json": {"devices": [{"hwaddr": "c2:00:00:00:00:01", "ips": []}]}},
+        {
+            "json": {
+                "devices": [
+                    {"hwaddr": "c2:00:00:00:00:01", "lastQuery": None, "ips": []}
+                ]
+            }
+        },
+        {
+            "json": {
+                "devices": [
+                    {"hwaddr": "c2:00:00:00:00:01", "lastQuery": "5", "ips": []}
+                ]
+            }
+        },
+        {
+            "json": {
+                "devices": [
+                    {"hwaddr": "c2:00:00:00:00:01", "lastQuery": True, "ips": []}
+                ]
+            }
+        },
+        {"json": {"devices": {}}},
+        {"json": {"devices": ""}},
+        {
+            "json": {
+                "devices": [{"hwaddr": "c2:00:00:00:00:01", "lastQuery": 0, "ips": {}}]
+            }
+        },
+        {
+            "json": {
+                "devices": [{"hwaddr": "c2:00:00:00:00:01", "lastQuery": 0, "ips": ""}]
+            }
+        },
         {
             "json": {
                 "devices": [

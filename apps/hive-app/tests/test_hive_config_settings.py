@@ -253,6 +253,50 @@ def test_a_blank_pihole_url_or_password_is_refused(field: str, blank: str) -> No
         )
 
 
+@pytest.mark.parametrize(
+    ("written", "control"),
+    [
+        ("off", "off"),
+        ("on", "on"),
+        ("no", "off"),
+        ("yes", "on"),
+        ("dry_run", "dry_run"),
+    ],
+)
+def test_control_written_unquoted_in_yaml_is_read_as_the_word(
+    written: str, control: str
+) -> None:
+    """YAML 1.1 reads an unquoted off or on as a boolean."""
+    loaded = yaml.safe_load(
+        "hive: {username: u, password: p}\n"
+        "mariadb: {host: h, port: 3306, database: d, username: u, password: p}\n"
+        f"presence:\n  control: {written}\n"
+        "  pihole: {url: 'http://pi.lan', password: p}\n"
+    )
+
+    settings = HiveApplicationSettings.model_validate(loaded)
+
+    assert settings.presence is not None
+    assert settings.presence.control == control
+
+
+@pytest.mark.parametrize(
+    "misspelled",
+    [
+        {"ignored_hostname": ["Spare-Pixel-8"]},
+        {"phone_hostname": ["Alex-s-Phone"]},
+        {"pihole": {**PRESENCE_CONFIG["pihole"], "passwd": "typo"}},
+    ],
+)
+def test_a_misspelled_presence_key_is_refused_not_silently_ignored(
+    misspelled: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        HiveApplicationSettings.model_validate(
+            {**VALID_CONFIG, "presence": {**PRESENCE_CONFIG, **misspelled}}
+        )
+
+
 def test_a_pihole_url_without_a_scheme_is_refused() -> None:
     pihole = {**PRESENCE_CONFIG["pihole"], "url": "192.0.2.50"}
 

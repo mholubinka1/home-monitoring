@@ -1,9 +1,17 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from logging import Logger, getLogger
-from typing import Any, Protocol
+from typing import Protocol
 
 import requests
+from pydantic import (
+    BaseModel,
+    Field,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+)
 
 from hive_app.common.config import PiholeSettings
 from hive_app.common.logging import APP_LOGGER_NAME
@@ -32,28 +40,37 @@ class PiholeSource(Protocol):
     def read_devices(self) -> list[PiholeDevice]: ...
 
 
-def _text_or_blank(value: object) -> str:
-    """A text field as Pi-hole sends it: null reads as blank, any other
-    non-text value is a malformed body (TypeError, read as a source error)."""
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise TypeError(f"expected text, got {type(value).__name__}")
-    return value
+class _Address(BaseModel):
+    name: StrictStr | None = None
 
 
-def _parse_device(raw: dict[str, Any]) -> PiholeDevice:
-    last_query = raw["lastQuery"]
-    names = (_text_or_blank(ip.get("name")) for ip in raw["ips"])
-    return PiholeDevice(
-        hwaddr=_text_or_blank(raw["hwaddr"]),
-        hostnames=[name for name in names if name],
-        last_query=(
-            datetime.fromtimestamp(last_query, UTC)
-            if last_query != NEVER_QUERIED
-            else None
-        ),
-    )
+class _Device(BaseModel):
+    hwaddr: StrictStr | None
+    lastQuery: StrictInt | StrictFloat
+    ips: list[_Address]
+
+    def to_device(self) -> PiholeDevice:
+        return PiholeDevice(
+            hwaddr=self.hwaddr or "",
+            hostnames=[address.name for address in self.ips if address.name],
+            last_query=(
+                datetime.fromtimestamp(self.lastQuery, UTC)
+                if self.lastQuery != NEVER_QUERIED
+                else None
+            ),
+        )
+
+
+class _Session(BaseModel):
+    sid: StrictStr = Field(min_length=1)
+
+
+class _LoginResponse(BaseModel):
+    session: _Session
+
+
+class _DevicesResponse(BaseModel):
+    devices: list[_Device]
 
 
 class PiholeApiSource:
@@ -72,12 +89,14 @@ class PiholeApiSource:
                 self._session_id = None
                 response = self._get_devices()
             response.raise_for_status()
-            return [_parse_device(raw) for raw in response.json()["devices"]]
+            body = _DevicesResponse.model_validate(response.json())
+            devices = [device.to_device() for device in body.devices]
+            if not devices:
+                raise ValueError("Pi-hole knows no devices")
+            return devices
         except (
             requests.RequestException,
-            KeyError,
-            TypeError,
-            AttributeError,
+            ValidationError,
             ValueError,
             OverflowError,
             OSError,
@@ -116,7 +135,4 @@ class PiholeApiSource:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        session_id = response.json()["session"]["sid"]
-        if not session_id:
-            raise ValueError("Pi-hole returned no session id")
-        return str(session_id)
+        return _LoginResponse.model_validate(response.json()).session.sid
