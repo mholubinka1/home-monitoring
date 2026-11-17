@@ -155,7 +155,7 @@ replaced the re-authentication alerts of
 [ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
 stays on `job_run` and the dashboard. **Presence signal lost** fires when the open
 presence period has been Presence Unknown for 30 minutes (Pi-hole can't be read), when a
-`presence` section is configured. A job checks the newest `heating_status` row every
+`presence` section is configured. The Hive job checks the newest `heating_status` row every
 minute, so it works across restarts. It does not fire if the hive-app container itself is
 down.
 

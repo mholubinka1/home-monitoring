@@ -188,3 +188,20 @@ def test_an_unseen_outage_end_is_reported_before_the_next_outage_alert(
     watchdog.check(NOW + timedelta(minutes=45))
 
     assert [kind for kind, _, _ in notifier.sent] == ["lost", "restored", "lost"]
+
+
+@responses.activate
+def test_the_hourly_reminder_is_titled_still_lost(
+    mariadb_client: MariaDBClient,
+) -> None:
+    responses.add(responses.POST, TOPIC_URL, status=200)
+    watchdog = _watchdog(mariadb_client)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+
+    watchdog.check(NOW)
+    watchdog.check(NOW + timedelta(minutes=60))
+
+    assert [call.request.headers["Title"] for call in responses.calls] == [
+        "hive-app: presence signal lost",
+        "hive-app: presence signal still lost",
+    ]

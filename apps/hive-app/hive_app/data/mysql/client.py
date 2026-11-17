@@ -112,12 +112,8 @@ class MariaDBClient(MariaDBClientBase):
 
     def read_open_presence_state(self) -> str | None:
         """The state of the open presence period, or None when there is none."""
-        with self.session_read_scope() as session:
-            return (
-                session.query(sql_model.presence_period.state)
-                .filter(sql_model.presence_period.ended_at.is_(None))
-                .scalar()
-            )
+        period = self.read_open_presence_period()
+        return period[0] if period is not None else None
 
     def read_open_presence_period(self) -> tuple[str, datetime] | None:
         """The state and start (UTC) of the open presence period, or None."""
