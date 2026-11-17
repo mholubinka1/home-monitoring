@@ -49,6 +49,22 @@ class heating_schedule(SQLBase):
     schedule = Column(JSON, nullable=False)
 
 
+class presence_period(SQLBase):
+    """One stretch of a presence state; ended_at is NULL while it is open."""
+
+    __tablename__ = "presence_period"
+    __table_args__ = (
+        Index("ix_presence_period_started_at", "started_at"),
+        {"schema": "octopus"},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    state = Column(String(20), nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=True)
+    phones_seen = Column(Integer, nullable=False)
+
+
 # One observation per hour per source and location: the unique key, which the
 # keyed upsert also resolves conflicts on.
 WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")

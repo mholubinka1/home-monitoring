@@ -2,9 +2,10 @@ import logging.config
 import sys
 from datetime import datetime, time
 from logging import Logger, getLogger
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -53,6 +54,27 @@ class LocationSettings(BaseModel):
     longitude: float
 
 
+class PiholeSettings(BaseModel):
+    url: str
+    # repr=False keeps the app password out of any logged settings object.
+    password: str = Field(repr=False)
+
+    @field_validator("url", "password")
+    @classmethod
+    def _must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
+class PresenceSettings(BaseModel):
+    control: Literal["off", "dry_run", "on"] = "off"
+    pihole: PiholeSettings
+    away_delay_minutes: int = Field(default=30, gt=0)
+    phone_hostnames: list[str] = []
+    ignored_hostnames: list[str] = []
+
+
 class HiveApplicationSettings(BaseModel):
     hive: HiveSettings
     mariadb: MariaDBSettings
@@ -65,6 +87,8 @@ class HiveApplicationSettings(BaseModel):
     # from a removed provider) are ignored, not rejected.
     ntfy: NtfySettings | None = None
     location: LocationSettings | None = None
+    # Presence from Pi-hole phones; without it no presence job is scheduled.
+    presence: PresenceSettings | None = None
     # The IANA zone that defines a "local day"; must match octopus-app's.
     timezone: str = DEFAULT_TIMEZONE
 

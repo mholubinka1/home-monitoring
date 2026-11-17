@@ -6,17 +6,26 @@ import pytest
 import responses
 from schedule import Scheduler
 
-from hive_app.common.config import NtfySettings, QuietHours
+from hive_app.common.config import (
+    NtfySettings,
+    PiholeSettings,
+    PresenceSettings,
+    QuietHours,
+)
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.model import HeatingStatus
 from hive_app.data.mysql import model
 from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.pihole import PiholeApiSource
+from hive_app.data.presence import PresenceRetriever
 from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.main import (
     build_hive_watchdog,
     build_hive_watchdog_job,
+    build_presence_job,
     register_heating_refresh_job,
     register_hive_watchdog_job,
+    register_presence_job,
     run_pending_safely,
 )
 
@@ -159,3 +168,43 @@ def test_the_configured_quiet_hours_reach_the_watchdog(
 
 def test_without_ntfy_there_is_no_watchdog(mariadb_client: MariaDBClient) -> None:
     assert build_hive_watchdog(mariadb_client, None) is None
+
+
+def _presence_settings() -> PresenceSettings:
+    return PresenceSettings(
+        pihole=PiholeSettings(url="http://pihole.example.lan", password="secret")
+    )
+
+
+def test_the_presence_job_runs_every_60_seconds_when_a_presence_section_is_configured(
+    mariadb_client: MariaDBClient,
+) -> None:
+    scheduler = Scheduler()
+
+    job = build_presence_job(
+        scheduler, mariadb_client, _presence_settings(), Mock(spec=PiholeApiSource)
+    )
+
+    assert job is not None
+    assert job.interval == 60
+    assert job.unit == "seconds"
+
+
+def test_without_a_presence_section_no_presence_job_is_scheduled(
+    mariadb_client: MariaDBClient,
+) -> None:
+    scheduler = Scheduler()
+
+    assert build_presence_job(scheduler, mariadb_client, None, None) is None
+    assert scheduler.get_jobs() == []
+
+
+def test_the_presence_job_swallows_a_failing_refresh() -> None:
+    scheduler = Scheduler()
+    presence = Mock(spec=PresenceRetriever)
+    presence.refresh.side_effect = RuntimeError("database down")
+
+    job = register_presence_job(scheduler, presence)
+    job.run()
+
+    presence.refresh.assert_called_once()

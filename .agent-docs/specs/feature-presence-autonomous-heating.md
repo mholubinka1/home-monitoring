@@ -123,7 +123,7 @@ A **PiholeSource** Protocol with one verb, returning every device Pi-hole knows:
 - `hwaddr` is not always a MAC address. FTL stores `ip-<address>` for a client whose MAC it can't find (for example an IPv6 client missing from the neighbour cache). The source passes it through unchanged, and the Phone Rule handles it.
 - Requests time out after 10 seconds. Any failure (timeout, connection error, rejected password, malformed body) surfaces as one source error. The password never appears in logs or exceptions.
 
-Like HiveApiSource, the real client is not unit-tested. The dry-run week verifies it.
+Unlike HiveApiSource, whose Cognito login can't be faked cheaply, the real client is plain HTTP and is tested with faked HTTP responses: session reuse, a fresh login on 401, the explicit `max_devices` and `max_addresses`, one source error for every failure, and the password absent from logs and errors. The dry-run week still verifies it against the real Pi-hole.
 
 ### Phone Rule
 
@@ -276,6 +276,7 @@ A state-timeline panel on the gas and heating dashboard shows the last 7 days of
 Good tests here drive a public entry point with fixed inputs and a fixed clock, then assert on stored rows, recorded writes and log lines. They never assert on private helpers. Fakes sit only at the external boundaries (Pi-hole, Hive), with the real MariaDB test client underneath, as in the existing hive-app and octopus-app suites.
 
 - **Phone Rule, tested directly** (agreed exception: a pure rule many cases flow through). Table-driven Given/When/Then cases, starting from the prototype's cases in the research note:
+- **PiholeApiSource**, with HTTP faked at the boundary (`responses`), as listed under Pi-hole source above.
   - phone hostnames from every listed manufacturer;
   - tablets, watches, computers and media devices that share phone brands;
   - Samsung model codes for phones and for tablets;
@@ -313,7 +314,7 @@ Good tests here drive a public entry point with fixed inputs and a fixed clock, 
   - the current scenario holding the stored target when the newest poll is MANUAL with no boost, and following the schedule when it is SCHEDULE or boosting (seeded `heating_status` rows).
 - **Schema Sync tests** for both new tables, and settings tests for the new config (defaults, absent sections, refused values including presence `on` without the Comfort Schedule `on` and a blank Pi-hole password), in the shape of the existing schema-sync and config tests.
 - **Prior art:** test_heating_retrieval (fake HiveSource over real MariaDB), test_hive_data_watchdog and test_ntfy_data_notifier (alerts and quiet hours), test_comfort_day_job and test_room_forecast_job (seeded octopus-app jobs), test_hive_config_settings, the `*_schema_sync` tests, test_grafana_dashboards and test_grafana_queries_document.
-- **Live verification, not unit tests:** the real Pi-hole client and Hive writes are checked by a dry-run week compared against actual departures and returns before `control: on`. The schedule write is proven by the spike, then by a `comfort_schedule: dry_run` period before `on`.
+- **Live verification, not unit tests:** the real Pi-hole client's behaviour against a real Pi-hole and Hive writes are checked by a dry-run week compared against actual departures and returns before `control: on`. The schedule write is proven by the spike, then by a `comfort_schedule: dry_run` period before `on`.
 
 ## Out of Scope
 

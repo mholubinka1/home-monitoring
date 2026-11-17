@@ -110,6 +110,31 @@ class MariaDBClient(MariaDBClientBase):
             )
             return first.replace(tzinfo=UTC) if first is not None else None
 
+    def read_open_presence_state(self) -> str | None:
+        """The state of the open presence period, or None when there is none."""
+        with self.session_read_scope() as session:
+            return (
+                session.query(sql_model.presence_period.state)
+                .filter(sql_model.presence_period.ended_at.is_(None))
+                .scalar()
+            )
+
+    def change_presence_state(
+        self, state: str, phones_seen: int, changed_at: datetime
+    ) -> None:
+        """Closes the open presence period and opens one in `state`, in one
+        transaction."""
+        moment = changed_at.replace(tzinfo=None)
+        with self.session_write_scope() as session:
+            session.query(sql_model.presence_period).filter(
+                sql_model.presence_period.ended_at.is_(None)
+            ).update({"ended_at": moment})
+            session.add(
+                sql_model.presence_period(
+                    state=state, started_at=moment, phones_seen=phones_seen
+                )
+            )
+
     def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
         """The first non-blank line (at most 200 characters) of the error of the most
         recent failed run of the job after `since`, or None if there is none.
