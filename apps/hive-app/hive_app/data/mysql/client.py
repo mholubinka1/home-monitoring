@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from logging import Logger, getLogger
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
@@ -129,6 +129,21 @@ class MariaDBClient(MariaDBClientBase):
             )
         return (row[0], row[1].replace(tzinfo=UTC)) if row is not None else None
 
+    def read_presence_state_before(self, started_at: datetime) -> str | None:
+        """The state of the presence period that started latest before
+        `started_at` (UTC), or None when there is none."""
+        with self.session_read_scope() as session:
+            return (
+                session.query(sql_model.presence_period.state)
+                .filter(
+                    sql_model.presence_period.started_at
+                    < started_at.replace(tzinfo=None)
+                )
+                .order_by(sql_model.presence_period.started_at.desc())
+                .limit(1)
+                .scalar()
+            )
+
     def read_presence_period_end(self, started_at: datetime) -> datetime | None:
         """The end (UTC) of the presence period that started at `started_at`, or
         None while it is open or when there is no such period."""
@@ -160,6 +175,58 @@ class MariaDBClient(MariaDBClientBase):
                     state=state, started_at=moment, phones_seen=phones_seen
                 )
             )
+
+    def write_heating_control_action(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        acted_at: datetime,
+        action: str,
+        mode: str | None,
+        target: float | None,
+        dry_run: bool,
+        outcome: str,
+        detail: str | None = None,
+    ) -> None:
+        with self.session_write_scope() as session:
+            session.add(
+                sql_model.heating_control_action(
+                    acted_at=acted_at.replace(tzinfo=None),
+                    action=action,
+                    mode=mode,
+                    target=target,  # type: ignore[misc]
+                    dry_run=dry_run,
+                    outcome=outcome,
+                    detail=detail,
+                )
+            )
+
+    def read_away_override_in_force(self, dry_run: bool) -> bool:
+        """Whether the newest away_override that applied has no later
+        restore_schedule that did not fail, among actions with this dry_run flag."""
+        action = sql_model.heating_control_action
+        away_outcome = (
+            sql_model.OUTCOME_DRY_RUN if dry_run else sql_model.OUTCOME_APPLIED
+        )
+        with self.session_read_scope() as session:
+            newest = (
+                session.query(action.action)
+                .filter(
+                    action.dry_run == dry_run,
+                    or_(
+                        and_(
+                            action.action == sql_model.ACTION_RESTORE_SCHEDULE,
+                            action.outcome != sql_model.OUTCOME_FAILED,
+                        ),
+                        and_(
+                            action.action == sql_model.ACTION_AWAY_OVERRIDE,
+                            action.outcome == away_outcome,
+                        ),
+                    ),
+                )
+                .order_by(action.id.desc())
+                .limit(1)
+                .scalar()
+            )
+        return newest == sql_model.ACTION_AWAY_OVERRIDE
 
     def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
         """The first non-blank line (at most 200 characters) of the error of the most

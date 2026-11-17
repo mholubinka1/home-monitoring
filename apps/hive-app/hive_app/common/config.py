@@ -96,6 +96,23 @@ class PresenceSettings(BaseModel):
             return "on" if value else "off"
         return value
 
+    @field_validator("control")
+    @classmethod
+    def _refuse_on_until_the_comfort_schedule_exists(cls, value: str) -> str:
+        if value == "on":
+            raise ValueError(
+                "'on' is not allowed yet: the Comfort Schedule does not exist "
+                "yet, so use 'dry_run' (#808 relaxes this)"
+            )
+        return value
+
+
+class ComfortScheduleSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Held while no one is home; the thermostat accepts 5-32 C in half degrees.
+    away_temperature: float = Field(default=7.0, ge=5, le=32, multiple_of=0.5)
+
 
 class HiveApplicationSettings(BaseModel):
     hive: HiveSettings
@@ -111,6 +128,9 @@ class HiveApplicationSettings(BaseModel):
     location: LocationSettings | None = None
     # Presence from Pi-hole phones; without it no presence job is scheduled.
     presence: PresenceSettings | None = None
+    comfort_schedule: ComfortScheduleSettings = Field(
+        default_factory=ComfortScheduleSettings
+    )
     # The IANA zone that defines a "local day"; must match octopus-app's.
     timezone: str = DEFAULT_TIMEZONE
 

@@ -257,9 +257,7 @@ def test_a_blank_pihole_url_or_password_is_refused(field: str, blank: str) -> No
     ("written", "control"),
     [
         ("off", "off"),
-        ("on", "on"),
         ("no", "off"),
-        ("yes", "on"),
         ("dry_run", "dry_run"),
     ],
 )
@@ -267,17 +265,33 @@ def test_control_written_unquoted_in_yaml_is_read_as_the_word(
     written: str, control: str
 ) -> None:
     """YAML 1.1 reads an unquoted off or on as a boolean."""
-    loaded = yaml.safe_load(
-        "hive: {username: u, password: p}\n"
-        "mariadb: {host: h, port: 3306, database: d, username: u, password: p}\n"
-        f"presence:\n  control: {written}\n"
-        "  pihole: {url: 'http://pi.lan', password: p}\n"
-    )
+    loaded = _presence_config_with_control_written(written)
 
     settings = HiveApplicationSettings.model_validate(loaded)
 
     assert settings.presence is not None
     assert settings.presence.control == control
+
+
+@pytest.mark.parametrize("written", ["on", "yes"])
+def test_control_written_unquoted_as_on_is_read_as_on_and_refused_until_the_comfort_schedule_exists(
+    written: str,
+) -> None:
+    """YAML 1.1 reads an unquoted on or yes as a boolean, which means `on`;
+    #808 relaxes the refusal once the Comfort Schedule exists."""
+    loaded = _presence_config_with_control_written(written)
+
+    with pytest.raises(ValidationError, match="Comfort Schedule"):
+        HiveApplicationSettings.model_validate(loaded)
+
+
+def _presence_config_with_control_written(written: str) -> Any:
+    return yaml.safe_load(
+        "hive: {username: u, password: p}\n"
+        "mariadb: {host: h, port: 3306, database: d, username: u, password: p}\n"
+        f"presence:\n  control: {written}\n"
+        "  pihole: {url: 'http://pi.lan', password: p}\n"
+    )
 
 
 @pytest.mark.parametrize(

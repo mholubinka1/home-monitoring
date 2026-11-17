@@ -464,6 +464,50 @@ class HiveApiSource:
             weekly_schedule=weekly_schedule,
         )
 
+    # -- HiveSource: heating write verbs --
+
+    def apply_away_override(self, temperature: float) -> str:
+        return asyncio.run(self._write_heating("MANUAL", temperature))
+
+    def restore_schedule(self) -> str:
+        return asyncio.run(self._write_heating("SCHEDULE", None))
+
+    async def _write_heating(self, mode: str, target: float | None) -> str:
+        """Set the thermostat mode (and target, for MANUAL) in this call's own
+        session, then re-read it: "applied" when it reports what was sent, else
+        "not_verified". A non-OK API response raises."""
+        state = self.read_auth_state()
+        async with self._hive_session() as hive:
+            await self._establish_session(hive, state)
+            self.persist_auth_state(self._auth_state_from_session(hive))
+
+            device = self._climate_device(hive)
+            kwargs: dict[str, Any] = {"mode": mode}
+            if target is not None:
+                kwargs["target"] = target
+            resp = await hive.api.setState("heating", device["hiveID"], **kwargs)
+            if not isinstance(resp, dict) or resp.get("original") != 200:
+                raise RuntimeError(
+                    "Hive rejected the heating write "
+                    f"(response status {resp.get('original') if isinstance(resp, dict) else None!r})."
+                )
+            # No check on the response body: the read-back below is what proves
+            # the write landed, and Hive's body for a mode change is unobserved.
+
+            # Fresh read of every product, not the cached one.
+            await hive.session.getDevices(device["hiveID"])
+            reported_mode = await hive.heating.getMode(device)
+            reported_target = await hive.heating.getTargetTemperature(device)
+
+        if reported_mode != mode:
+            return "not_verified"
+        if target is not None and not (
+            isinstance(reported_target, int | float)
+            and abs(float(reported_target) - target) < 0.05
+        ):
+            return "not_verified"
+        return "applied"
+
     @staticmethod
     def _weekly_schedule(hive: Hive, device: dict[str, Any]) -> dict[str, Any] | None:
         """A copy of Hive's seven-day schedule from the product data the

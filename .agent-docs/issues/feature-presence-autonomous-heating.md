@@ -72,23 +72,23 @@ Every intended write is stored in the new `heating_control_action` table with it
 
 ### Acceptance criteria
 
-- [ ] Given `control: on`, No One Is Home and the thermostat in SCHEDULE, when the heating poll runs, then one write sets MANUAL at the Away Temperature and an `away_override` action is stored as `applied`.
-- [ ] Given the override is in force and someone set MANUAL 21 °C by hand, when the heating poll runs, then MANUAL at the Away Temperature is written again.
-- [ ] Given No One Is Home and a boost running, when the heating poll runs, then nothing is written.
-- [ ] Given No One Is Home and the thermostat already at MANUAL 7 °C, when the heating poll runs, then nothing is written.
-- [ ] Given No One Is Home and the thermostat OFF, when the heating poll runs, then nothing is written.
-- [ ] Given the override is in force, when the poll sees Someone Is Home, then SCHEDULE is written and a `restore_schedule` action is stored.
-- [ ] Given the override is in force and Presence Unknown has been open for 9 minutes after No One Is Home, when the heating poll runs, then nothing is written; and at 10 minutes, SCHEDULE is restored.
-- [ ] Given the override is in force and a boost is running, when the poll sees Someone Is Home, then nothing is written; and once the boost has ended and the thermostat is back at MANUAL 7 °C, SCHEDULE is restored.
-- [ ] Given the override is in force and the thermostat was switched OFF, when the poll sees Someone Is Home, then nothing is written, a `restore_schedule` action is stored as `skipped`, and later polls write nothing.
-- [ ] Given the household set MANUAL 21 °C while home and no override is in force, when the poll sees Someone Is Home, then nothing is written.
-- [ ] Given a restore fails, when the next poll runs, then the restore is attempted again.
-- [ ] Given a write raises inside the library, when the heating poll runs, then a `failed` action is stored with the exception type as its detail, a WARNING is logged and the poll does not raise.
-- [ ] Given `control: dry_run` and a whole absence of many polls, when the heating poll runs throughout, then exactly one `away_override` and one `restore_schedule` are stored as `dry_run`, "would set" is logged and Hive gets no call.
-- [ ] Given `control: off`, when the heating poll runs, then no actions are stored and nothing is written.
-- [ ] Given a real override is in force and hive-app restarts with `control: dry_run`, `off` or no `presence` section, when the heating poll runs, then SCHEDULE is restored once (retried if it fails) and later polls write nothing.
-- [ ] Given `presence.control: on` in config, when hive-app starts before the Comfort Schedule exists, then startup is refused.
-- [ ] Given a boost is started while No One Is Home, when Comfort Days are computed, then its Boost Start counts as evidence and presence stays No One Is Home.
+- [x] Given `control: on`, No One Is Home and the thermostat in SCHEDULE, when the heating poll runs, then one write sets MANUAL at the Away Temperature and an `away_override` action is stored as `applied`.
+- [x] Given the override is in force and someone set MANUAL 21 °C by hand, when the heating poll runs, then MANUAL at the Away Temperature is written again.
+- [x] Given No One Is Home and a boost running, when the heating poll runs, then nothing is written.
+- [x] Given No One Is Home and the thermostat already at MANUAL 7 °C, when the heating poll runs, then nothing is written.
+- [x] Given No One Is Home and the thermostat OFF, when the heating poll runs, then nothing is written.
+- [x] Given the override is in force, when the poll sees Someone Is Home, then SCHEDULE is written and a `restore_schedule` action is stored.
+- [x] Given the override is in force and Presence Unknown has been open for 9 minutes after No One Is Home, when the heating poll runs, then nothing is written; and at 10 minutes, SCHEDULE is restored.
+- [x] Given the override is in force and a boost is running, when the poll sees Someone Is Home, then nothing is written; and once the boost has ended and the thermostat is back at MANUAL 7 °C, SCHEDULE is restored.
+- [x] Given the override is in force and the thermostat was switched OFF, when the poll sees Someone Is Home, then nothing is written, a `restore_schedule` action is stored as `skipped`, and later polls write nothing.
+- [x] Given the household set MANUAL 21 °C while home and no override is in force, when the poll sees Someone Is Home, then nothing is written.
+- [x] Given a restore fails, when the next poll runs, then the restore is attempted again.
+- [x] Given a write raises inside the library, when the heating poll runs, then a `failed` action is stored with the exception type as its detail, a WARNING is logged and the poll does not raise.
+- [x] Given `control: dry_run` and a whole absence of many polls, when the heating poll runs throughout, then exactly one `away_override` and one `restore_schedule` are stored as `dry_run`, "would set" is logged and Hive gets no call.
+- [x] Given `control: off`, when the heating poll runs, then no actions are stored and nothing is written.
+- [x] Given a real override is in force and hive-app restarts with `control: dry_run`, `off` or no `presence` section, when the heating poll runs, then SCHEDULE is restored once (retried if it fails) and later polls write nothing.
+- [x] Given `presence.control: on` in config, when hive-app starts before the Comfort Schedule exists, then startup is refused.
+- [x] Given a boost is started while No One Is Home, when Comfort Days are computed, then its Boost Start counts as evidence and presence stays No One Is Home.
 
 ---
 

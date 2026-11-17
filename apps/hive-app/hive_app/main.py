@@ -14,6 +14,7 @@ from schedule import Job, Scheduler, default_scheduler
 
 from common.local_day import get_local_timezone, set_local_timezone
 from hive_app.common.config import (
+    HiveApplicationSettings,
     LocationSettings,
     NtfySettings,
     PresenceSettings,
@@ -22,7 +23,7 @@ from hive_app.common.config import (
 from hive_app.common.decorator import retry_with_exponential_backoff
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.auth import HiveAuthenticator
-from hive_app.data.heating import HeatingRetriever
+from hive_app.data.heating import HeatingRetriever, HiveSource
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
@@ -393,6 +394,16 @@ def _build_weather_retriever(
     return WeatherRetriever(weather_source)
 
 
+def build_heating_retriever(
+    source: HiveSource, mariadb: MariaDBClient, settings: HiveApplicationSettings
+) -> HeatingRetriever:
+    """Heating control follows the presence section; without one it is off."""
+    control = settings.presence.control if settings.presence else "off"
+    return HeatingRetriever(
+        source, mariadb, control, settings.comfort_schedule.away_temperature
+    )
+
+
 def _exit_on_sigterm(_signal_number: int, _frame: FrameType | None) -> None:
     """Lets `docker stop` unwind main()'s finally block, which logs out of Pi-hole.
     A job running at that moment is interrupted, as a kill would have done."""
@@ -416,7 +427,7 @@ def main() -> None:
 
     mariadb = MariaDBClient(settings.mariadb)
     hive_source = HiveApiSource(settings.hive, mariadb)
-    heating = HeatingRetriever(hive_source)
+    heating = build_heating_retriever(hive_source, mariadb, settings)
     authenticator = HiveAuthenticator(hive_source)
 
     authenticate_at_startup(authenticator)

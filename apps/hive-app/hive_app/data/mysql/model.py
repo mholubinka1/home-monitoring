@@ -65,6 +65,34 @@ class presence_period(SQLBase):
     phones_seen = Column(Integer, nullable=False)
 
 
+# What a heating_control_action row records: the action taken and its outcome.
+ACTION_AWAY_OVERRIDE = "away_override"
+ACTION_RESTORE_SCHEDULE = "restore_schedule"
+OUTCOME_APPLIED = "applied"
+OUTCOME_DRY_RUN = "dry_run"
+OUTCOME_FAILED = "failed"
+OUTCOME_SKIPPED = "skipped"
+
+
+class heating_control_action(SQLBase):
+    """One thing presence control did (or would have done) to the heating."""
+
+    __tablename__ = "heating_control_action"
+    __table_args__ = (
+        Index("ix_heating_control_action_acted_at", "acted_at"),
+        {"schema": "octopus"},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    acted_at = Column(DateTime, nullable=False)
+    action = Column(String(30), nullable=False)
+    mode = Column(String(20), nullable=True)
+    target = Column(Float, nullable=True)
+    dry_run = Column(Boolean, nullable=False)
+    outcome = Column(String(20), nullable=False)
+    detail = Column(String(255), nullable=True)
+
+
 # One observation per hour per source and location: the unique key, which the
 # keyed upsert also resolves conflicts on.
 WEATHER_OBSERVATION_KEY = ("source", "location", "observed_at")
