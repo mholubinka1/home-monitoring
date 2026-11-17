@@ -39,7 +39,8 @@ class PresenceRetriever:
         if state == open_state:
             return
         self._mariadb.change_presence_state(state, phones_seen, now)
-        logger.info(f"Presence is now {state} ({phones_seen} phone(s) active).")
+        detail = "" if state == UNKNOWN else f" ({phones_seen} phone(s) active)"
+        logger.info(f"Presence is now {state}{detail}.")
 
     def _decide(self, now: datetime, open_state: str | None) -> tuple[str, int]:
         try:

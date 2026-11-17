@@ -212,6 +212,19 @@ def test_a_pihole_outage_logs_one_warning_not_one_per_minute(
     assert len(warnings) == 1
 
 
+def test_an_unknown_state_is_logged_without_a_phone_count(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = FakePiholeSource([])
+    source.error = PiholeError("Pi-hole could not be read (ConnectTimeout)")
+
+    with caplog.at_level(logging.INFO):
+        PresenceRetriever(source, mariadb_client, _settings()).refresh(NOW)
+
+    assert "Presence is now unknown." in caplog.text
+    assert "phone(s)" not in caplog.text
+
+
 def test_a_second_outage_after_recovery_logs_its_own_warning(
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:

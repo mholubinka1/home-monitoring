@@ -32,11 +32,22 @@ class PiholeSource(Protocol):
     def read_devices(self) -> list[PiholeDevice]: ...
 
 
+def _text_or_blank(value: object) -> str:
+    """A text field as Pi-hole sends it: null reads as blank, any other
+    non-text value is a malformed body (TypeError, read as a source error)."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError(f"expected text, got {type(value).__name__}")
+    return value
+
+
 def _parse_device(raw: dict[str, Any]) -> PiholeDevice:
     last_query = raw["lastQuery"]
+    names = (_text_or_blank(ip.get("name")) for ip in raw["ips"])
     return PiholeDevice(
-        hwaddr=raw["hwaddr"] or "",
-        hostnames=[ip["name"] for ip in raw["ips"] if ip.get("name")],
+        hwaddr=_text_or_blank(raw["hwaddr"]),
+        hostnames=[name for name in names if name],
         last_query=(
             datetime.fromtimestamp(last_query, UTC)
             if last_query != NEVER_QUERIED
