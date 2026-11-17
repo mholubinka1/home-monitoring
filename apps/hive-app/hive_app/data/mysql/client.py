@@ -200,14 +200,23 @@ class MariaDBClient(MariaDBClientBase):
             )
 
     def read_away_override_in_force(self, dry_run: bool) -> bool:
-        """Whether the newest away_override that applied (or Hive accepted but could
-        not confirm) has no later restore_schedule that applied, was skipped or was
-        a dry run, among actions with this dry_run flag."""
+        """Whether the newest away_override has no later restore_schedule that
+        applied, was skipped or was a dry run, among actions with this dry_run flag.
+        For real actions (dry_run False) an override counts when it applied, was
+        not_verified or failed, since a failed write may have landed. For dry runs
+        only a `dry_run` override counts."""
         action = sql_model.heating_control_action
         away_outcomes = (
             [sql_model.OUTCOME_DRY_RUN]
             if dry_run
-            else [sql_model.OUTCOME_APPLIED, sql_model.OUTCOME_NOT_VERIFIED]
+            else [
+                sql_model.OUTCOME_APPLIED,
+                sql_model.OUTCOME_NOT_VERIFIED,
+                # A write that failed may still have landed (a timeout after the
+                # change), so the return must restore it; a needless restore is
+                # harmless.
+                sql_model.OUTCOME_FAILED,
+            ]
         )
         with self.session_read_scope() as session:
             newest = (

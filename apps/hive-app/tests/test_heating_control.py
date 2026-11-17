@@ -165,6 +165,20 @@ def test_nothing_is_written_when_the_thermostat_already_holds_the_away_temperatu
     )
 
 
+def test_nothing_is_adopted_in_dry_run_when_the_thermostat_already_holds_the_away_temperature(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(
+        mariadb_client, _status(mode="MANUAL", target=AWAY_TEMPERATURE)
+    )
+
+    _retriever(mariadb_client, source, control="dry_run").refresh(NOW)
+
+    assert not source.writes
+    assert not _actions(mariadb_client)
+
+
 def test_an_adopted_away_temperature_is_restored_when_someone_comes_home(
     mariadb_client: MariaDBClient,
 ) -> None:
@@ -378,6 +392,37 @@ def test_a_write_that_raises_is_stored_as_failed_and_does_not_break_the_poll(
     assert any(r.levelno == logging.WARNING for r in caplog.records)
     with mariadb_client.session_read_scope() as session:
         assert session.query(model.heating_status).count() == 1
+
+
+def test_an_override_whose_write_failed_after_landing_is_restored_on_return(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(mode="SCHEDULE"))
+    retriever = _retriever(mariadb_client, source)
+    source.write_error = TimeoutError()
+    retriever.refresh(NOW)
+    source.write_error = None
+    _someone_home(mariadb_client)
+
+    _poll(retriever, source, _status(mode="MANUAL", target=AWAY_TEMPERATURE))
+
+    assert source.writes == [("restore_schedule", None)]
+
+
+def test_an_override_whose_write_failed_after_landing_is_restored_once_control_is_off(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(mode="SCHEDULE"))
+    source.write_error = TimeoutError()
+    _retriever(mariadb_client, source).refresh(NOW)
+    source.write_error = None
+    restarted = _retriever(mariadb_client, source, control="off")
+
+    _poll(restarted, source, _status(mode="MANUAL", target=AWAY_TEMPERATURE))
+
+    assert source.writes == [("restore_schedule", None)]
 
 
 def test_a_failed_restore_is_attempted_again_at_the_next_poll(

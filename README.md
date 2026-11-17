@@ -161,6 +161,9 @@ When Someone Is Home again it writes SCHEDULE back. The rules, in short:
   writes nothing.
 - Every intended write is stored in `heating_control_action` with its outcome. A
   failed write is logged, stored as `failed` and retried at the next poll.
+- With control `on`, a thermostat found at MANUAL on the Away Temperature with no
+  override recorded (set by hand while away) is recorded as `adopted` without a
+  write, so the return restores it. `dry_run` never adopts.
 
 `presence.control` has three settings. `off` applies no new override. `dry_run`
 records what would be written (one override and one restore per absence) and logs

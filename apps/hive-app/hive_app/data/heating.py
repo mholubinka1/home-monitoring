@@ -118,8 +118,8 @@ class PresenceHeatingControl:
 
     def _adopt_away_temperature(self, now: datetime) -> None:
         """The thermostat already holds the away temperature with no override in
-        force (a write that failed after landing, or a hand change): with control
-        on, record it as applied so the return restores it. Nothing is sent."""
+        force (a hand-set MANUAL on the Away Temperature): with control on, record
+        it as applied so the return restores it. Nothing is sent."""
         if self._control != CONTROL_ON or self._mariadb.read_away_override_in_force(
             dry_run=False
         ):

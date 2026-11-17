@@ -19,6 +19,7 @@ from apyhiveapi.helper import hive_exceptions
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
+from hive_app.data.heating import MODE_MANUAL, MODE_SCHEDULE
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.mysql.model import OUTCOME_APPLIED, OUTCOME_NOT_VERIFIED
@@ -468,10 +469,10 @@ class HiveApiSource:
     # -- HiveSource: heating write verbs --
 
     def apply_away_override(self, temperature: float) -> str:
-        return asyncio.run(self._write_heating("MANUAL", temperature))
+        return asyncio.run(self._write_heating(MODE_MANUAL, temperature))
 
     def restore_schedule(self) -> str:
-        return asyncio.run(self._write_heating("SCHEDULE", None))
+        return asyncio.run(self._write_heating(MODE_SCHEDULE, None))
 
     async def _write_heating(self, mode: str, target: float | None) -> str:
         """Set the thermostat mode (and target, for MANUAL) in this call's own
@@ -495,8 +496,11 @@ class HiveApiSource:
             # No check on the response body: the read-back below is what proves
             # the write landed, and Hive's body for a mode change is unobserved.
 
-            # Fresh read of every product, not the cached one.
-            await hive.session.getDevices(device["hiveID"])
+            # Fresh read of every product, not the cached one. getDevices returns
+            # False on a timeout or API error and keeps its cached data, so the
+            # getters below would then report pre-write values.
+            if not await hive.session.getDevices(device["hiveID"]):
+                return OUTCOME_NOT_VERIFIED
             reported_mode = await hive.heating.getMode(device)
             reported_target = await hive.heating.getTargetTemperature(device)
 
