@@ -1,5 +1,7 @@
 # Issues: chore/default-comfort-windows-weekday-weekend
 
+> Work complete — PR ready to merge.
+
 ## Change the default comfort windows
 
 **GitHub issue**: none (small change recorded locally only)
