@@ -58,8 +58,8 @@ class PresenceWatchdog:
             self._alert_lost(started_at, now)
 
     def _alert_lost(self, started_at: datetime, now: datetime) -> None:
-        # shortcut: an earlier outage's end was never seen (quiet hours), so it
-        # is measured to this one's start; the exact end is not stored.
+        # An earlier outage ended unseen (quiet hours): report it first, so this
+        # one is a new outage, not a continuation.
         if (
             self._outage_began is not None
             and started_at > self._outage_began
@@ -81,12 +81,16 @@ class PresenceWatchdog:
 
     def _announce_restored(self, returned: datetime) -> bool:
         """Sends the restored notice if an outage is open; False only if the
-        send failed."""
+        send failed. The outage is measured to the stored end of the alerted
+        Unknown period, so later state changes (or a delayed send) don't
+        stretch it. `returned` (when the next period began) is the coarser fallback
+        if the stored end can't be found."""
         began = self._outage_began
         if began is None:
             return True
+        ended = self._mariadb.read_presence_period_end(began) or returned
         try:
-            self._notifier.notify_presence_restored(returned - began)
+            self._notifier.notify_presence_restored(ended - began)
         except Exception:
             logger.exception(
                 "Failed to send presence-restored notice; will retry on the next check."

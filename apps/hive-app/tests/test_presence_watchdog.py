@@ -205,3 +205,34 @@ def test_the_hourly_reminder_is_titled_still_lost(
         "hive-app: presence signal lost",
         "hive-app: presence signal still lost",
     ]
+
+
+def test_the_restored_message_measures_to_the_end_of_the_alerted_unknown_period(
+    mariadb_client: MariaDBClient,
+) -> None:
+    notifier = FakeNotifier()
+    watchdog = PresenceWatchdog(mariadb_client, notifier)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+    watchdog.check(NOW)
+    _open_period(mariadb_client, "someone_home", NOW + timedelta(minutes=10))
+    # Presence changes again before the restored message is delivered.
+    _open_period(mariadb_client, "no_one_home", NOW + timedelta(hours=3))
+
+    watchdog.check(NOW + timedelta(hours=3, minutes=1))
+
+    assert notifier.sent[1:] == [("restored", timedelta(minutes=41), False)]
+
+
+def test_the_restored_message_falls_back_to_the_next_period_when_the_end_is_unknown(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    notifier = FakeNotifier()
+    watchdog = PresenceWatchdog(mariadb_client, notifier)
+    _open_period(mariadb_client, "unknown", NOW - timedelta(minutes=31))
+    watchdog.check(NOW)
+    _open_period(mariadb_client, "someone_home", NOW + timedelta(minutes=10))
+    monkeypatch.setattr(mariadb_client, "read_presence_period_end", lambda _: None)
+
+    watchdog.check(NOW + timedelta(minutes=11))
+
+    assert notifier.sent[1:] == [("restored", timedelta(minutes=41), False)]

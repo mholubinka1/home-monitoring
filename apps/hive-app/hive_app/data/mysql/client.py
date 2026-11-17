@@ -129,6 +129,22 @@ class MariaDBClient(MariaDBClientBase):
             )
         return (row[0], row[1].replace(tzinfo=UTC)) if row is not None else None
 
+    def read_presence_period_end(self, started_at: datetime) -> datetime | None:
+        """The end (UTC) of the presence period that started at `started_at`, or
+        None while it is open or when there is no such period."""
+        with self.session_read_scope() as session:
+            ended = (
+                session.query(sql_model.presence_period.ended_at)
+                .filter(
+                    sql_model.presence_period.started_at
+                    == started_at.replace(tzinfo=None)
+                )
+                .order_by(sql_model.presence_period.id.desc())
+                .limit(1)
+                .scalar()
+            )
+        return ended.replace(tzinfo=UTC) if ended is not None else None
+
     def change_presence_state(
         self, state: str, phones_seen: int, changed_at: datetime
     ) -> None:
