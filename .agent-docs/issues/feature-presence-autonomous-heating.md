@@ -14,19 +14,19 @@ hive-app gains an optional `presence` config section (Pi-hole URL and app passwo
 
 ### Acceptance criteria
 
-- [ ] Given a device with a randomised MAC and hostname `Alex-s-Phone` that made a lookup 5 minutes ago, when the presence job runs, then a `someone_home` Presence Period is open with `phones_seen` 1.
-- [ ] Given only devices with factory MACs active, when the presence job runs, then a `no_one_home` period is open.
-- [ ] Given a randomised-MAC device named `Galaxy-Tab-S9` active 1 minute ago and no other Phone, when the presence job runs, then the house is No One Is Home.
-- [ ] Given the only Phone's last lookup was exactly 30:00 ago, when the presence job runs, then Someone Is Home; and given it was 30:01 ago, then No One Is Home.
-- [ ] Given a device whose hardware address is `ip-192.0.2.5` and hostname `Pixel-8`, when the presence job runs, then it is not a Phone and nothing raises; and given `Pixel-8` is in `phone_hostnames`, then it is a Phone.
-- [ ] Given `Kevin` (factory MAC) is in `phone_hostnames` and active, when the presence job runs, then Someone Is Home.
-- [ ] Given `Pixel-8` (randomised MAC) is in `ignored_hostnames` and is the only active device, when the presence job runs, then No One Is Home.
-- [ ] Given an open `someone_home` period, when No One Is Home is decided, then that period gets an `ended_at` and a `no_one_home` period opens at the same instant.
-- [ ] Given an open `someone_home` period, when the job decides Someone Is Home again (including after a restart), then no row changes.
-- [ ] Given Pi-hole is unreachable or rejects the password, when the presence job runs, then an `unknown` period is open, the job does not raise and the password appears in no log line.
-- [ ] Given no `presence` section in config, when hive-app starts, then no presence job is scheduled.
-- [ ] Given a `presence` section with a blank Pi-hole URL or password, when hive-app starts, then startup is refused.
-- [ ] Given the Phone Rule table cases (every listed brand, tablets, watches, computers, Samsung codes, legacy Android, blank names, multicast MACs), when each is classified, then each gets its expected verdict, the same every time.
+- [x] Given a device with a randomised MAC and hostname `Alex-s-Phone` that made a lookup 5 minutes ago, when the presence job runs, then a `someone_home` Presence Period is open with `phones_seen` 1.
+- [x] Given only devices with factory MACs active, when the presence job runs, then a `no_one_home` period is open.
+- [x] Given a randomised-MAC device named `Galaxy-Tab-S9` active 1 minute ago and no other Phone, when the presence job runs, then the house is No One Is Home.
+- [x] Given the only Phone's last lookup was exactly 30:00 ago, when the presence job runs, then Someone Is Home; and given it was 30:01 ago, then No One Is Home.
+- [x] Given a device whose hardware address is `ip-192.0.2.5` and hostname `Pixel-8`, when the presence job runs, then it is not a Phone and nothing raises; and given `Pixel-8` is in `phone_hostnames`, then it is a Phone.
+- [x] Given `Kevin` (factory MAC) is in `phone_hostnames` and active, when the presence job runs, then Someone Is Home.
+- [x] Given `Pixel-8` (randomised MAC) is in `ignored_hostnames` and is the only active device, when the presence job runs, then No One Is Home.
+- [x] Given an open `someone_home` period, when No One Is Home is decided, then that period gets an `ended_at` and a `no_one_home` period opens at the same instant.
+- [x] Given an open `someone_home` period, when the job decides Someone Is Home again (including after a restart), then no row changes.
+- [x] Given Pi-hole is unreachable or rejects the password, when the presence job runs, then an `unknown` period is open, the job does not raise and the password appears in no log line.
+- [x] Given no `presence` section in config, when hive-app starts, then no presence job is scheduled.
+- [x] Given a `presence` section with a blank Pi-hole URL or password, when hive-app starts, then startup is refused.
+- [x] Given the Phone Rule table cases (every listed brand, tablets, watches, computers, Samsung codes, legacy Android, blank names, multicast MACs), when each is classified, then each gets its expected verdict, the same every time.
 
 ---
 
@@ -164,8 +164,8 @@ A one-off live check, runnable at any time, that posts `{"schedule": {...}}` for
 
 ### Acceptance criteria
 
-- [ ] Given the live account, when a made-up schedule (05:40–06:25 at 19 °C) is posted to one weekday and read back, then the research note records acceptance, the start-time grain, the slot limit and any 200-but-unstored behaviour, and the original week is restored.
-- [ ] Given the 2.0 beta's source at a named version, when the spike is written up, then the note lists its `set_schedule` validation rules and whether the live account agreed with them.
+- [x] Given the live account, when a made-up schedule (05:40–06:25 at 19 °C) is posted to one weekday and read back, then the research note records acceptance, the start-time grain, the slot limit and any 200-but-unstored behaviour, and the original week is restored.
+- [x] Given the 2.0 beta's source at a named version, when the spike is written up, then the note lists its `set_schedule` validation rules and whether the live account agreed with them.
 
 ---
 

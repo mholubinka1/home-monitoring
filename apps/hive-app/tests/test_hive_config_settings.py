@@ -196,3 +196,141 @@ def test_quiet_hours_that_are_not_hh_mm_text_are_rejected(bad: object) -> None:
                 },
             }
         )
+
+
+PRESENCE_CONFIG: dict[str, Any] = {
+    "pihole": {"url": "http://pihole.example.lan", "password": "app-password"},
+}
+
+
+def test_no_presence_section_means_no_presence_settings() -> None:
+    assert HiveApplicationSettings.model_validate(VALID_CONFIG).presence is None
+
+
+def test_a_presence_section_defaults_to_control_off_a_30_minute_delay_and_no_hostnames() -> (
+    None
+):
+    settings = HiveApplicationSettings.model_validate(
+        {**VALID_CONFIG, "presence": PRESENCE_CONFIG}
+    )
+
+    assert settings.presence is not None
+    assert settings.presence.control == "off"
+    assert settings.presence.away_delay_minutes == 30
+    assert settings.presence.phone_hostnames == []
+    assert settings.presence.ignored_hostnames == []
+
+
+def test_presence_values_set_in_config_are_kept() -> None:
+    settings = HiveApplicationSettings.model_validate(
+        {
+            **VALID_CONFIG,
+            "presence": {
+                **PRESENCE_CONFIG,
+                "control": "dry_run",
+                "away_delay_minutes": 45,
+                "phone_hostnames": ["Alex-s-Phone"],
+                "ignored_hostnames": ["Spare-Pixel-8"],
+            },
+        }
+    )
+
+    assert settings.presence is not None
+    assert settings.presence.control == "dry_run"
+    assert settings.presence.away_delay_minutes == 45
+    assert settings.presence.phone_hostnames == ["Alex-s-Phone"]
+    assert settings.presence.ignored_hostnames == ["Spare-Pixel-8"]
+
+
+@pytest.mark.parametrize("field", ["url", "password"])
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_pihole_url_or_password_is_refused(field: str, blank: str) -> None:
+    pihole = {**PRESENCE_CONFIG["pihole"], field: blank}
+
+    with pytest.raises(ValidationError, match="must not be blank"):
+        HiveApplicationSettings.model_validate(
+            {**VALID_CONFIG, "presence": {"pihole": pihole}}
+        )
+
+
+@pytest.mark.parametrize(
+    ("written", "control"),
+    [
+        ("off", "off"),
+        ("on", "on"),
+        ("no", "off"),
+        ("yes", "on"),
+        ("dry_run", "dry_run"),
+    ],
+)
+def test_control_written_unquoted_in_yaml_is_read_as_the_word(
+    written: str, control: str
+) -> None:
+    """YAML 1.1 reads an unquoted off or on as a boolean."""
+    loaded = yaml.safe_load(
+        "hive: {username: u, password: p}\n"
+        "mariadb: {host: h, port: 3306, database: d, username: u, password: p}\n"
+        f"presence:\n  control: {written}\n"
+        "  pihole: {url: 'http://pi.lan', password: p}\n"
+    )
+
+    settings = HiveApplicationSettings.model_validate(loaded)
+
+    assert settings.presence is not None
+    assert settings.presence.control == control
+
+
+@pytest.mark.parametrize(
+    "misspelled",
+    [
+        {"ignored_hostname": ["Spare-Pixel-8"]},
+        {"phone_hostname": ["Alex-s-Phone"]},
+        {"pihole": {**PRESENCE_CONFIG["pihole"], "passwd": "typo"}},
+    ],
+)
+def test_a_misspelled_presence_key_is_refused_not_silently_ignored(
+    misspelled: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        HiveApplicationSettings.model_validate(
+            {**VALID_CONFIG, "presence": {**PRESENCE_CONFIG, **misspelled}}
+        )
+
+
+def test_a_pihole_url_without_a_scheme_is_refused() -> None:
+    pihole = {**PRESENCE_CONFIG["pihole"], "url": "192.0.2.50"}
+
+    with pytest.raises(ValidationError, match="http"):
+        HiveApplicationSettings.model_validate(
+            {**VALID_CONFIG, "presence": {"pihole": pihole}}
+        )
+
+
+def test_a_pihole_url_with_stray_spaces_is_stored_trimmed() -> None:
+    pihole = {**PRESENCE_CONFIG["pihole"], "url": " http://pihole.example.lan "}
+
+    settings = HiveApplicationSettings.model_validate(
+        {**VALID_CONFIG, "presence": {"pihole": pihole}}
+    )
+
+    assert settings.presence is not None
+    assert settings.presence.pihole.url == "http://pihole.example.lan"
+
+
+@pytest.mark.parametrize("delay", [0, -5])
+def test_a_non_positive_away_delay_is_refused(delay: int) -> None:
+    with pytest.raises(ValidationError, match="away_delay_minutes"):
+        HiveApplicationSettings.model_validate(
+            {
+                **VALID_CONFIG,
+                "presence": {**PRESENCE_CONFIG, "away_delay_minutes": delay},
+            }
+        )
+
+
+def test_the_pihole_password_is_not_in_the_settings_repr() -> None:
+    settings = HiveApplicationSettings.model_validate(
+        {**VALID_CONFIG, "presence": PRESENCE_CONFIG}
+    )
+
+    assert "app-password" not in repr(settings)

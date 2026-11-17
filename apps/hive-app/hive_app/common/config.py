@@ -2,9 +2,10 @@ import logging.config
 import sys
 from datetime import datetime, time
 from logging import Logger, getLogger
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -53,6 +54,49 @@ class LocationSettings(BaseModel):
     longitude: float
 
 
+class PiholeSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    # repr=False keeps the app password out of any logged settings object.
+    password: str = Field(repr=False)
+
+    @field_validator("url", "password")
+    @classmethod
+    def _must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def _url_must_name_its_scheme(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed.lower().startswith(("http://", "https://")):
+            raise ValueError("must start with http:// or https://")
+        return trimmed
+
+
+class PresenceSettings(BaseModel):
+    # A mistyped key (ignored_hostname) must refuse startup, not be dropped:
+    # the device the household meant to ignore would still count as a phone.
+    model_config = ConfigDict(extra="forbid")
+
+    control: Literal["off", "dry_run", "on"] = "off"
+    pihole: PiholeSettings
+    away_delay_minutes: int = Field(default=30, gt=0)
+    phone_hostnames: list[str] = []
+    ignored_hostnames: list[str] = []
+
+    @field_validator("control", mode="before")
+    @classmethod
+    def _read_yaml_booleans_as_the_words(cls, value: object) -> object:
+        """YAML 1.1 reads an unquoted off, no, on or yes as False or True."""
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        return value
+
+
 class HiveApplicationSettings(BaseModel):
     hive: HiveSettings
     mariadb: MariaDBSettings
@@ -65,6 +109,8 @@ class HiveApplicationSettings(BaseModel):
     # from a removed provider) are ignored, not rejected.
     ntfy: NtfySettings | None = None
     location: LocationSettings | None = None
+    # Presence from Pi-hole phones; without it no presence job is scheduled.
+    presence: PresenceSettings | None = None
     # The IANA zone that defines a "local day"; must match octopus-app's.
     timezone: str = DEFAULT_TIMEZONE
 

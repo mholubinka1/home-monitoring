@@ -1,11 +1,13 @@
 import argparse
 import logging.config
+import signal
 import sys
 import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from logging import Logger, getLogger
+from types import FrameType
 
 from schedule import Job, Scheduler, default_scheduler
 
@@ -13,6 +15,7 @@ from common.local_day import set_local_timezone
 from hive_app.common.config import (
     LocationSettings,
     NtfySettings,
+    PresenceSettings,
     get_settings,
 )
 from hive_app.common.decorator import retry_with_exponential_backoff
@@ -22,6 +25,8 @@ from hive_app.data.heating import HeatingRetriever
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
+from hive_app.data.pihole import PiholeApiSource
+from hive_app.data.presence import PresenceRetriever
 from hive_app.data.watchdog import HEATING_REFRESH_JOB, HiveDataWatchdog
 from hive_app.data.weather import WeatherRetriever
 from hive_app.data.weather_client import WeatherApiSource
@@ -39,6 +44,7 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 HEATING_REFRESH_INTERVAL_SECONDS = 120
 HIVE_WATCHDOG_INTERVAL_SECONDS = 60
+PRESENCE_INTERVAL_SECONDS = 60
 WEATHER_OBSERVATION_REFRESH_JOB = "weather_observation_refresh"
 WEATHER_OBSERVATION_REFRESH_INTERVAL_MINUTES = 60
 WEATHER_FORECAST_REFRESH_JOB = "weather_forecast_refresh"
@@ -157,6 +163,31 @@ def build_hive_watchdog_job(
         register_hive_watchdog_job(scheduler, watchdog)
         if watchdog is not None
         else None
+    )
+
+
+def register_presence_job(scheduler: Scheduler, presence: PresenceRetriever) -> Job:
+    def refresh_safely() -> None:
+        try:
+            presence.refresh(datetime.now(UTC))
+        except Exception:
+            logger.exception("Presence refresh failed.")
+
+    return scheduler.every(PRESENCE_INTERVAL_SECONDS).seconds.do(refresh_safely)
+
+
+def build_presence_job(
+    scheduler: Scheduler,
+    mariadb: MariaDBClient,
+    presence_settings: PresenceSettings | None,
+    pihole: PiholeApiSource | None,
+) -> Job | None:
+    """Registers the presence job only when a `presence` section is configured."""
+    if presence_settings is None or pihole is None:
+        return None
+    logger.info(f"Presence is enabled (control: {presence_settings.control}).")
+    return register_presence_job(
+        scheduler, PresenceRetriever(pihole, mariadb, presence_settings)
     )
 
 
@@ -281,6 +312,12 @@ def _build_weather_retriever(
     return WeatherRetriever(weather_source)
 
 
+def _exit_on_sigterm(_signal_number: int, _frame: FrameType | None) -> None:
+    """Lets `docker stop` unwind main()'s finally block, which logs out of Pi-hole.
+    A job running at that moment is interrupted, as a kill would have done."""
+    raise SystemExit(0)
+
+
 def main() -> None:
     logger.info("Starting hive-app.")
 
@@ -309,9 +346,18 @@ def main() -> None:
     register_weather_jobs(default_scheduler, weather, mariadb)
     run_weather_backfill_at_startup(mariadb)
 
-    while True:
-        run_pending_safely(default_scheduler)
-        time.sleep(1)
+    pihole = PiholeApiSource(settings.presence.pihole) if settings.presence else None
+    build_presence_job(default_scheduler, mariadb, settings.presence, pihole)
+
+    if pihole is not None:
+        signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    try:
+        while True:
+            run_pending_safely(default_scheduler)
+            time.sleep(1)
+    finally:
+        if pihole is not None:
+            pihole.logout()
 
 
 if __name__ == "__main__":

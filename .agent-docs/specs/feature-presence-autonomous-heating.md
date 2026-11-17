@@ -13,7 +13,7 @@ hive-app works out whether Someone Is Home from the household's phones on the ho
 - **Part A, the Comfort Schedule.** hive-app writes today's and tomorrow's Hive schedule from the Comfort Plan whenever the plan changes, and again when someone comes home. The house then heats to the learned Comfort Temperature through the Comfort Window, and to the Away Temperature at all other times. The household no longer maintains a schedule. It stands alone: it needs no presence detection.
 - **Part B, presence.** Once no Phone has made a DNS lookup for 30 minutes, the house is No One Is Home. The thermostat goes to MANUAL at the Away Temperature (7 °C) and stays there, whatever anyone changes by hand, until a Phone is seen again. It then goes back to SCHEDULE. A thermostat that is OFF is left alone. Boosts still work from anywhere and never count as presence. If Pi-hole can't be read, control keeps the last known state for 10 minutes, then assumes someone is home; an ntfy alert follows at 30 minutes. A warning is logged if the house is empty at 03:05.
 
-Each part can be off, dry-run (record and log only) or on. Presence control is only meaningful on top of the Comfort Schedule, so presence `on` requires the Comfort Schedule `on`; presence `dry_run` is allowed at any time.
+Each part can be off, dry-run (record and log only) or on. Presence control is only meaningful on top of the Comfort Schedule, so presence `on` requires the Comfort Schedule `on`; presence `dry_run` is allowed at any time. Presence is recorded whenever the `presence` section exists, whatever its `control`: `control` gates only the heating actions.
 
 **Ship order.** Presence recording ships first. Its alerts, Comfort Day, the dashboard panel and the Away Override follow in any order. The Away Override can ship before the Comfort Schedule because a startup check, not ship order, keeps it from acting alone: until the Comfort Schedule is `on`, presence control can only be `off` or `dry_run`, so a week of would-be decisions is gathered while part A is built. The schedule-write spike can run at any time. The Comfort Schedule ships last, and adds the "write the schedule before restoring SCHEDULE" step to the Away Override.
 
@@ -105,11 +105,14 @@ presence:
   ignored_hostnames: []   # wins over both the Phone Rule and phone_hostnames
 ```
 
+`control` is read as a word whichever way YAML spells it: an unquoted `off` or `on` (YAML 1.1 booleans) means "off" or "on". Every YAML boolean spelling is read the same way, so `no` means "off" and `yes` means "on".
+
 Settings validation refuses at startup:
 
+- an unknown key inside `presence` or `presence.pihole` (a typo such as `ignored_hostname` would otherwise be dropped silently);
 - a non-positive Away Delay;
 - an Away Temperature outside 5–32 °C (the library's defaults for this thermostat type) or not on a half degree;
-- a blank Pi-hole URL or password while a `presence` section is present;
+- a blank Pi-hole URL or password, or a URL that doesn't start with `http://` or `https://`, while a `presence` section is present;
 - `presence.control: on` unless `comfort_schedule.control` is `on`.
 
 The Away Override reads the Away Temperature from `comfort_schedule`, with the 7 °C default when that section is absent (only possible in presence `dry_run`). The Away Override issue introduces `comfort_schedule.away_temperature` and refuses `presence.control: on` outright. The Comfort Schedule issue adds `comfort_schedule.control` and relaxes the refusal to "unless `comfort_schedule.control` is `on`".
@@ -121,9 +124,9 @@ A **PiholeSource** Protocol with one verb, returning every device Pi-hole knows:
 - `POST /api/auth` with the app password returns a session ID. The ID is sent as the `X-FTL-SID` header and reused across polls. A 401 triggers one fresh login and one retry. The session is released with `DELETE /api/auth` at shutdown, best effort, because Pi-hole caps concurrent sessions.
 - `GET /api/network/devices?max_devices=<n>&max_addresses=<m>` returns the devices, most recent lookup first (about 11 KB for the 43 devices on this network). Both parameters are always sent, as named constants well above this network's size (for example 500 and 20). Pi-hole's API documents a default of 10 devices, and one real device already returned exactly 3 addresses, which looks like the address cap in effect. Each device's `hwaddr`, `ips[].name` and `lastQuery` (epoch seconds, 0 = never) are what the rule needs.
 - `hwaddr` is not always a MAC address. FTL stores `ip-<address>` for a client whose MAC it can't find (for example an IPv6 client missing from the neighbour cache). The source passes it through unchanged, and the Phone Rule handles it.
-- Requests time out after 10 seconds. Any failure (timeout, connection error, rejected password, malformed body) surfaces as one source error. The password never appears in logs or exceptions.
+- Requests time out after 10 seconds. Any failure (timeout, connection error, rejected password, malformed body) surfaces as one source error. A body counts as malformed when `devices` or a device's `ips` is not a list (an empty `{}` or `""` is not an empty list), or a field has the wrong type. A list with no devices is also a source error: this network has dozens of devices, so an empty list means Pi-hole has lost its table (for example after a restart), and recording No One Is Home from it would be a false absence. The password never appears in logs or exceptions.
 
-Like HiveApiSource, the real client is not unit-tested. The dry-run week verifies it.
+Unlike HiveApiSource, whose Cognito login can't be faked cheaply, the real client is plain HTTP and is tested with faked HTTP responses: session reuse, a fresh login on 401, the explicit `max_devices` and `max_addresses`, one source error for every failure, and the password absent from logs and errors. The dry-run week still verifies it against the real Pi-hole.
 
 ### Phone Rule
 
@@ -167,7 +170,7 @@ Each presence job run:
 2. Otherwise, counts the Phones whose last lookup is no more than the Away Delay before now (a lookup exactly 30:00 ago still counts): one or more is **Someone Is Home**, none is **No One Is Home**. The decision uses Pi-hole's own last-lookup times, so the first run after a restart is right immediately; there is no warm-up.
 3. If the state differs from the open Presence Period, closes it (`ended_at` = now) and opens a new one (`started_at` = now). Otherwise it changes nothing. A restart continues the open period when the state is unchanged.
 
-Transitions are logged at INFO with the number of Phones seen. Hostnames are logged at DEBUG only.
+Transitions are logged at INFO with the number of Phones seen (Presence Unknown has no count). A Pi-hole failure is logged at WARNING once, when the period becomes Presence Unknown, and at DEBUG while it stays so, so an outage doesn't write a line a minute. Hostnames are logged at DEBUG only.
 
 The presence job is scheduled like the Hive data watchdog, not through the retry-with-backoff wrapper: a Pi-hole error is already Presence Unknown, and anything else (for example a database error) is caught and logged, since the next run is 60 seconds away. A backoff would hold the worker for up to 15 minutes and skip the runs in between.
 
@@ -244,14 +247,15 @@ A state-timeline panel on the gas and heating dashboard shows the last 7 days of
 ### Comfort Schedule (part A)
 
 - **Spike first.** It depends on nothing else in this spec and can run at any time. On the live account, the spike writes a made-up schedule to one weekday (for example 05:40–06:25 at 19 °C, Away Temperature otherwise) via the raw POST below, reads it back, and restores the original week. A research note records whether Hive accepted it, the start-time grain (Hive's app uses coarser steps than the plan's 2-minute marks), the slot limit per day and whether a 200 can come back unstored. It also records the 2.0 beta's `set_schedule` validation rules from its source at a named version, since the rules below are taken from it and no note records them yet. The production write depends on its findings.
-- **Write path.** pyhive-integration 1.0.10 has no schedule setter, and its `setState` turns every value into a quoted string, so a nested schedule can't go through it. hive-app sends `POST /nodes/heating/{id}` with the JSON body `{"schedule": {...}}` through 1.0.10's authenticated `api.request`, copying the 2.0 beta's `set_schedule` rules:
+- **Write path.** pyhive-integration 1.0.10 has no schedule setter, and its `setState` turns every value into a quoted string, so a nested schedule can't go through it. hive-app sends `POST /nodes/heating/{id}` with the JSON body `{"schedule": {...}}` through 1.0.10's authenticated `api.request`, copying the 2.0 beta's `set_schedule` rules (2.0.0b5, [spike note](../research/hive-schedule-write-spike.md)):
   - all seven days are sent;
-  - each day is non-empty, with integer `start` minutes 0–1439, unique and sorted, the first at 0;
-  - targets are on half degrees;
-  - the product is re-read afterwards, and the write counts only if Hive stored exactly what was sent.
+  - each day is non-empty, with integer `start` minutes 0–1439 and unique (the beta sorts the slots itself; hive-app writes them sorted), each slot shaped `{"start": <minutes>, "value": {"target": <°C>}}`;
+  - the product is re-read afterwards, and the write counts only if Hive stored exactly what was sent. A differing first read is read again after a few seconds before the write is called `not_verified`: the spike saw a whole-week write read back different 2 seconds later and identical minutes later.
+
+  hive-app adds two checks of its own, which neither the beta nor Hive enforces: the first entry of each day is at 00:00, and targets are on half degrees. The spike proved on the live account that Hive stores one-minute starts, any target (19.3 was kept) and at least 48 slots a day, and showed no 200-but-unstored write.
 
   Keeping 1.0.10 avoids porting the login and resume path to the beta's renamed API. `pyproject.toml` today allows `pyhive-integration>=1.0.9`, so the next dependency update would pull 2.0 once it is stable and break both login and this POST; it is pinned to `>=1.0.10,<2`. A follow-up issue moves to the library's `set_schedule` once 2.0 is released stable. Like the override verbs, the schedule write opens its own Hive session and does its read-back in it, and every library exception becomes a `failed` action.
-- **Building the week.** The base is the Weekly Schedule hive-app already reads in the same poll. Today's and tomorrow's weekdays (London days) are replaced from the newest `room_forecast_slot` rows with scenario `plan`, converted from naive UTC instants to London clock minutes, each instant at its own London offset. Plan slots run from the pre-heat to the window's close (at latest midnight), so they never touch the 01:00–02:00 clock-change hours; clock-change days need no special case, and one test covers one. Each day becomes: the Away Temperature at 00:00, the slot's target from its start, and the Away Temperature from its end. A slot ending at midnight needs no closing entry. The start rounds earlier and the end rounds later to the grain the spike proves, so the Comfort Window is never shortened. A day with no plan slot keeps its existing entries, logged at INFO. The other five weekdays keep whatever was last written.
+- **Building the week.** The base is the Weekly Schedule hive-app already reads in the same poll. Today's and tomorrow's weekdays (London days) are replaced from the newest `room_forecast_slot` rows with scenario `plan`, converted from naive UTC instants to London clock minutes, each instant at its own London offset. Plan slots run from the pre-heat to the window's close (at latest midnight), so they never touch the 01:00–02:00 clock-change hours; clock-change days need no special case, and one test covers one. Each day becomes: the Away Temperature at 00:00, the slot's target from its start, and the Away Temperature from its end. A slot ending at midnight needs no closing entry. The start rounds earlier and the end rounds later to whole minutes, the grain the spike proved, so the Comfort Window is never shortened. A day with no plan slot keeps its existing entries, logged at INFO. The other five weekdays keep whatever was last written.
 - **When.** At every heating poll, the Comfort Schedule is written only if the built week differs from the Weekly Schedule Hive holds. Because the plan is recomputed hourly, in practice that means after each plan run that moves a slot. On the poll that restores SCHEDULE after an Away Override, the Comfort Schedule is written before the restore. The write continues while No One Is Home, so the schedule is current on return. Each write is recorded as a `comfort_schedule` action. The next poll's Weekly Schedule capture stores the new week, as today. A `failed` write is retried at the next poll. After a `not_verified` write, the Comfort Schedule isn't written again for 60 minutes (one plan cycle), with a WARNING. Otherwise a Hive that stores something other than what was sent would differ again at every poll and be rewritten every 2 minutes.
 - Hand edits made in the Hive app are overwritten at the next difference. That is the point of the Comfort Schedule.
 
@@ -275,6 +279,7 @@ A state-timeline panel on the gas and heating dashboard shows the last 7 days of
 
 Good tests here drive a public entry point with fixed inputs and a fixed clock, then assert on stored rows, recorded writes and log lines. They never assert on private helpers. Fakes sit only at the external boundaries (Pi-hole, Hive), with the real MariaDB test client underneath, as in the existing hive-app and octopus-app suites.
 
+- **PiholeApiSource**, with HTTP faked at the boundary (`responses`), as listed under Pi-hole source above.
 - **Phone Rule, tested directly** (agreed exception: a pure rule many cases flow through). Table-driven Given/When/Then cases, starting from the prototype's cases in the research note:
   - phone hostnames from every listed manufacturer;
   - tablets, watches, computers and media devices that share phone brands;
@@ -313,7 +318,7 @@ Good tests here drive a public entry point with fixed inputs and a fixed clock, 
   - the current scenario holding the stored target when the newest poll is MANUAL with no boost, and following the schedule when it is SCHEDULE or boosting (seeded `heating_status` rows).
 - **Schema Sync tests** for both new tables, and settings tests for the new config (defaults, absent sections, refused values including presence `on` without the Comfort Schedule `on` and a blank Pi-hole password), in the shape of the existing schema-sync and config tests.
 - **Prior art:** test_heating_retrieval (fake HiveSource over real MariaDB), test_hive_data_watchdog and test_ntfy_data_notifier (alerts and quiet hours), test_comfort_day_job and test_room_forecast_job (seeded octopus-app jobs), test_hive_config_settings, the `*_schema_sync` tests, test_grafana_dashboards and test_grafana_queries_document.
-- **Live verification, not unit tests:** the real Pi-hole client and Hive writes are checked by a dry-run week compared against actual departures and returns before `control: on`. The schedule write is proven by the spike, then by a `comfort_schedule: dry_run` period before `on`.
+- **Live verification, not unit tests:** the real Pi-hole client's behaviour against a real Pi-hole and Hive writes are checked by a dry-run week compared against actual departures and returns before `control: on`. The schedule write is proven by the spike, then by a `comfort_schedule: dry_run` period before `on`.
 
 ## Out of Scope
 

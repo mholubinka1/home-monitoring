@@ -84,8 +84,14 @@ providing:
 
 For hive-app, create `config.yml` from `deployments/hive-app/config.yml.template`. Only
 the `hive` (account username and password) and `mariadb` sections are required for
-heating polling; `location` and `ntfy` are optional and each
-template section is commented with what uses it. Run the first Hive login, and any later
+heating polling; `location`, `ntfy` and `presence` are optional and each
+template section is commented with what uses it.
+`presence` records, from Pi-hole (v6, an app password and its `http://` URL; an
+`https://` URL works only with a certificate `requests` trusts), whether any phone on
+the network is home; its `control` setting gates only
+the heating actions, which are not built yet.
+
+Run the first Hive login, and any later
 re-authentication (a Hive data-lost alert whose cause is a lost device), with
 `python -m hive_app.login` as described in
 [the re-auth runbook](deployments/hive-app/REAUTH_RUNBOOK.md).
