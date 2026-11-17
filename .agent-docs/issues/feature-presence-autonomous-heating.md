@@ -44,12 +44,12 @@ A presence-signal watchdog in the shape of the Hive data-lost watchdog, driven b
 
 ### Acceptance criteria
 
-- [ ] Given Presence Unknown has lasted 31 minutes outside quiet hours, when the watchdog checks, then one "presence signal lost" ntfy message is sent.
-- [ ] Given the signal is still lost an hour after the alert, when the watchdog checks, then one reminder is sent.
-- [ ] Given an alert was sent, when presence becomes known again, then a "presence signal restored" message is sent.
-- [ ] Given the signal is lost during quiet hours, when the watchdog checks, then nothing is sent until quiet hours end.
-- [ ] Given the open period is No One Is Home at 03:05 London time, when the night check runs, then a WARNING with the period's duration is logged.
-- [ ] Given Someone Is Home at 03:05, when the night check runs, then no warning is logged.
+- [x] Given Presence Unknown has lasted 31 minutes outside quiet hours, when the watchdog checks, then one "presence signal lost" ntfy message is sent.
+- [x] Given the signal is still lost an hour after the alert, when the watchdog checks, then one reminder is sent.
+- [x] Given an alert was sent, when presence becomes known again, then a "presence signal restored" message is sent.
+- [x] Given the signal is lost during quiet hours, when the watchdog checks, then nothing is sent until quiet hours end.
+- [x] Given the open period is No One Is Home at 03:05 London time, when the night check runs, then a WARNING with the period's duration is logged.
+- [x] Given Someone Is Home at 03:05, when the night check runs, then no warning is logged.
 
 ---
 

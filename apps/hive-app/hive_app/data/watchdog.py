@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 from logging import Logger, getLogger
 from typing import Protocol
 
-from common.local_day import get_local_timezone
 from hive_app.common.config import QuietHours
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.quiet_hours import is_quiet
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
@@ -46,7 +46,7 @@ class HiveDataWatchdog:
         self._last_notified: datetime | None = None
 
     def check(self, now: datetime) -> None:
-        if self._is_quiet(now):
+        if is_quiet(self._quiet_hours, now):
             return
         latest = self._mariadb.latest_heating_polled_at()
         if latest is None:
@@ -113,14 +113,3 @@ class HiveDataWatchdog:
         self._outage_began = None
         self._last_notified = None
         return True
-
-    def _is_quiet(self, now: datetime) -> bool:
-        """Nothing is sent in the quiet window; state is left as it was, so
-        what is due goes out on the first check after it ends."""
-        if self._quiet_hours is None:
-            return False
-        local = now.astimezone(get_local_timezone()).time()
-        start, end = self._quiet_hours.start, self._quiet_hours.end
-        if start <= end:
-            return start <= local < end
-        return local >= start or local < end
