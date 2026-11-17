@@ -348,7 +348,8 @@ def main() -> None:
     pihole = PiholeApiSource(settings.presence.pihole) if settings.presence else None
     build_presence_job(default_scheduler, mariadb, settings.presence, pihole)
 
-    signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    if pihole is not None:
+        signal.signal(signal.SIGTERM, _exit_on_sigterm)
     try:
         while True:
             run_pending_safely(default_scheduler)

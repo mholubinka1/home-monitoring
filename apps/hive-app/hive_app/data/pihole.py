@@ -35,7 +35,7 @@ class PiholeSource(Protocol):
 def _parse_device(raw: dict[str, Any]) -> PiholeDevice:
     last_query = raw["lastQuery"]
     return PiholeDevice(
-        hwaddr=raw["hwaddr"],
+        hwaddr=raw["hwaddr"] or "",
         hostnames=[ip["name"] for ip in raw["ips"] if ip.get("name")],
         last_query=(
             datetime.fromtimestamp(last_query, UTC)
@@ -62,7 +62,14 @@ class PiholeApiSource:
                 response = self._get_devices()
             response.raise_for_status()
             return [_parse_device(raw) for raw in response.json()["devices"]]
-        except (requests.RequestException, KeyError, TypeError, ValueError) as error:
+        except (
+            requests.RequestException,
+            KeyError,
+            TypeError,
+            ValueError,
+            OverflowError,
+            OSError,
+        ) as error:
             raise PiholeError(
                 f"Pi-hole could not be read ({type(error).__name__})"
             ) from None

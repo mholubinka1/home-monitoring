@@ -145,6 +145,29 @@ def test_every_kind_of_failure_is_one_pihole_error_without_the_password(
 
 
 @responses.activate
+def test_a_last_lookup_time_python_cannot_represent_is_one_pihole_error() -> None:
+    _login_ok()
+    body = {
+        "devices": [{"hwaddr": "c2:00:00:00:00:01", "lastQuery": 10**20, "ips": []}]
+    }
+    responses.add(responses.GET, DEVICES_URL, json=body)
+
+    with pytest.raises(PiholeError):
+        _source().read_devices()
+
+
+@responses.activate
+def test_a_device_with_a_null_hardware_address_is_read_as_a_blank_address() -> None:
+    _login_ok()
+    body = {"devices": [{"hwaddr": None, "lastQuery": 1794916800, "ips": []}]}
+    responses.add(responses.GET, DEVICES_URL, json=body)
+
+    (device,) = _source().read_devices()
+
+    assert device.hwaddr == ""
+
+
+@responses.activate
 def test_logout_releases_the_session_and_tolerates_failure() -> None:
     _login_ok()
     responses.add(responses.GET, DEVICES_URL, json=DEVICES_BODY)
