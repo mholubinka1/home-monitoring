@@ -125,9 +125,9 @@ Whenever the newest heating poll is MANUAL with no boost running, RoomForecastJo
 
 ### Acceptance criteria
 
-- [ ] Given the newest poll is MANUAL at 7 °C with no boost, when the Room Forecast runs, then the current scenario holds 7 °C for the whole horizon.
-- [ ] Given the newest poll is MANUAL at 21 °C set by hand, when the Room Forecast runs, then the current scenario holds 21 °C.
-- [ ] Given the newest poll is SCHEDULE, or MANUAL with a boost running, when the Room Forecast runs, then the current scenario follows the Hive schedule as before.
+- [x] Given the newest poll is MANUAL at 7 °C with no boost, when the Room Forecast runs, then the current scenario holds 7 °C for the whole horizon.
+- [x] Given the newest poll is MANUAL at 21 °C set by hand, when the Room Forecast runs, then the current scenario holds 21 °C.
+- [x] Given the newest poll is SCHEDULE, or MANUAL with a boost running, when the Room Forecast runs, then the current scenario follows the Hive schedule as before.
 
 ---
 
