@@ -145,8 +145,8 @@ A state-timeline panel showing the last 7 days of Presence Periods in London tim
 
 ### Acceptance criteria
 
-- [ ] Given Presence Periods over the last 7 days, when the dashboard loads, then a state timeline shows each state in London time.
-- [ ] Given the panel's SQL, when it is measured on a throwaway copy of the database, then that copy's peak memory stays under the live server's 512 MB cap, and the SQL is documented in the queries document.
+- [x] Given Presence Periods over the last 7 days, when the dashboard loads, then a state timeline shows each state in London time.
+- [x] Given the panel's SQL, when it is measured on a throwaway copy of the database, then that copy's peak memory stays under the live server's 512 MB cap, and the SQL is documented in the queries document.
 
 ---
 
