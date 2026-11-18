@@ -14,6 +14,7 @@ from tests.test_heating_interval_job import (
     START,
     _heating_intervals,
     _job,
+    _record_heating_intervals,
     _seed_gas,
     _seed_gas_rate,
     _seed_polls,
@@ -31,18 +32,21 @@ def _kwh_at(warm_up_minutes: int, steady_minutes: int) -> float:
 
 
 def _record_two_phase_runs(
-    client: MariaDBClient, days: int, last_ten_minutes_kwh: float = _kwh_at(0, 10)
+    client: MariaDBClient,
+    days: int,
+    first_half_hour_kwh: float = _kwh_at(20, 10),
+    last_ten_minutes_kwh: float = _kwh_at(0, 10),
 ) -> None:
     """`days` earlier days, each with a 40-minute heating run from 18:00 whose gas
-    comes from an 18 kW warm-up and a 6 kW steady draw: the 18:00 half-hour holds
-    the run's first 20 minutes and 10 more, the 18:30 half-hour its last 10. The
-    job runs at the end of each day."""
+    comes, unless given, from an 18 kW warm-up and a 6 kW steady draw: the 18:00
+    half-hour holds the run's first 20 minutes and 10 more, the 18:30 half-hour its
+    last 10. The job runs at the end of each day."""
     for back in range(days, 0, -1):
         first = START - timedelta(days=back)
         second = first + HALF_HOUR
         _seed_polls(client, first, on=FULL_INTERVAL_POLLS)
         _seed_polls(client, second, on=5)
-        _seed_gas(client, first, _kwh_at(20, 10))
+        _seed_gas(client, first, first_half_hour_kwh)
         _seed_gas(client, second, last_ten_minutes_kwh)
         _job(client).refresh(first.replace(hour=23, minute=59, tzinfo=UTC))
 
@@ -198,6 +202,42 @@ def test_history_implying_a_steady_kw_of_zero_falls_back_to_the_single_kw(
     row = _row_at(mariadb_client, START)
     assert row.source == "estimated"
     assert row.heating_kwh == pytest.approx(12 / 60 * 10.5)
+
+
+def test_history_implying_a_warm_up_kw_below_zero_falls_back_to_the_single_kw(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given five days of runs whose first half-hour used 1 kWh and last 10 minutes
+    # 2 kWh, so the steady draw works out at 12 kW and the warm-up below zero;
+    # together they used 15 kWh over 200 minutes on, a single 4.5 kW
+    _seed_gas_rate(mariadb_client)
+    _record_two_phase_runs(
+        mariadb_client, days=5, first_half_hour_kwh=1.0, last_ten_minutes_kwh=2.0
+    )
+    _seed_polls(mariadb_client, START, on=ON_POLLS)
+
+    _job(mariadb_client).refresh(NOW)
+
+    row = _row_at(mariadb_client, START)
+    assert row.heating_kwh == pytest.approx(12 / 60 * 4.5)
+
+
+def test_history_where_every_half_hour_has_the_same_split_uses_the_single_kw(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given ten measured half-hours each holding a whole 30-minute run, 20 warm-up
+    # and 10 steady minutes, that each used 7 kWh: the two draws cannot be told
+    # apart, and together they come to a single 14 kW
+    _seed_gas_rate(mariadb_client)
+    _record_heating_intervals(
+        mariadb_client, days=10, on_polls=FULL_INTERVAL_POLLS, kwh=7.0
+    )
+    _seed_polls(mariadb_client, START, on=ON_POLLS)
+
+    _job(mariadb_client).refresh(NOW)
+
+    row = _row_at(mariadb_client, START)
+    assert row.heating_kwh == pytest.approx(12 / 60 * 14)
 
 
 def test_an_estimated_half_hours_heating_estimate_is_its_estimated_kwh(

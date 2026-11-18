@@ -72,7 +72,8 @@ def heating_on_minutes(polls: list[Poll]) -> dict[datetime, tuple[int, int, int]
             run_start = polled_at
         last_on = polled_at
         on[start] += 1
-        early[start] += polled_at - run_start < WARM_UP
+        if polled_at - run_start < WARM_UP:
+            early[start] += 1
     result = {}
     for start, count in counts.items():
         if count >= MIN_POLLS_PER_INTERVAL:
