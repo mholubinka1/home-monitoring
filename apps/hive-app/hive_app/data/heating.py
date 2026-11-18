@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from common.local_day import to_local_date
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.comfort_schedule import (
+    REASON_NO_SLOT,
     WeekRuleError,
     build_week,
     validate_week,
@@ -290,20 +291,26 @@ class ComfortScheduleControl:
 
     def _build_week(
         self, now: datetime, hive_week: dict[str, Any]
-    ) -> tuple[dict[str, Any], list[str]]:
+    ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
         today = to_local_date(now)
         slots = self._mariadb.read_plan_slots([today, today + timedelta(days=1)])
         return build_week(hive_week, slots, today, self._away_temperature)
 
     @staticmethod
-    def _log_kept_days(kept_days: list[str]) -> None:
-        for day in kept_days:
-            logger.info(
-                "Comfort Schedule: no plan slot for %s, keeping Hive's entries.", day
-            )
+    def _log_kept_days(kept_days: list[tuple[str, str]]) -> None:
+        for day, reason in kept_days:
+            if reason == REASON_NO_SLOT:
+                logger.info(
+                    "Comfort Schedule: no plan slot for %s, keeping Hive's entries.",
+                    day,
+                )
+            else:
+                logger.warning(
+                    "Comfort Schedule: %s keeps Hive's entries, as %s.", day, reason
+                )
 
     def _record_dry_run(
-        self, now: datetime, week: dict[str, Any], kept_days: list[str]
+        self, now: datetime, week: dict[str, Any], kept_days: list[tuple[str, str]]
     ) -> None:
         """Store what would be written, once per distinct week. A week the write
         would refuse is stored as `failed` with the rule, once per distinct rule."""
@@ -354,7 +361,7 @@ class ComfortScheduleControl:
         return False
 
     def _write_week(
-        self, now: datetime, week: dict[str, Any], kept_days: list[str]
+        self, now: datetime, week: dict[str, Any], kept_days: list[tuple[str, str]]
     ) -> None:
         """Send the week and store its outcome; a failure is stored as `failed`
         with the exception type name only, and never raised out of the poll."""

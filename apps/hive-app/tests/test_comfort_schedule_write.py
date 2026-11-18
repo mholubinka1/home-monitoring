@@ -334,6 +334,123 @@ def test_a_plan_slot_ending_at_midnight_leaves_its_day_with_no_closing_entry(
     ]
 
 
+def test_a_slot_starting_at_midnight_replaces_the_leading_away_entry(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given today's plan slot runs from 00:00 to 06:25 at 19 C
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TODAY,
+                "plan",
+                0,
+                datetime(2026, 11, 18, 0, 0),
+                datetime(2026, 11, 18, 6, 25),
+                19.0,
+            )
+        ],
+    )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then Wednesday starts at 19 C at minute 0, with no second entry at minute 0,
+    # and the Away Temperature from 06:25 (minute 385)
+    written = _only(source.schedule_writes)
+    assert written["wednesday"] == [
+        {"start": 0, "value": {"target": 19.0}},
+        {"start": 385, "value": {"target": AWAY}},
+    ]
+
+
+def test_a_slot_that_does_not_lie_within_its_day_is_not_written_and_is_warned_of(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given today's plan slot starts the evening before (23:30 on Tuesday) and runs
+    # to 06:00, as a window opening just after midnight would plan, while
+    # tomorrow's slot is the ordinary 05:40 to 06:25
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TODAY,
+                "plan",
+                0,
+                datetime(2026, 11, 17, 23, 30),
+                datetime(2026, 11, 18, 6, 0),
+                19.0,
+            ),
+            (
+                TOMORROW,
+                "plan",
+                0,
+                datetime(2026, 11, 19, 5, 40),
+                datetime(2026, 11, 19, 6, 25),
+                19.0,
+            ),
+        ],
+    )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then Wednesday keeps what Hive holds (its minutes would land on the wrong
+    # day), Thursday is replaced, and a WARNING names Wednesday
+    written = _only(source.schedule_writes)
+    assert written["wednesday"] == _hives_week()["wednesday"]
+    assert written["thursday"][1] == {"start": 340, "value": {"target": 19.0}}
+    assert any(
+        record.levelno == logging.WARNING and "wednesday" in record.getMessage().lower()
+        for record in caplog.records
+    )
+
+
+def test_a_slot_running_past_the_next_midnight_is_not_written_either(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given today's plan slot runs from 23:00 to 01:00 the next day (a window past
+    # midnight), while tomorrow's slot is the ordinary 05:40 to 06:25
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TODAY,
+                "plan",
+                0,
+                datetime(2026, 11, 18, 23, 0),
+                datetime(2026, 11, 19, 1, 0),
+                19.0,
+            ),
+            (
+                TOMORROW,
+                "plan",
+                0,
+                datetime(2026, 11, 19, 5, 40),
+                datetime(2026, 11, 19, 6, 25),
+                19.0,
+            ),
+        ],
+    )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then Wednesday keeps Hive's entries (01:00 would land on the wrong weekday) and
+    # a WARNING names it
+    written = _only(source.schedule_writes)
+    assert written["wednesday"] == _hives_week()["wednesday"]
+    assert any(
+        record.levelno == logging.WARNING and "wednesday" in record.getMessage().lower()
+        for record in caplog.records
+    )
+
+
 def test_a_day_with_no_plan_slot_keeps_hives_entries(
     mariadb_client: MariaDBClient,
 ) -> None:

@@ -186,10 +186,16 @@ week from the schedule it just read: today's and tomorrow's weekdays are replace
 the newest plan slots (the Away Temperature at 00:00, the Comfort Temperature from the
 slot's start to its end, then the Away Temperature again), and the other five weekdays
 keep whatever was last written. A start rounds earlier and an end later to a whole
-minute, so the Comfort Window is never shortened. A day with no plan slot keeps its
-entries. Hive is written only when the built week differs from the one it holds, so in
-practice that is after each hourly plan run that moves a slot. **Edits made in the Hive
-app are overwritten at the next difference**; that is the point of it.
+minute, so the Comfort Window is never shortened. A slot that starts at midnight
+replaces the leading Away entry. A day with no plan slot keeps its entries, and so does
+a day whose slot does not lie within it (a comfort window opening just after midnight
+with pre-heat from the evening before, or running past midnight): that case is logged
+as a WARNING on a poll that writes or records the week (so if nothing else changes the
+day stays quietly on Hive's entries), and splitting such a slot across two days is not
+done. Hive is written
+only when the built week differs from the one it holds, so in practice that is after
+each hourly plan run that moves a slot. **Edits made in the Hive app are overwritten at
+the next difference**; that is the point of it.
 
 `comfort_schedule.control` has three settings, default `off`, and works with or without
 a `presence` section. `dry_run` records one `comfort_schedule` action with outcome
@@ -210,9 +216,9 @@ come from it) and a WARNING is logged. A week that breaks a write rule (every we
 present, entries starting at 00:00, whole-minute starts, targets in half degrees) is
 refused before anything is sent and stored as `failed`, with the rule in the log and in
 the action's `detail`; a `dry_run` records the same refusal once, so a bad week shows up
-before `on`. When Someone Is Home begins
-after an Away Override, the schedule is written before SCHEDULE is restored. Start
-with `dry_run` and compare its records with Hive's real week before setting `on`.
+before `on`. When Someone Is Home begins after an Away Override, the schedule is
+written before SCHEDULE is restored. Start with `dry_run` and compare its records with
+Hive's real week before setting `on`.
 
 ### ntfy notifications (hive-app)
 
