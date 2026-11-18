@@ -204,10 +204,12 @@ class HeatingIntervalJob:
     def _boiler_power(
         earlier: list[HeatingIntervalRecord], measured: list[HeatingIntervalRecord]
     ) -> tuple[heating_intervals.BoilerPower, bool]:
-        """The boiler power learned from the measured half-hours stored in the 28
-        days before the recompute window (`earlier`) plus those of the window
-        itself, and True; the single learned kW, both phases alike, and False when
-        it cannot be."""
+        """The boiler power to estimate with, and whether it was learned in two
+        phases. It is learned from the measured half-hours stored in the 28 days
+        before the recompute window (`earlier`) plus those of the window itself.
+        Returns (Warm-up kW and Steady kW, True) when they can be learned from the
+        half-hours that have early on-minutes; otherwise (the single learned kW for
+        both phases, from every measured half-hour, False)."""
         rows = [
             row
             for row in earlier + measured
