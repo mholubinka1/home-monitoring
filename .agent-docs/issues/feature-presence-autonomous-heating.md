@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-presence-autonomous-heating
 
 ## Record presence from Pi-hole phones
