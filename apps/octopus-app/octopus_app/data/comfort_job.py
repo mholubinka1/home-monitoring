@@ -97,11 +97,17 @@ class ComfortDayJob:
         now: datetime,
     ) -> ComfortDayRecord | None:
         day_start = _day_start(day)
-        polls = self._mariadb.read_room_temperatures(
-            day_start, _day_start(day + timedelta(days=1))
-        )
+        day_end = _day_start(day + timedelta(days=1))
+        polls = self._mariadb.read_room_temperatures(day_start, day_end)
         if not polls:
             return None
+        # Only the day's own periods, so a long backfill checks each poll against
+        # a handful, not every period of the run.
+        no_one_home_today = [
+            (started, ended)
+            for started, ended in evidence.no_one_home
+            if started < day_end and (ended is None or ended > day_start)
+        ]
         days_with_heating = comfort.heating_days(
             hour for hour in evidence.heating_on_hours if hour < day_start
         )
@@ -130,7 +136,7 @@ class ComfortDayJob:
                 None
                 if comfort_temp is None
                 else comfort.minutes_below(
-                    polls, comfort_temp, hours, evidence.no_one_home
+                    polls, comfort_temp, hours, no_one_home_today
                 )
             ),
             computed_at=now.replace(tzinfo=None),

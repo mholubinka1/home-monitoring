@@ -493,8 +493,31 @@ def test_minutes_while_no_one_is_home_are_left_out_of_minutes_below(
     # When the Comfort Day is settled
     ComfortDayJob(mariadb_client).refresh(NOW)
 
-    # Then the polls at 18:06, 18:08 and 18:10 add nothing: 7 polls, 14 minutes
+    # Then the polls at 18:06, 18:08 and 18:10 add nothing, while 18:12, when the
+    # period ended, counts: 7 polls, 14 minutes
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 14
+
+
+def test_an_absence_that_began_before_the_day_leaves_out_its_minutes_on_the_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday is settled, a cold evening today, and no one home from 22:00
+    # yesterday until 18:10 today
+    _seed_cold_evening(mariadb_client)
+    job = ComfortDayJob(mariadb_client)
+    job.refresh(datetime(2026, 11, 12, 0, 30, tzinfo=UTC))
+    _seed_presence_period(
+        mariadb_client,
+        "no_one_home",
+        _at(TODAY - timedelta(days=1), timedelta(hours=22)),
+        _at(TODAY, timedelta(hours=18, minutes=10)),
+    )
+
+    # When today is written
+    job.refresh(NOW)
+
+    # Then only the polls from 18:10 count: 5 polls, 10 minutes
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 10
 
 
 def test_an_open_no_one_home_period_leaves_out_every_minute_from_its_start(
