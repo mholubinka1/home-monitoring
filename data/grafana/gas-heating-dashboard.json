@@ -1054,7 +1054,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Minutes per day the room was below the learned comfort temperature (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 365 days before the day. Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
+      "description": "Minutes per day the room was below the learned comfort temperature (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 365 days before the day, and never while no one is home (the Presence panel). Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
       "fieldConfig": {
         "defaults": {
           "color": {
