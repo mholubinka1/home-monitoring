@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-estimate-heating-intervals-warm-up-steady-kw
 
 ## Estimate heating intervals with a warm-up and a steady kW
