@@ -896,3 +896,71 @@ def test_history_implying_a_steady_kw_of_zero_falls_back_to_the_single_kw(
     row = _row_at(mariadb_client, START)
     assert row.source == "estimated"
     assert row.heating_kwh == pytest.approx(12 / 60 * 10.5)
+
+
+def test_an_estimated_half_hours_heating_estimate_is_its_estimated_kwh(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the learned 18 kW warm-up and 6 kW steady draw, and a heating half-hour
+    # today with no gas yet
+    _seed_gas_rate(mariadb_client)
+    _record_two_phase_runs(mariadb_client, days=5)
+    _seed_polls(mariadb_client, START, on=ON_POLLS)
+
+    _job(mariadb_client).refresh(NOW)
+
+    # Then its Heating Estimate is the kWh it is estimated at
+    row = _row_at(mariadb_client, START)
+    assert row.estimated_heating_kwh == pytest.approx(_kwh_at(12, 0))
+
+
+def test_a_half_hour_keeps_its_earlier_heating_estimate_when_its_gas_arrives(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a heating half-hour estimated at the 12 kW default before any history
+    _seed_gas_rate(mariadb_client)
+    _seed_polls(mariadb_client, START, on=ON_POLLS)
+    _job(mariadb_client).refresh(NOW)
+    # and then history that teaches an 18 kW warm-up, which would estimate it higher
+    _record_two_phase_runs(mariadb_client, days=5)
+
+    # When its gas arrives and the job runs again
+    _seed_gas(mariadb_client, START, 3.0)
+    _job(mariadb_client).refresh(NOW)
+
+    # Then it is measured and keeps the estimate made before the gas arrived
+    row = _row_at(mariadb_client, START)
+    assert row.source == "measured"
+    assert row.estimated_heating_kwh == pytest.approx(ON_POLLS_KWH_AT_12KW)
+
+
+def test_a_half_hour_measured_on_its_first_computation_gets_this_runs_estimate(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the learned 18 kW warm-up and 6 kW steady draw, and a heating half-hour
+    # whose gas is already there when the job first computes it
+    _seed_gas_rate(mariadb_client)
+    _record_two_phase_runs(mariadb_client, days=5)
+    _seed_polls(mariadb_client, START, on=ON_POLLS)
+    _seed_gas(mariadb_client, START, _kwh_at(12, 0))
+
+    _job(mariadb_client).refresh(NOW)
+
+    # Then its Heating Estimate comes from this run's Warm-up kW
+    row = _row_at(mariadb_client, START)
+    assert row.source == "measured"
+    assert row.estimated_heating_kwh == pytest.approx(_kwh_at(12, 0))
+
+
+def test_a_heating_off_half_hours_heating_estimate_is_zero(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a half-hour with the heating off whose hot-water gas is metered
+    _seed_gas_rate(mariadb_client)
+    _seed_polls(mariadb_client, START, on=0)
+    _seed_gas(mariadb_client, START, 0.5)
+
+    _job(mariadb_client).refresh(NOW)
+
+    row = _row_at(mariadb_client, START)
+    assert row.estimated_heating_kwh == 0

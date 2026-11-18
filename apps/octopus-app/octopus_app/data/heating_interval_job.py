@@ -1,6 +1,7 @@
 """Recomputes the recent completed half-hours of heating and what each cost."""
 
 import logging.config
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -88,7 +89,24 @@ class HeatingIntervalJob:
             for interval, polls_on in sorted(on_intervals.items())
             if interval in gas
         ]
-        power = self._boiler_power(earlier, measured)
+        power, two_phase = self._boiler_power(earlier, measured)
+        stored = {
+            row.starts_at: row.estimated_heating_kwh
+            for row in self._mariadb.read_heating_intervals(start, end)
+            if row.estimated_heating_kwh is not None
+        }
+        measured = [
+            replace(
+                row,
+                estimated_heating_kwh=stored.get(
+                    row.starts_at,
+                    heating_intervals.estimated_cost(
+                        row.on_minutes, row.early_on_minutes or 0, None, power
+                    )[0],
+                ),
+            )
+            for row in measured
+        ]
         estimated = [
             self._record(interval, polls_on, None, baselines, power)
             for interval, polls_on in sorted(on_intervals.items())
@@ -96,9 +114,15 @@ class HeatingIntervalJob:
         ]
         rows = sorted(measured + estimated, key=lambda row: row.starts_at)
         self._mariadb.replace_heating_intervals(start, end, rows)
+        learned = (
+            f"a Warm-up {power.warm_up_kw:.1f} kW and a Steady {power.steady_kw:.1f} kW"
+            if two_phase
+            else f"the single {power.steady_kw:.1f} kW"
+        )
         logger.info(
             f"Heating intervals: wrote {len(rows)} half-hour(s) "
-            f"({len(measured)} measured) from {start} to {end} UTC."
+            f"({len(measured)} measured) from {start} to {end} UTC, "
+            f"estimating at {learned}."
         )
 
     def _record(
@@ -138,15 +162,17 @@ class HeatingIntervalJob:
             unit_rate=unit_rate,
             cost_gbp=cost,
             computed_at=self._computed_at,
+            estimated_heating_kwh=kwh if measured is None else None,
         )
 
     @staticmethod
     def _boiler_power(
         earlier: list[HeatingIntervalRecord], measured: list[HeatingIntervalRecord]
-    ) -> heating_intervals.BoilerPower:
+    ) -> tuple[heating_intervals.BoilerPower, bool]:
         """The boiler power learned from the measured half-hours stored in the 28
         days before the recompute window (`earlier`) plus those of the window
-        itself; the single learned kW, both phases alike, when it cannot be."""
+        itself, and True; the single learned kW, both phases alike, and False when
+        it cannot be."""
         rows = [
             row
             for row in earlier + measured
@@ -158,11 +184,11 @@ class HeatingIntervalJob:
             if row.early_on_minutes is not None
         )
         if learned is not None:
-            return learned
+            return learned, True
         kw = heating_intervals.learned_boiler_kw(
             (row.on_minutes, row.heating_kwh or 0.0) for row in rows
         )
-        return heating_intervals.BoilerPower(kw, kw)
+        return heating_intervals.BoilerPower(kw, kw), False
 
     def _measured_gas(self, start: datetime, end: datetime) -> dict[datetime, float]:
         """The metered gas of the half-hours in [start, end). Read from the start

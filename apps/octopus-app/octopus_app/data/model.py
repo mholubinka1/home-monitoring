@@ -192,6 +192,7 @@ class HeatingIntervalRecord:  # pylint: disable=too-many-instance-attributes
     unit_rate: float | None
     cost_gbp: float | None
     computed_at: datetime
+    estimated_heating_kwh: float | None
 
 
 @dataclass(frozen=True)

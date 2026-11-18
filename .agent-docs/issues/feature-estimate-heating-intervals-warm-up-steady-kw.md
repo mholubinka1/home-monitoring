@@ -40,10 +40,10 @@ Every Heating Interval stores its Heating Estimate in a new nullable `estimated_
 
 ### Acceptance criteria
 
-- [ ] Given a heating half-hour with no gas yet, when the job runs, then its Heating Estimate equals its estimated heating kWh.
-- [ ] Given a half-hour stored as estimated, when its gas arrives and a later run's learned figures would estimate it differently, then the measured row keeps the earlier Heating Estimate.
-- [ ] Given a half-hour whose gas is already there when it is first computed (a backfill), when the job runs, then it gets the Heating Estimate of that run's figures.
-- [ ] Given a heating-off half-hour, when the job runs, then its Heating Estimate is 0.
+- [x] Given a heating half-hour with no gas yet, when the job runs, then its Heating Estimate equals its estimated heating kWh.
+- [x] Given a half-hour stored as estimated, when its gas arrives and a later run's learned figures would estimate it differently, then the measured row keeps the earlier Heating Estimate.
+- [x] Given a half-hour whose gas is already there when it is first computed (a backfill), when the job runs, then it gets the Heating Estimate of that run's figures.
+- [x] Given a heating-off half-hour, when the job runs, then its Heating Estimate is 0.
 
 ---
 

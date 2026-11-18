@@ -241,6 +241,7 @@ class heating_interval(SQLBase):
     unit_rate = Column(_DOUBLE)  # pence per kWh
     cost_gbp = Column(_DOUBLE)
     computed_at = Column(DateTime, nullable=False)
+    estimated_heating_kwh = Column(_DOUBLE)
 
 
 class comfort_day(SQLBase):
