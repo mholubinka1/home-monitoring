@@ -2,7 +2,7 @@
 
 One SQL block per panel of the second dashboard, [`data/grafana/gas-heating-dashboard.json`](../gas-heating-dashboard.json) ("pi-desktop: gas-heating-monitoring", uid `gas-heating-monitoring`). It is separate from the electricity dashboard ([`electricity-dashboard.json`](../electricity-dashboard.json), documented in [`electricity-queries.md`](electricity-queries.md)), which this file does not change. Re-sync this file and the JSON together whenever the dashboard changes.
 
-**House style.** Every panel is a chart, with two exceptions: the billing-period predictor (a bar gauge) and the schedule table (a table, [feature-schedule-table-panel](../../../.agent-docs/specs/feature-schedule-table-panel.md)). Gas, thermostat and weather panels all read the same shared database as the electricity dashboard.
+**House style.** Every panel is a chart, with three exceptions: the billing-period predictor (a bar gauge), the schedule table (a table, [feature-schedule-table-panel](../../../.agent-docs/specs/feature-schedule-table-panel.md)) and the presence state timeline. Gas, thermostat and weather panels all read the same shared database as the electricity dashboard.
 
 ## Import
 
@@ -773,7 +773,7 @@ ORDER BY day;
 
 ### Presence (state timeline)
 
-The panel shows the last 7 days of Presence Periods as coloured bands in London time (the dashboard timezone): green for someone home, blue for no one home, grey for unknown. Each row is a period's start, clipped to the start of the window for a period that began earlier, and the open period gets a second row at now so its band runs to now. The 7-day window is fixed in the query; the panel's relative time of `7d` only sets the length of the axis. It reads only the small `presence_period` table, which gets a handful of rows a day.
+The panel shows the last 7 days of Presence Periods as coloured bands in London time (the dashboard timezone): green for someone home, blue for no one home, grey for unknown. Each row is a period's start, clipped to the start of the window for a period that began earlier, and the open period gets a second row at now so its band runs to now. The 7-day window is fixed in the query; the panel's relative time of `7d` only sets the length of the axis. **Limit:** Grafana applies that override only while the dashboard range is relative. If the dashboard is zoomed or set to an absolute from and to, the axis follows the selected range, so only the part of the 7 days inside it is drawn. It reads only the small `presence_period` table, which gets a handful of rows a day.
 
 ```sql
 SELECT GREATEST(started_at, UTC_TIMESTAMP() - INTERVAL 7 DAY) AS time, state AS state

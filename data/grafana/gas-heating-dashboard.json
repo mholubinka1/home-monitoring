@@ -2612,7 +2612,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "The last 7 days of Presence Periods in London time: green someone home, blue no one home, grey unknown. The open period runs to now.",
+      "description": "The last 7 days of Presence Periods in London time: green someone home, blue no one home, grey unknown. The open period runs to now. The 7-day axis holds only while the dashboard range is relative; if it is zoomed or set to an absolute range, only the part inside that range is drawn.",
       "fieldConfig": {
         "defaults": {
           "mappings": [
