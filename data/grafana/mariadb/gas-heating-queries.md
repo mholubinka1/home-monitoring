@@ -43,8 +43,9 @@ cost_forecast             (octopus) billing_period_start/end, actual_cost_to_dat
 heating_model             (octopus) id, fitted_at, usable, threshold, slope, weight,
                                     r_squared, baseload, ...
 heating_forecast_day      (octopus) date, model_id, forecast_mean, effective_temp, expected_gas, computed_at
-heating_interval          (octopus) starts_at (UTC, key), ends_at, poll_count, on_minutes, measured_kwh,
-                                    heating_kwh, source ('measured' or 'estimated'), unit_rate (p/kWh), cost_gbp,
+heating_interval          (octopus) starts_at (UTC, key), ends_at, poll_count, on_minutes, early_on_minutes,
+                                    measured_kwh, heating_kwh, source ('measured' or 'estimated'), unit_rate (p/kWh),
+                                    cost_gbp, estimated_heating_kwh (the Heating Estimate, kept once measured),
                                     computed_at
 room_forecast_interval   (octopus) kind ('live' or 'day_ahead'), scenario ('current' or 'plan'),
                                     starts_at (UTC) -- the three are the key -- ends_at, room_temp (at starts_at),
@@ -413,7 +414,7 @@ ORDER BY time;
 
 ### Heating Cost per Half-Hour (time series)
 
-Stacked bars of the gas cost of the heating in each completed half-hour, in pounds, read from the small `heating_interval` table that octopus-app's hourly job writes (ADR-0033 with the hour replaced by the half-hour, the gas meter's grain; [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)), so the panel does no heavy work on the Pi. Heating is any half-hour the thermostat called for heat or a boost was on (`state = 'ON' OR boost_active = 1`, counted by the job). Each bar is one of two series: **measured** (solid; Octopus's gas for the half-hour less a learned hot-water baseline) or **estimated** (lighter; the minutes on times the boiler's learned effective kW, used until the gas arrives about 1.5 days later). Cost is the gas unit rate in force at the start of the half-hour, with no standing charge. A half-hour with fewer than 12 of its 15 Hive readings has no row, so it is a gap, never a zero. Half-hours with the heating off (on-minutes 0) are not drawn. The panel looks back over the dashboard's 14 days and shows nothing for the forward 7.
+Stacked bars of the gas cost of the heating in each completed half-hour, in pounds, read from the small `heating_interval` table that octopus-app's hourly job writes (ADR-0033 with the hour replaced by the half-hour, the gas meter's grain; [ADR-0036](../../../.agent-docs/adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)), so the panel does no heavy work on the Pi. Heating is any half-hour the thermostat called for heat or a boost was on (`state = 'ON' OR boost_active = 1`, counted by the job). Each bar is one of two series: **measured** (solid; Octopus's gas for the half-hour less a learned hot-water baseline) or **estimated** (lighter; the minutes on, priced at a learned Warm-up kW for the first 20 minutes of each Heating Run and a Steady kW after, or a single learned kW when there is too little evidence to learn both ([ADR-0039](../../../.agent-docs/adr/0039-heating-intervals-are-estimated-with-a-warm-up-and-a-steady-kw-per-heating-run.md)), used until the gas arrives about 1.5 days later). Cost is the gas unit rate in force at the start of the half-hour, with no standing charge. A half-hour with fewer than 12 of its 15 Hive readings has no row, so it is a gap, never a zero. Half-hours with the heating off (on-minutes 0) are not drawn. The panel looks back over the dashboard's 14 days and shows nothing for the forward 7.
 
 ```sql
 SELECT time, measured_cost_gbp, estimated_cost_gbp
