@@ -11,7 +11,7 @@ dependencies = [
     "schedule>=1.2.2",
     "pydantic>=2.13.4",
     "tzdata>=2026.3",
-    "pyhive-integration>=1.0.9",
+    "pyhive-integration>=1.0.10,<2",
     "monitoring-common",
 ]
 

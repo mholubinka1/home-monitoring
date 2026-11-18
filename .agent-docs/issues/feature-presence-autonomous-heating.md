@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-presence-autonomous-heating
 
 ## Record presence from Pi-hole phones
@@ -183,16 +185,18 @@ A `comfort_schedule.control` setting (`off`, `dry_run` or `on`, default off), wo
 
 ### Acceptance criteria
 
-- [ ] Given `comfort_schedule: on` and plan slots for today and tomorrow, when the heating poll runs and the built week differs from Hive's, then all seven days are posted with today and tomorrow replaced (Away Temperature at 00:00, Comfort Temperature from the rounded-earlier start, Away Temperature from the rounded-later end).
-- [ ] Given the built week equals Hive's, when the heating poll runs, then nothing is written.
-- [ ] Given a plan slot ending at midnight, when the week is built, then that day has no closing entry.
-- [ ] Given a day with no plan slot, when the week is built, then that day's entries are unchanged.
-- [ ] Given the override is in force and Someone Is Home begins, when the heating poll runs, then the Comfort Schedule is written before SCHEDULE is restored.
-- [ ] Given Hive answers 200 but the read-back differs, when the write completes, then a `not_verified` action is stored, a WARNING is logged, and the polls of the next 60 minutes write nothing.
-- [ ] Given `comfort_schedule: dry_run`, when the week differs, then a `dry_run` action is stored and Hive gets no call.
-- [ ] Given `comfort_schedule: on` and no `presence` section, when the heating poll runs and the week differs, then the Comfort Schedule is written.
-- [ ] Given `presence.control: on` and `comfort_schedule.control: on`, when hive-app starts, then startup succeeds; and given `comfort_schedule.control: dry_run`, then startup is refused.
-- [ ] Given a plan slot on a clock-change day, when the week is built, then its London clock minutes are right for that day's offset.
+- [x] Given `comfort_schedule: on` and plan slots for today and tomorrow, when the heating poll runs and the built week differs from Hive's, then all seven days are posted with today and tomorrow replaced (Away Temperature at 00:00, Comfort Temperature from the rounded-earlier start, Away Temperature from the rounded-later end).
+- [x] Given the built week equals Hive's, when the heating poll runs, then nothing is written.
+- [x] Given a plan slot ending at midnight, when the week is built, then that day has no closing entry.
+- [x] Given a day with no plan slot, when the week is built, then that day's entries are unchanged.
+- [x] Given a plan slot starting at local midnight, when the week is built, then it replaces the leading Away entry, with no second entry at minute 0.
+- [x] Given a plan slot that does not lie within its local day (it starts before the day's midnight or ends after the next one), when the heating poll writes or records the week, then that day keeps Hive's entries and a WARNING names the weekday.
+- [x] Given the override is in force and Someone Is Home begins, when the heating poll runs, then the Comfort Schedule is written before SCHEDULE is restored.
+- [x] Given Hive answers 200 but the read-back differs, when the write completes, then a `not_verified` action is stored, a WARNING is logged, and the polls of the next 60 minutes write nothing.
+- [x] Given `comfort_schedule: dry_run`, when the week differs, then a `dry_run` action is stored and Hive gets no call.
+- [x] Given `comfort_schedule: on` and no `presence` section, when the heating poll runs and the week differs, then the Comfort Schedule is written.
+- [x] Given `presence.control: on` and `comfort_schedule.control: on`, when hive-app starts, then startup succeeds; and given `comfort_schedule.control: dry_run`, then startup is refused.
+- [x] Given a plan slot on a clock-change day, when the week is built, then its London clock minutes are right for that day's offset.
 
 ---
 

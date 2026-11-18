@@ -169,7 +169,7 @@ When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 records what would be written (one override and one restore per absence) and logs
 "would set …", but never calls Hive, so a week of it can be compared with the
 household's real comings and goings. `on` writes to Hive, and is refused at startup
-until the Comfort Schedule exists. If a real override is still in force when control
+unless `comfort_schedule.control` is also `on`. If a real override is still in force when control
 is switched to `dry_run` or `off` (or the `presence` section is removed), the next
 poll restores SCHEDULE once.
 
@@ -177,6 +177,48 @@ Accepted limit: the Away Delay is 30 minutes, so a phone that makes no DNS looku
 that long overnight reads as away. If it is the only phone home, the thermostat is held
 at the Away Temperature until the phone's next lookup, and the morning pre-heat can be
 late. Lengthen `away_delay_minutes` if that bites.
+
+### Comfort Schedule (hive-app)
+
+The Comfort Schedule writes the Comfort Plan into Hive's weekly schedule, so the
+household no longer maintains one by hand. At each heating poll, hive-app builds the
+week from the schedule it just read: today's and tomorrow's weekdays are replaced from
+the newest plan slots (the Away Temperature at 00:00, the Comfort Temperature from the
+slot's start to its end, then the Away Temperature again), and the other five weekdays
+keep whatever was last written. A start rounds earlier and an end later to a whole
+minute, so the Comfort Window is never shortened. A slot that starts at midnight
+replaces the leading Away entry. A day with no plan slot keeps its entries, and so does
+a day whose slot does not lie within it (a comfort window opening just after midnight
+with pre-heat from the evening before, or running past midnight): that case is logged
+as a WARNING on a poll that writes or records the week (so if nothing else changes the
+day stays quietly on Hive's entries), and splitting such a slot across two days is not
+done. Hive is written
+only when the built week differs from the one it holds, so in practice that is after
+each hourly plan run that moves a slot. **Edits made in the Hive app are overwritten at
+the next difference**; that is the point of it.
+
+`comfort_schedule.control` has three settings, default `off`, and works with or without
+a `presence` section. `dry_run` records one `comfort_schedule` action with outcome
+`dry_run` (and logs the would-be week) each time the built week changes, and never calls
+Hive. `on` posts all seven days to Hive in its own session, then reads the schedule back,
+once more after a few seconds if the first read differs, and stores the outcome in
+`heating_control_action`:
+
+- `applied`: Hive stored exactly what was sent.
+- `not_verified`: Hive answered but kept something else. A WARNING is logged and
+  nothing is written again for 60 minutes.
+- `failed`: the write raised. Only the exception type is stored, never its message,
+  except for a write-rule refusal (below), whose rule text is kept. It is retried at the
+  next poll.
+
+If a poll cannot read Hive's weekly schedule, nothing is written (the five untouched days
+come from it) and a WARNING is logged. A week that breaks a write rule (every weekday
+present, entries starting at 00:00, whole-minute starts, targets in half degrees) is
+refused before anything is sent and stored as `failed`, with the rule in the log and in
+the action's `detail`; a `dry_run` records the same refusal once, so a bad week shows up
+before `on`. When Someone Is Home begins after an Away Override, the schedule is
+written before SCHEDULE is restored. Start with `dry_run` and compare its records with
+Hive's real week before setting `on`.
 
 ### ntfy notifications (hive-app)
 

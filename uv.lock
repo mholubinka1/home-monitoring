@@ -861,7 +861,7 @@ dependencies = [
 requires-dist = [
     { name = "monitoring-common", editable = "libs/common" },
     { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pyhive-integration", specifier = ">=1.0.9" },
+    { name = "pyhive-integration", specifier = ">=1.0.10,<2" },
     { name = "pymysql", specifier = ">=1.1.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.34.2" },

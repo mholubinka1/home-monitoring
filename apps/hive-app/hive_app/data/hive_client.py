@@ -19,6 +19,7 @@ from apyhiveapi.helper import hive_exceptions
 from hive_app.common.config import HiveSettings
 from hive_app.common.exceptions import HiveApiUnavailable, HiveReauthRequired
 from hive_app.common.logging import APP_LOGGER_NAME, config
+from hive_app.data.comfort_schedule import validate_week
 from hive_app.data.heating import MODE_MANUAL, MODE_SCHEDULE
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
@@ -26,6 +27,9 @@ from hive_app.data.mysql.model import OUTCOME_APPLIED, OUTCOME_NOT_VERIFIED
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
+
+# How long Hive is given to settle before a whole-week write is read back again.
+SCHEDULE_REREAD_SECONDS = 5
 
 _RESUME_REQUIRES_RELOGIN_MESSAGE = (
     "Hive's persisted session can no longer be resumed (e.g. the remembered "
@@ -470,6 +474,46 @@ class HiveApiSource:
 
     def apply_away_override(self, temperature: float) -> str:
         return asyncio.run(self._write_heating(MODE_MANUAL, temperature))
+
+    def write_comfort_schedule(self, week: dict[str, Any]) -> str:
+        validate_week(week)
+        ordered = {
+            day: sorted(entries, key=lambda entry: entry["start"])
+            for day, entries in week.items()
+        }
+        return asyncio.run(self._write_week(ordered))
+
+    async def _write_week(self, week: dict[str, Any]) -> str:
+        """POST the whole week to the heating node in this call's own session,
+        then re-read it: "applied" when Hive reports the week sent, else
+        "not_verified". A non-2xx answer raises (the library's request does)."""
+        state = self.read_auth_state()
+        async with self._hive_session() as hive:
+            await self._establish_session(hive, state)
+            self.persist_auth_state(self._auth_state_from_session(hive))
+
+            device = self._climate_device(hive)
+            hive_id = device["hiveID"]
+            await hive.api.request(
+                "post",
+                hive.api.urls["nodes"].format("heating", hive_id),
+                data=json.dumps({"schedule": week}),
+            )
+            if await self._read_back_equals(hive, hive_id, week):
+                return OUTCOME_APPLIED
+            # A whole-week write can read back stale at first: wait, then read
+            # once more (never a loop).
+            await asyncio.sleep(SCHEDULE_REREAD_SECONDS)
+            if await self._read_back_equals(hive, hive_id, week):
+                return OUTCOME_APPLIED
+        return OUTCOME_NOT_VERIFIED
+
+    @staticmethod
+    async def _read_back_equals(hive: Hive, hive_id: str, week: dict[str, Any]) -> bool:
+        """A fresh read of the product, then whether its schedule is the week."""
+        if not await hive.session.getDevices(hive_id):
+            return False
+        return bool(hive.session.data.products[hive_id]["state"]["schedule"] == week)
 
     def restore_schedule(self) -> str:
         return asyncio.run(self._write_heating(MODE_SCHEDULE, None))

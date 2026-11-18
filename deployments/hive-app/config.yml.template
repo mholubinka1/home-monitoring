@@ -46,8 +46,8 @@ location:
 # runs. A phone counts as home while
 # Pi-hole has seen it make a DNS lookup within away_delay_minutes.
 presence:
-  # off | dry_run | on. `on` is refused until the Comfort Schedule exists;
-  # use off or dry_run for now.
+  # off | dry_run | on. `on` is refused at startup unless
+  # comfort_schedule.control is also on; use off or dry_run until then.
   # control: off
   pihole:
     # Use http://: Pi-hole's own HTTPS certificate is self-signed, which
@@ -66,9 +66,15 @@ presence:
   # Hostnames never counted as a phone; these win over everything else.
   # ignored_hostnames: ["Spare-Pixel-8"]
 
-# Optional. The Away Temperature (degrees C) held by the Away Override while no
-# one is home: 5 to 32, on a half degree. Default 7.0.
+# Optional. The Comfort Schedule: hive-app writes the Comfort Plan into Hive's
+# weekly schedule, replacing what was set by hand in the Hive app.
+# control: off | dry_run | on, default off. dry_run records what it would write
+# and sends nothing to Hive.
+# away_temperature: the temperature (degrees C) outside the Comfort Window, and
+# the one the Away Override holds while no one is home: 5 to 32, on a half
+# degree. Default 7.0.
 # comfort_schedule:
+#   control: off
 #   away_temperature: 7.0
 
 # Optional: the IANA timezone that defines a "local day" (default Europe/London).

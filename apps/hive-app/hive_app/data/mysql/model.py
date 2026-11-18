@@ -68,6 +68,7 @@ class presence_period(SQLBase):
 # What a heating_control_action row records: the action taken and its outcome.
 ACTION_AWAY_OVERRIDE = "away_override"
 ACTION_RESTORE_SCHEDULE = "restore_schedule"
+ACTION_COMFORT_SCHEDULE = "comfort_schedule"
 OUTCOME_APPLIED = "applied"
 OUTCOME_DRY_RUN = "dry_run"
 OUTCOME_FAILED = "failed"

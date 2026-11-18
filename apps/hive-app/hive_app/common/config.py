@@ -2,10 +2,17 @@ import logging.config
 import sys
 from datetime import datetime, time
 from logging import Logger, getLogger
-from typing import Literal
+from typing import Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from common.config import MariaDBSettings
 from common.local_day import DEFAULT_TIMEZONE, validate_timezone
@@ -77,6 +84,13 @@ class PiholeSettings(BaseModel):
         return trimmed
 
 
+def _yaml_boolean_as_word(value: object) -> object:
+    """YAML 1.1 reads an unquoted off, no, on or yes as False or True."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    return value
+
+
 class PresenceSettings(BaseModel):
     # A mistyped key (ignored_hostname) must refuse startup, not be dropped:
     # the device the household meant to ignore would still count as a phone.
@@ -91,27 +105,21 @@ class PresenceSettings(BaseModel):
     @field_validator("control", mode="before")
     @classmethod
     def _read_yaml_booleans_as_the_words(cls, value: object) -> object:
-        """YAML 1.1 reads an unquoted off, no, on or yes as False or True."""
-        if isinstance(value, bool):
-            return "on" if value else "off"
-        return value
-
-    @field_validator("control")
-    @classmethod
-    def _refuse_on_until_the_comfort_schedule_exists(cls, value: str) -> str:
-        if value == "on":
-            raise ValueError(
-                "'on' is not allowed yet: the Comfort Schedule does not exist "
-                "yet, so use 'dry_run' (#808 relaxes this)"
-            )
-        return value
+        return _yaml_boolean_as_word(value)
 
 
 class ComfortScheduleSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Held while no one is home; the thermostat accepts 5-32 C in half degrees.
+    # The temperature outside the Comfort Window, and the one the Away Override
+    # holds while no one is home; the thermostat accepts 5-32 C in half degrees.
     away_temperature: float = Field(default=7.0, ge=5, le=32, multiple_of=0.5)
+    control: Literal["off", "dry_run", "on"] = "off"
+
+    @field_validator("control", mode="before")
+    @classmethod
+    def _read_yaml_booleans_as_the_words(cls, value: object) -> object:
+        return _yaml_boolean_as_word(value)
 
 
 class HiveApplicationSettings(BaseModel):
@@ -140,6 +148,19 @@ class HiveApplicationSettings(BaseModel):
         validate_timezone(value)
         return value
 
+    @model_validator(mode="after")
+    def _presence_on_needs_the_comfort_schedule_on(self) -> Self:
+        if (
+            self.presence is not None
+            and self.presence.control == "on"
+            and self.comfort_schedule.control != "on"
+        ):
+            raise ValueError(
+                "presence.control: 'on' needs comfort_schedule.control: on, "
+                "so use 'dry_run' until the Comfort Schedule is on"
+            )
+        return self
+
 
 def get_settings(
     config_file_path: str,
@@ -151,8 +172,11 @@ def get_settings(
         logger.info(f"Successfully loaded settings from {config_file_path}")
         return settings
     except ValidationError as e:
+        # A cross-section rule has no field path, so name it by its message
+        # (our own ValueError text, never the offending input).
         invalid_fields = ", ".join(
-            ".".join(str(part) for part in error["loc"]) for error in e.errors()
+            ".".join(str(part) for part in error["loc"]) or error["msg"]
+            for error in e.errors()
         )
         logger.critical(
             f"Failed to load application settings from {config_file_path}: "
