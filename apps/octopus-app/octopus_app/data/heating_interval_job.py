@@ -39,8 +39,11 @@ class HeatingIntervalJob:
             or local_day.to_local_date(resume_from.replace(tzinfo=UTC))
             >= window_first_day
         ):
-            self._recompute(now, self._day_start(window_first_day), end)
+            first_start = self._day_start(window_first_day)
+            self._fill_early_on_minutes(first_start)
+            self._recompute(now, first_start, end)
             return
+        self._fill_early_on_minutes(resume_from)
         # A local day at a time, so each learns only from the rows before it.
         logger.info(f"Heating intervals: backfilling from {resume_from} UTC to {end}.")
         start = resume_from
@@ -49,6 +52,38 @@ class HeatingIntervalJob:
             chunk_end = min(self._day_start(day + timedelta(days=1)), end)
             self._recompute(now, start, chunk_end)
             start = chunk_end
+
+    def _fill_early_on_minutes(self, first_start: datetime) -> None:
+        """Works out the early on-minutes of the Heating Intervals stored in the 28
+        days before the first window without them, from the thermostat polls kept
+        (so a Heating Run that began earlier is seen whole), and writes only that
+        column."""
+        missing = [
+            row.starts_at
+            for row in self._mariadb.read_heating_intervals(
+                first_start - timedelta(days=heating_intervals.BASELINE_DAYS),
+                first_start,
+            )
+            if row.early_on_minutes is None
+        ]
+        if not missing:
+            return
+        polls = self._mariadb.read_heating_polls(
+            missing[0] - heating_intervals.RUN_LOOKBACK,
+            missing[-1] + heating_intervals.INTERVAL,
+        )
+        on_minutes = heating_intervals.heating_on_minutes(polls)
+        filled = {
+            starts_at: on_minutes[starts_at][2]
+            for starts_at in missing
+            if starts_at in on_minutes
+        }
+        if not filled:
+            return
+        self._mariadb.write_early_on_minutes(filled)
+        logger.info(
+            f"Heating intervals: filled early on-minutes of {len(filled)} row(s)."
+        )
 
     def _resume_from(self) -> datetime | None:
         """Where a backfill starts (naive UTC): the end of the newest stored

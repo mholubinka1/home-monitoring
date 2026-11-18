@@ -61,9 +61,9 @@ At the start of a refresh, stored Heating Intervals in the 28 days before the re
 
 ### Acceptance criteria
 
-- [ ] Given stored half-hours in the last 28 days without early on-minutes and their thermostat polls, when the job runs, then those half-hours get early on-minutes from the polls.
-- [ ] Given those filled half-hours, when the fill has run, then their measured kWh, heating kWh, cost, source and computed_at are unchanged and their Heating Estimate stays empty.
-- [ ] Given 10 or more measured heating half-hours stored before the change, when the job first runs, then an estimated half-hour is priced at the Warm-up and Steady kW learned from them.
-- [ ] Given every stored half-hour already has early on-minutes, when the job runs, then the fill reads no thermostat polls.
+- [x] Given stored half-hours in the last 28 days without early on-minutes and their thermostat polls, when the job runs, then those half-hours get early on-minutes from the polls.
+- [x] Given those filled half-hours, when the fill has run, then their measured kWh, heating kWh, cost, source and computed_at are unchanged and their Heating Estimate stays empty.
+- [x] Given 10 or more measured heating half-hours stored before the change, when the job first runs, then an estimated half-hour is priced at the Warm-up and Steady kW learned from them.
+- [x] Given every stored half-hour already has early on-minutes, when the job runs, then the fill reads no thermostat polls.
 
 ---
