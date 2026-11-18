@@ -32,6 +32,8 @@ weather_observation  (hive-app) id, source, location, observed_at, temp, humidit
                                 sunshine_duration; unique (source, location, observed_at)
 weather_forecast     (hive-app) id, source, target_date, max_temp, mean_temp, fetched_at
                                 (one row per forecast day; mean_temp can be NULL)
+presence_period      (hive-app) id, state ('someone_home', 'no_one_home' or 'unknown'),
+                                started_at (UTC), ended_at (UTC; NULL while open), phones_seen
 consumption               (octopus) id, energy, period_from, period_to, raw_value, unit, est_kwh
 daily_consumption_summary (octopus) energy, date, total_kwh, half_hour_count
 agreement                 (octopus) id, energy, product_code, tariff_code, valid_from, valid_to
@@ -768,3 +770,20 @@ ORDER BY day;
 ```
 
 **Not yet checked against the Pi.** Checked once, read-only, on a throwaway copy of the database in the final dashboard review (never on the live MariaDB, which has a 512 MB limit). The tables are filled by octopus-app's hourly jobs, so no app deploy is needed; import the dashboard.
+
+### Presence (state timeline)
+
+The panel shows the last 7 days of Presence Periods as coloured bands in London time (the dashboard timezone): green for someone home, blue for no one home, grey for unknown. Each row is a period's start, clipped to the start of the window for a period that began earlier, and the open period gets a second row at now so its band runs to now. The 7-day window is fixed in the query; the panel's relative time of `7d` only sets the length of the axis. It reads only the small `presence_period` table, which gets a handful of rows a day.
+
+```sql
+SELECT GREATEST(started_at, UTC_TIMESTAMP() - INTERVAL 7 DAY) AS time, state AS state
+FROM presence_period
+WHERE COALESCE(ended_at, UTC_TIMESTAMP()) > UTC_TIMESTAMP() - INTERVAL 7 DAY
+UNION ALL
+SELECT UTC_TIMESTAMP() AS time, state AS state
+FROM presence_period
+WHERE ended_at IS NULL
+ORDER BY time;
+```
+
+**Measured 2026-11-18** on a throwaway MariaDB container with the live server's 512 MB cap and `memory.cnf` values, never on the live MariaDB. The table held 10,950 synthetic periods (six a day for five years, one open), far more than the real handful a day. The query returned the expected rows (the first clipped to the window start, the open period's second row at now), read 21,900 rows (two scans) and made no on-disk temporary table. The container's peak memory was 121 MB (the server's own start-up footprint; the query added about 2 MB), under the 512 MB cap. Deploy hive-app first if the table is missing (it already writes it), then import the dashboard.

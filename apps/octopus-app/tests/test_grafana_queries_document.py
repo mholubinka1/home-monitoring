@@ -66,3 +66,19 @@ def test_the_queries_document_lists_the_retired_tables_and_how_to_drop_them() ->
     retired = document[document.index("## Retired tables") :]
     assert "DROP TABLE heating_hour;" in retired
     assert "DROP TABLE room_forecast_hour;" in retired
+
+
+def test_the_presence_panels_query_is_the_one_in_the_queries_document() -> None:
+    target = _panel("Presence")["targets"][0]
+    document = QUERIES_DOCUMENT.read_text(encoding="utf-8")
+
+    assert target["rawSql"].strip() in document
+    assert "### Presence (state timeline)" in document
+
+
+def test_the_queries_document_lists_the_presence_period_table_in_its_schema() -> None:
+    document = QUERIES_DOCUMENT.read_text(encoding="utf-8")
+
+    schema = document[document.index("## Schema assumed") : document.index("---")]
+    assert "presence_period" in schema
+    assert "no_one_home" in schema

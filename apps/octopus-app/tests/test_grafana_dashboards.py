@@ -35,16 +35,18 @@ def test_panel_ids_are_unique_within_the_gas_heating_dashboard() -> None:
     assert len(set(ids)) == len(ids)
 
 
-def test_the_gas_heating_dashboard_has_only_charts_one_bar_gauge_and_one_table() -> (
+def test_the_gas_heating_dashboard_has_only_charts_one_bar_gauge_one_table_and_one_state_timeline() -> (
     None
 ):
     # House style: every panel is a chart. The billing-period predictor is a
-    # bar gauge and the schedule is a table, the two non-chart exceptions.
+    # bar gauge, the schedule is a table and the Presence Periods are a state
+    # timeline, the three non-chart exceptions.
     types = [p["type"] for p in _panels(_load(GAS_HEATING_DASHBOARD))]
 
-    assert set(types) <= {"timeseries", "bargauge", "table"}
+    assert set(types) <= {"timeseries", "bargauge", "table", "state-timeline"}
     assert types.count("bargauge") == 1
     assert types.count("table") == 1
+    assert types.count("state-timeline") == 1
 
 
 def test_the_schedule_table_reads_the_slots_of_the_local_day() -> None:

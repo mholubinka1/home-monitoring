@@ -2606,6 +2606,96 @@
       "timeFrom": "31d",
       "title": "Daily Cost: Schedules vs Actual",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "mysql",
+        "uid": "${DS_MYSQL}"
+      },
+      "description": "The last 7 days of Presence Periods in London time: green someone home, blue no one home, grey unknown. The open period runs to now.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "no_one_home": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "No one home"
+                },
+                "someone_home": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "Someone home"
+                },
+                "unknown": {
+                  "color": "gray",
+                  "index": 2,
+                  "text": "Unknown"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "dataset": "home_monitoring",
+          "datasource": {
+            "type": "mysql",
+            "uid": "${DS_MYSQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT GREATEST(started_at, UTC_TIMESTAMP() - INTERVAL 7 DAY) AS time, state AS state\nFROM presence_period\nWHERE COALESCE(ended_at, UTC_TIMESTAMP()) > UTC_TIMESTAMP() - INTERVAL 7 DAY\nUNION ALL\nSELECT UTC_TIMESTAMP() AS time, state AS state\nFROM presence_period\nWHERE ended_at IS NULL\nORDER BY time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "timeFrom": "7d",
+      "title": "Presence",
+      "type": "state-timeline"
     }
   ],
   "refresh": "5m",
