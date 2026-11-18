@@ -397,10 +397,15 @@ def _build_weather_retriever(
 def build_heating_retriever(
     source: HiveSource, mariadb: MariaDBClient, settings: HiveApplicationSettings
 ) -> HeatingRetriever:
-    """Heating control follows the presence section; without one it is off."""
+    """Presence control follows the presence section; without one it is off. The
+    Comfort Schedule follows its own setting, with or without presence."""
     control = settings.presence.control if settings.presence else "off"
     return HeatingRetriever(
-        source, mariadb, control, settings.comfort_schedule.away_temperature
+        source,
+        mariadb,
+        control,
+        settings.comfort_schedule.away_temperature,
+        comfort_control=settings.comfort_schedule.control,
     )
 
 

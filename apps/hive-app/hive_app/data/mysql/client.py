@@ -3,7 +3,20 @@ from datetime import UTC, date, datetime
 from logging import Logger, getLogger
 from typing import Any
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    and_,
+    func,
+    or_,
+)
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from common.config import MariaDBSettings
@@ -29,6 +42,37 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 # weather_location holds a single row at this fixed primary key.
 _WEATHER_LOCATION_ROW_ID = 1
+
+
+# room_forecast_slot is OCTOPUS-APP's table. hive-app only reads it, so it is
+# mirrored on a separate MetaData that hive-app's Schema Sync never sees (it
+# must not create or own the table). Column shapes mirror
+# apps/octopus-app/octopus_app/data/mysql/model.py by hand.
+octopus_metadata = MetaData()
+
+room_forecast_slot_table = Table(
+    "room_forecast_slot",
+    octopus_metadata,
+    Column("day", Date, primary_key=True),
+    Column("scenario", String(20), primary_key=True),
+    Column("position", Integer, primary_key=True),
+    Column("starts_at", DateTime, nullable=False),
+    Column("ends_at", DateTime, nullable=False),
+    Column("target", Float, nullable=False),
+    Column("computed_at", DateTime, nullable=False),
+    schema="octopus",
+)
+
+_PLAN_SCENARIO = "plan"
+
+
+def _is_missing_table_error(error: Exception) -> bool:
+    """MariaDB raises error 1146; SQLite (the test fixture) says "no such table"."""
+    orig = getattr(error, "orig", None)
+    if "no such table" in str(orig or error).lower():
+        return True
+    code = next(iter(getattr(orig, "args", None) or ()), None)
+    return code == 1146
 
 
 def _forecast_scoped_id(source: str, target_date: date) -> str:
@@ -245,6 +289,60 @@ class MariaDBClient(MariaDBClientBase):
                 .scalar()
             )
         return newest == sql_model.ACTION_AWAY_OVERRIDE
+
+    def read_plan_slots(
+        self, days: list[date]
+    ) -> list[tuple[date, datetime, datetime, float]]:
+        """The (day, starts_at, ends_at, target) of octopus-app's plan slots for
+        these days, by day then position. Its table, so a missing one reads as
+        no rows."""
+        slot = room_forecast_slot_table.c
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(slot.day, slot.starts_at, slot.ends_at, slot.target)
+                    .filter(slot.scenario == _PLAN_SCENARIO, slot.day.in_(days))
+                    .order_by(slot.day, slot.position)
+                    .all()
+                )
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return []
+        return [(r.day, r.starts_at, r.ends_at, r.target) for r in rows]
+
+    def read_latest_comfort_schedule_dry_run_fingerprint(self) -> str | None:
+        """The detail (the week's fingerprint) of the newest dry-run
+        comfort_schedule action, or None when there is none."""
+        action = sql_model.heating_control_action
+        with self.session_read_scope() as session:
+            return (
+                session.query(action.detail)
+                .filter(
+                    action.action == sql_model.ACTION_COMFORT_SCHEDULE,
+                    action.dry_run.is_(True),
+                )
+                .order_by(action.id.desc())
+                .limit(1)
+                .scalar()
+            )
+
+    def read_latest_not_verified_comfort_schedule_at(self) -> datetime | None:
+        """When the newest real comfort_schedule write was not verified (naive
+        UTC, as stored), or None when there is none."""
+        action = sql_model.heating_control_action
+        with self.session_read_scope() as session:
+            return (
+                session.query(action.acted_at)
+                .filter(
+                    action.action == sql_model.ACTION_COMFORT_SCHEDULE,
+                    action.dry_run.is_(False),
+                    action.outcome == sql_model.OUTCOME_NOT_VERIFIED,
+                )
+                .order_by(action.id.desc())
+                .limit(1)
+                .scalar()
+            )
 
     def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
         """The first non-blank line (at most 200 characters) of the error of the most
