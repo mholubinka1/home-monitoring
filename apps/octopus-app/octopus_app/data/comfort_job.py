@@ -2,6 +2,7 @@
 comfort (ADR-0034)."""
 
 import logging.config
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -16,6 +17,17 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 BOOST_WINDOW = timedelta(days=comfort.BOOST_WINDOW_DAYS)
 COUNTED_HOURS_WINDOW = timedelta(days=comfort.COUNTED_HOURS_WINDOW_DAYS)
+
+
+@dataclass(frozen=True)
+class _Evidence:
+    """What a run reads once and every day it writes draws on: the boost starts
+    and heated hours (naive UTC) before those days, and the no_one_home Presence
+    Periods during them."""
+
+    boost_starts: list[comfort.BoostStart]
+    heating_on_hours: list[datetime]
+    no_one_home: list[tuple[datetime, datetime | None]]
 
 
 class ComfortDayJob:
@@ -46,11 +58,18 @@ class ComfortDayJob:
         heating_on_hours = self._mariadb.read_heating_on_hours(
             evidence_start, evidence_end
         )
+        evidence = _Evidence(
+            boost_starts=boost_starts,
+            heating_on_hours=heating_on_hours,
+            no_one_home=self._mariadb.read_no_one_home_periods(
+                _day_start(first_day), _day_start(today + timedelta(days=1))
+            ),
+        )
         carried = self._mariadb.read_latest_comfort_temperature(first_day)
         rows = []
         day = first_day
         while day <= today:
-            row = self._comfort_day(day, boost_starts, heating_on_hours, carried, now)
+            row = self._comfort_day(day, evidence, carried, now)
             if row is not None:
                 rows.append(row)
                 carried = row.comfort_temp
@@ -73,8 +92,7 @@ class ComfortDayJob:
     def _comfort_day(
         self,
         day: date,
-        boost_starts: list[comfort.BoostStart],
-        heating_on_hours: list[datetime],
+        evidence: _Evidence,
         carried: float | None,
         now: datetime,
     ) -> ComfortDayRecord | None:
@@ -85,7 +103,7 @@ class ComfortDayJob:
         if not polls:
             return None
         days_with_heating = comfort.heating_days(
-            hour for hour in heating_on_hours if hour < day_start
+            hour for hour in evidence.heating_on_hours if hour < day_start
         )
         weighted_start_temps = [
             (
@@ -94,12 +112,12 @@ class ComfortDayJob:
                     days_with_heating, local_day.to_local_date(at), day
                 ),
             )
-            for at, room in boost_starts
+            for at, room in evidence.boost_starts
             if day_start - BOOST_WINDOW <= at < day_start
         ]
         hours = comfort.counted_hours(
             hour
-            for hour in heating_on_hours
+            for hour in evidence.heating_on_hours
             if day_start - COUNTED_HOURS_WINDOW <= hour < day_start
         )
         comfort_temp = comfort.comfort_temperature(weighted_start_temps, carried)
@@ -111,7 +129,9 @@ class ComfortDayJob:
             minutes_below=(
                 None
                 if comfort_temp is None
-                else comfort.minutes_below(polls, comfort_temp, hours)
+                else comfort.minutes_below(
+                    polls, comfort_temp, hours, evidence.no_one_home
+                )
             ),
             computed_at=now.replace(tzinfo=None),
         )

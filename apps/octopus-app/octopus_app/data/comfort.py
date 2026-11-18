@@ -86,13 +86,19 @@ def minutes_below(
     polls: Iterable[tuple[datetime, float | None]],
     comfort_temp: float,
     hours: Iterable[int],
+    no_one_home: list[tuple[datetime, datetime | None]],
 ) -> int:
     """The minutes of the (time, room temperature) polls in which the room was
-    below the comfort temperature during a counted hour."""
+    below the comfort temperature during a counted hour, leaving out polls inside
+    a (started_at, ended_at) no_one_home period; ended_at None is still open."""
     counted = set(hours)
     return POLL_MINUTES * sum(
         room is not None
         and room < comfort_temp
         and local_day.to_local_hour(polled_at) in counted
+        and not any(
+            started <= polled_at and (ended is None or polled_at < ended)
+            for started, ended in no_one_home
+        )
         for polled_at, room in polls
     )

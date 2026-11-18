@@ -124,6 +124,18 @@ heating_status_table = Table(
     schema="octopus",
 )
 
+# hive-app's presence_period, read the same way (see the comment above).
+presence_period_table = Table(
+    "presence_period",
+    weather_metadata,
+    Column("id", Integer, primary_key=True),
+    Column("state", String(20), nullable=False),
+    Column("started_at", DateTime, nullable=False),
+    Column("ended_at", DateTime, nullable=True),
+    Column("phones_seen", Integer, nullable=False),
+    schema="octopus",
+)
+
 # hive-app's weather_forecast_hour and heating_schedule, read the same way.
 weather_forecast_hour_table = Table(
     "weather_forecast_hour",
@@ -862,6 +874,31 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             where=(hs.c.polled_at >= start, hs.c.polled_at < end),
         )
         return [(row.polled_at, row.current_temp) for row in rows]
+
+    def read_no_one_home_periods(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, datetime | None]]:
+        """The (started_at, ended_at) of hive-app's no_one_home Presence Periods
+        overlapping [start, end) (naive UTC), oldest first; ended_at is None while
+        the period is open. A missing table reads as no periods."""
+        pp = presence_period_table
+        try:
+            with self.session_read_scope() as session:
+                rows = (
+                    session.query(pp.c.started_at, pp.c.ended_at)
+                    .filter(
+                        pp.c.state == "no_one_home",
+                        pp.c.started_at < end,
+                        or_(pp.c.ended_at.is_(None), pp.c.ended_at > start),
+                    )
+                    .order_by(pp.c.started_at)
+                    .all()
+                )
+                return [(row.started_at, row.ended_at) for row in rows]
+        except (OperationalError, ProgrammingError) as error:
+            if not _is_missing_table_error(error):
+                raise
+            return []
 
     def read_first_heating_poll(self) -> datetime | None:
         """The earliest thermostat poll (naive UTC), or None when there is none or

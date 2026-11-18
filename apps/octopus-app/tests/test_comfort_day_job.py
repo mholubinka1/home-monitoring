@@ -2,7 +2,11 @@ from datetime import UTC, date, datetime, timedelta
 
 from octopus_app.data.comfort_job import ComfortDayJob
 from octopus_app.data.mysql import model
-from octopus_app.data.mysql.client import MariaDBClient, heating_status_table
+from octopus_app.data.mysql.client import (
+    MariaDBClient,
+    heating_status_table,
+    presence_period_table,
+)
 
 TODAY = date(2026, 11, 12)  # London is on GMT, so local time is UTC
 NOW = datetime(2026, 11, 12, 20, 0, tzinfo=UTC)
@@ -445,3 +449,141 @@ def test_days_without_heating_do_not_age_a_boost(
 
     # Then all six weigh the same, and the plain median is 16.0
     assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0
+
+
+def _seed_presence_period(
+    client: MariaDBClient,
+    state: str,
+    started_at: datetime,
+    ended_at: datetime | None = None,
+) -> None:
+    """A Presence Period as hive-app stores it; ended_at None is the open one."""
+    with client.session_write_scope() as session:
+        session.execute(
+            presence_period_table.insert(),
+            {
+                "state": state,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "phones_seen": 0,
+            },
+        )
+
+
+def _seed_cold_evening(client: MariaDBClient, day: date = TODAY) -> None:
+    """A comfort temperature of 17.0, the 18:00 hour counted, and on `day` ten
+    polls at 16.5 C from 18:00 to 18:18."""
+    _seed_boosts_on_earlier_days(client, [16.0, 16.5, 17.0, 17.5, 20.0], before=day)
+    _seed_heating_hour(client, _at(day - timedelta(days=7)))
+    _seed_polls(client, _at(day), room=16.5, count=10)
+
+
+def test_minutes_while_no_one_is_home_are_left_out_of_minutes_below(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a cold evening, and no one home from 18:06 to 18:12
+    _seed_cold_evening(mariadb_client)
+    _seed_presence_period(
+        mariadb_client,
+        "no_one_home",
+        _at(TODAY, timedelta(hours=18, minutes=6)),
+        _at(TODAY, timedelta(hours=18, minutes=12)),
+    )
+
+    # When the Comfort Day is settled
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then the polls at 18:06, 18:08 and 18:10 add nothing: 7 polls, 14 minutes
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 14
+
+
+def test_an_open_no_one_home_period_leaves_out_every_minute_from_its_start(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a cold evening, and no one home since 18:10 and still
+    _seed_cold_evening(mariadb_client)
+    _seed_presence_period(
+        mariadb_client, "no_one_home", _at(TODAY, timedelta(hours=18, minutes=10))
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then only the five polls before 18:10 count
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 10
+
+
+def test_minutes_while_someone_is_home_or_presence_is_unknown_still_count(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a cold evening, someone home until 18:10 and presence unknown since
+    _seed_cold_evening(mariadb_client)
+    _seed_presence_period(
+        mariadb_client,
+        "someone_home",
+        _at(TODAY),
+        _at(TODAY, timedelta(hours=18, minutes=10)),
+    )
+    _seed_presence_period(
+        mariadb_client, "unknown", _at(TODAY, timedelta(hours=18, minutes=10))
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then all ten polls count
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 20
+
+
+def test_every_minute_counts_when_hive_apps_presence_table_does_not_exist(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a cold evening, and hive-app has never created presence_period
+    _seed_cold_evening(mariadb_client)
+    with mariadb_client.session_write_scope() as session:
+        presence_period_table.drop(session.connection())
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 20
+
+
+def test_a_day_settled_before_presence_rows_existed_is_unchanged(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday's cold evening was settled after midnight
+    yesterday = TODAY - timedelta(days=1)
+    _seed_cold_evening(mariadb_client, yesterday)
+    job = ComfortDayJob(mariadb_client)
+    settled_at = datetime(2026, 11, 12, 0, 30, tzinfo=UTC)
+    job.refresh(settled_at)
+
+    # When a no_one_home period covering that evening appears and the job runs
+    _seed_presence_period(
+        mariadb_client,
+        "no_one_home",
+        _at(yesterday),
+        _at(yesterday, timedelta(hours=19)),
+    )
+    job.refresh(NOW)
+
+    # Then yesterday is as it was settled
+    row = _comfort_days(mariadb_client)[yesterday]
+    assert row.computed_at == settled_at.replace(tzinfo=None)
+    assert row.minutes_below == 20
+
+
+def test_a_boost_started_while_no_one_is_home_still_counts_as_evidence(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given five boosts on earlier days, all while no one was home
+    _seed_presence_period(
+        mariadb_client, "no_one_home", _at(TODAY - timedelta(days=6)), _at(TODAY)
+    )
+    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then their Boost Starts still set today's comfort temperature
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.boost_starts == 5
+    assert today.comfort_temp == 17.0

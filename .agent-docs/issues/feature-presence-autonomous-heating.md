@@ -106,8 +106,8 @@ octopus-app declares and reads `presence_period`. ComfortDayJob stops counting b
 
 ### Acceptance criteria
 
-- [ ] Given the room below Comfort Temperature in Counted Hours, partly inside a `no_one_home` period, when the Comfort Day is settled, then only the minutes outside that period count.
-- [ ] Given a Comfort Day settled before any presence rows existed, when the job runs again, then that day is unchanged.
+- [x] Given the room below Comfort Temperature in Counted Hours, partly inside a `no_one_home` period, when the Comfort Day is settled, then only the minutes outside that period count.
+- [x] Given a Comfort Day settled before any presence rows existed, when the job runs again, then that day is unchanged.
 
 ---
 
