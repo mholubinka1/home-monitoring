@@ -111,7 +111,8 @@ class PresenceSettings(BaseModel):
 class ComfortScheduleSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Held while no one is home; the thermostat accepts 5-32 C in half degrees.
+    # The temperature outside the Comfort Window, and the one the Away Override
+    # holds while no one is home; the thermostat accepts 5-32 C in half degrees.
     away_temperature: float = Field(default=7.0, ge=5, le=32, multiple_of=0.5)
     control: Literal["off", "dry_run", "on"] = "off"
 

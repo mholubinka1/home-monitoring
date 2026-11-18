@@ -16,9 +16,11 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from hive_app.common.config import HiveApplicationSettings
 from hive_app.common.logging import APP_LOGGER_NAME
+from hive_app.data.comfort_schedule import WeekRuleError
 from hive_app.data.heating import HeatingRetriever
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql import model
@@ -362,6 +364,155 @@ def test_a_day_with_no_plan_slot_keeps_hives_entries(
         {"start": 340, "value": {"target": 19.0}},
         {"start": 385, "value": {"target": AWAY}},
     ]
+
+
+def test_a_refused_week_keeps_its_rule_in_the_log_and_the_stored_detail(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given Hive's write is refused for a rule (a day not starting at midnight)
+    _seed_todays_plan(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+    source.schedule_error = WeekRuleError("monday does not start at midnight")
+
+    # When the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then the rule is in the WARNING and in the stored failed action's detail, so
+    # the household can act on it
+    (action,) = _actions(mariadb_client)
+    assert (action.outcome, action.detail) == (
+        "failed",
+        "ValueError: monday does not start at midnight",
+    )
+    assert "monday does not start at midnight" in caplog.text
+
+
+def test_a_value_error_from_the_hive_session_is_stored_by_type_name_only(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given a ValueError that did not come from a write rule, whose message holds
+    # something that must not be stored (a library error can carry a URL or bytes)
+    _seed_todays_plan(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+    source.schedule_error = ValueError("https://secret.example/token=abc123")
+
+    # When the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then only the type name is stored and logged
+    (action,) = _actions(mariadb_client)
+    assert (action.outcome, action.detail) == ("failed", "ValueError")
+    assert "abc123" not in caplog.text
+
+
+def test_a_dry_run_records_a_refusal_once_and_logs_its_rule(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given Hive holds a Monday that does not start at midnight, which `on` would
+    # refuse, and a plan for today
+    _seed_todays_plan(mariadb_client)
+    week = _hives_week()
+    week["monday"][0]["start"] = 60
+    source = _FakeHiveSource(mariadb_client, _status(week))
+    retriever = _dry_run_retriever(mariadb_client, source)
+
+    # When two polls run in a dry run
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        retriever.refresh(NOW)
+        retriever.refresh(NOW)
+
+    # Then one failed dry-run action is stored, with the rule as its detail, and
+    # the rule is in a WARNING
+    (action,) = _actions(mariadb_client)
+    assert (action.outcome, action.dry_run, action.detail) == (
+        "failed",
+        True,
+        "ValueError: monday does not start at midnight",
+    )
+    assert "monday does not start at midnight" in caplog.text
+    assert not source.schedule_writes
+
+
+def test_a_missing_plan_table_means_no_plan_and_no_write(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given octopus-app has not created room_forecast_slot yet (nothing seeded)
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the plan is read and the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        slots = mariadb_client.read_plan_slots([TODAY, TOMORROW])
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then there are no plan slots, nothing is written, and it is not an error
+    assert slots == []
+    assert not source.schedule_writes
+    assert caplog.text == ""
+
+
+def test_a_day_with_no_plan_slot_is_logged_at_info(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given a plan slot for tomorrow (Thursday) only, so today has none
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TOMORROW,
+                "plan",
+                0,
+                datetime(2026, 11, 19, 5, 40),
+                datetime(2026, 11, 19, 6, 25),
+                19.0,
+            )
+        ],
+    )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then the day that kept Hive's entries is named in an INFO line
+    assert any(
+        record.levelno == logging.INFO and "wednesday" in record.getMessage().lower()
+        for record in caplog.records
+    )
+
+
+def test_a_database_error_in_the_comfort_schedule_does_not_stop_the_poll(
+    mariadb_client: MariaDBClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given the house is empty, so the Away Override is due, and both controls are
+    # on, but reading the plan fails with a database error
+    mariadb_client.change_presence_state(NO_ONE_HOME, 0, NOW - timedelta(minutes=40))
+
+    def _fails(_days: list[date]) -> list[Any]:
+        raise OperationalError("SELECT", {}, Exception("connection lost"))
+
+    monkeypatch.setattr(mariadb_client, "read_plan_slots", _fails)
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+    retriever = HeatingRetriever(
+        source,
+        mariadb_client,
+        control="on",
+        comfort_control="on",
+        away_temperature=AWAY,
+    )
+
+    # When the heating poll runs
+    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
+        retriever.refresh(NOW)
+
+    # Then nothing is raised (a raise would retry the job and store a second poll
+    # row), the Away Override still runs, and a WARNING names the error type only
+    assert source.calls == ["away_override"]
+    assert "OperationalError" in caplog.text
+    assert "connection lost" not in caplog.text
 
 
 def test_nothing_is_written_when_the_poll_could_not_read_hives_week(

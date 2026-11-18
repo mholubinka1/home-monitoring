@@ -186,9 +186,19 @@ def _a_start_that_is_not_a_whole_number(week: dict[str, Any]) -> None:
     week["monday"][2]["start"] = 385.5
 
 
+def _an_entry_without_a_value(week: dict[str, Any]) -> None:
+    del week["monday"][1]["value"]
+
+
+def _a_day_that_is_not_a_list(week: dict[str, Any]) -> None:
+    week["monday"] = "not a list of entries"
+
+
 @pytest.mark.parametrize(
     "break_it",
     [
+        _an_entry_without_a_value,
+        _a_day_that_is_not_a_list,
         _first_entry_not_at_midnight,
         _target_off_a_half_degree,
         _a_day_missing,

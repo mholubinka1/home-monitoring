@@ -201,13 +201,16 @@ once more after a few seconds if the first read differs, and stores the outcome 
 - `applied`: Hive stored exactly what was sent.
 - `not_verified`: Hive answered but kept something else. A WARNING is logged and
   nothing is written again for 60 minutes.
-- `failed`: the write raised (the exception type is stored, never its message). It is
-  retried at the next poll.
+- `failed`: the write raised. Only the exception type is stored, never its message,
+  except for a write-rule refusal (below), whose rule text is kept. It is retried at the
+  next poll.
 
 If a poll cannot read Hive's weekly schedule, nothing is written (the five untouched days
 come from it) and a WARNING is logged. A week that breaks a write rule (every weekday
 present, entries starting at 00:00, whole-minute starts, targets in half degrees) is
-refused before anything is sent and stored as `failed`. When Someone Is Home begins
+refused before anything is sent and stored as `failed`, with the rule in the log and in
+the action's `detail`; a `dry_run` records the same refusal once, so a bad week shows up
+before `on`. When Someone Is Home begins
 after an Away Override, the schedule is written before SCHEDULE is restored. Start
 with `dry_run` and compare its records with Hive's real week before setting `on`.
 

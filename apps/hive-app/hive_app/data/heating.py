@@ -11,7 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from common.local_day import to_local_date
 from hive_app.common.logging import APP_LOGGER_NAME, config
-from hive_app.data.comfort_schedule import build_week
+from hive_app.data.comfort_schedule import (
+    WeekRuleError,
+    build_week,
+    validate_week,
+)
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.mysql.model import (
@@ -31,6 +35,8 @@ logger: Logger = getLogger(APP_LOGGER_NAME)
 
 UNKNOWN_HOLD = timedelta(minutes=10)
 NOT_VERIFIED_BACKOFF = timedelta(minutes=60)
+# heating_control_action.detail is a String(255).
+DETAIL_MAX_LENGTH = 255
 
 CONTROL_OFF = "off"
 CONTROL_DRY_RUN = "dry_run"
@@ -230,6 +236,15 @@ def _fingerprint(week: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(week, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _failure_detail(error: Exception) -> str:
+    """What is stored and logged of a failed write: the type name only, as the
+    message may hold secrets. A WeekRuleError is a write-rule refusal, whose message
+    holds only a weekday and a rule, so it is kept."""
+    if isinstance(error, WeekRuleError):
+        return f"ValueError: {error}"[:DETAIL_MAX_LENGTH]
+    return type(error).__name__
+
+
 class ComfortScheduleControl:
     """Writes the Comfort Plan into Hive's weekly schedule after each poll: for
     real when control is `on`, or recorded only when it is `dry_run`."""
@@ -247,31 +262,61 @@ class ComfortScheduleControl:
         self._away_temperature = away_temperature
 
     def apply(self, now: datetime, status: HeatingStatus) -> None:
+        """Apply the Comfort Schedule. A database error is logged and not
+        raised: the heating status is already stored, and a raise would retry
+        the job, store a second row and stop presence control running."""
+        try:
+            self._apply(now, status)
+        except SQLAlchemyError as error:
+            logger.warning(
+                "Comfort Schedule skipped after a database error: %s",
+                type(error).__name__,
+            )
+
+    def _apply(self, now: datetime, status: HeatingStatus) -> None:
         if status.weekly_schedule is None:
             logger.warning(
                 "Comfort Schedule not written: this poll could not read Hive's "
                 "weekly schedule."
             )
             return
-        week = self._build_week(now, status.weekly_schedule)
+        week, kept_days = self._build_week(now, status.weekly_schedule)
         if week == status.weekly_schedule:
             return
         if self._dry_run:
-            self._record_dry_run(now, week)
+            self._record_dry_run(now, week, kept_days)
         elif not self._backed_off(now):
-            self._write_week(now, week)
+            self._write_week(now, week, kept_days)
 
-    def _build_week(self, now: datetime, hive_week: dict[str, Any]) -> dict[str, Any]:
+    def _build_week(
+        self, now: datetime, hive_week: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str]]:
         today = to_local_date(now)
         slots = self._mariadb.read_plan_slots([today, today + timedelta(days=1)])
         return build_week(hive_week, slots, today, self._away_temperature)
 
-    def _record_dry_run(self, now: datetime, week: dict[str, Any]) -> None:
-        """Store what would be written, once per distinct week."""
+    @staticmethod
+    def _log_kept_days(kept_days: list[str]) -> None:
+        for day in kept_days:
+            logger.info(
+                "Comfort Schedule: no plan slot for %s, keeping Hive's entries.", day
+            )
+
+    def _record_dry_run(
+        self, now: datetime, week: dict[str, Any], kept_days: list[str]
+    ) -> None:
+        """Store what would be written, once per distinct week. A week the write
+        would refuse is stored as `failed` with the rule, once per distinct rule."""
+        try:
+            validate_week(week)
+        except WeekRuleError as error:
+            self._record_dry_run_refusal(now, _failure_detail(error))
+            return
         fingerprint = _fingerprint(week)
         latest = self._mariadb.read_latest_comfort_schedule_dry_run_fingerprint()
         if fingerprint == latest:
             return
+        self._log_kept_days(kept_days)
         logger.info("Comfort Schedule would write: %s", week)
         self._mariadb.write_heating_control_action(
             now,
@@ -281,6 +326,20 @@ class ComfortScheduleControl:
             True,
             OUTCOME_DRY_RUN,
             fingerprint,
+        )
+
+    def _record_dry_run_refusal(self, now: datetime, refusal: str) -> None:
+        if refusal == self._mariadb.read_latest_comfort_schedule_dry_run_fingerprint():
+            return
+        logger.warning("Comfort Schedule would be refused: %s", refusal)
+        self._mariadb.write_heating_control_action(
+            now,
+            ACTION_COMFORT_SCHEDULE,
+            None,
+            None,
+            True,
+            OUTCOME_FAILED,
+            refusal,
         )
 
     def _backed_off(self, now: datetime) -> bool:
@@ -294,15 +353,17 @@ class ComfortScheduleControl:
             return True
         return False
 
-    def _write_week(self, now: datetime, week: dict[str, Any]) -> None:
+    def _write_week(
+        self, now: datetime, week: dict[str, Any], kept_days: list[str]
+    ) -> None:
         """Send the week and store its outcome; a failure is stored as `failed`
         with the exception type name only, and never raised out of the poll."""
+        self._log_kept_days(kept_days)
         detail = None
         try:
             outcome = self._client.write_comfort_schedule(week)
         except Exception as error:  # pylint: disable=broad-exception-caught
-            # Type name only: the message may hold secrets.
-            outcome, detail = OUTCOME_FAILED, type(error).__name__
+            outcome, detail = OUTCOME_FAILED, _failure_detail(error)
             logger.warning("Comfort Schedule write failed: %s", detail)
         if outcome == OUTCOME_NOT_VERIFIED:
             logger.warning(
