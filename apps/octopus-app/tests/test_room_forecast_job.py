@@ -155,6 +155,90 @@ def test_mode_off_forecasts_no_heating(client: MariaDBClient) -> None:
     assert rows[1].room_temp == pytest.approx(17.992, abs=1e-4)
 
 
+def test_manual_at_the_away_temperature_holds_it_over_a_schedule_that_asks_for_more(
+    client: MariaDBClient,
+) -> None:
+    # Given the newest poll is MANUAL at 7 C with no boost, though the schedule
+    # asks for 19 C on Tuesday
+    seed_reading(
+        client, NOW - timedelta(minutes=5), room=18.0, mode="MANUAL", target_temp=7.0
+    )
+    seed_schedule(client, weekly_schedule({"tuesday": 19.0}))
+    seed_weather_forecast(
+        client,
+        first=datetime(2026, 11, 17, 14),
+        last=datetime(2026, 11, 19, 0),
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
+
+    # Then the current scenario holds 7 C for the whole horizon: no row heats,
+    # and the room cools to 17.992 C at 14:10
+    rows = live_rows(client, "current")
+    assert {row.on_minutes for row in rows} == {0}
+    assert rows[1].room_temp == pytest.approx(17.992, abs=1e-4)
+
+
+def test_a_hand_set_manual_target_is_held_over_a_schedule_that_asks_for_less(
+    client: MariaDBClient,
+) -> None:
+    # Given the newest poll is MANUAL at 21 C set by hand, though the schedule
+    # asks for only 7 C all day
+    seed_reading(
+        client, NOW - timedelta(minutes=5), room=18.0, mode="MANUAL", target_temp=21.0
+    )
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client,
+        first=datetime(2026, 11, 17, 14),
+        last=datetime(2026, 11, 19, 0),
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
+
+    # Then the current scenario heats towards 21 C at once, and is still holding
+    # it at the end of tomorrow, when the 7 C schedule would have let it cool
+    rows = live_rows(client, "current")
+    assert rows[0].on_minutes > 0
+    assert rows[-1].room_temp == pytest.approx(21.0, abs=0.1)
+
+
+@pytest.mark.parametrize(
+    ("mode", "boost"),
+    [("SCHEDULE", False), ("MANUAL", True)],
+    ids=["schedule", "manual with a boost running"],
+)
+def test_schedule_mode_or_a_boost_still_follows_the_hive_schedule(
+    client: MariaDBClient, mode: str, boost: bool
+) -> None:
+    # Given the newest poll's stored target is 7 C, but its mode is SCHEDULE, or
+    # it is MANUAL with a boost running, and the schedule asks for 19 C on Tuesday
+    seed_reading(
+        client,
+        NOW - timedelta(minutes=5),
+        room=18.0,
+        mode=mode,
+        target_temp=7.0,
+        boost_active=boost,
+    )
+    seed_schedule(client, weekly_schedule({"tuesday": 19.0}))
+    seed_weather_forecast(
+        client,
+        first=datetime(2026, 11, 17, 14),
+        last=datetime(2026, 11, 19, 0),
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
+
+    # Then the current scenario follows the schedule: it heats towards 19 C, as
+    # it does with no stored target in play
+    rows = live_rows(client, "current")
+    assert sum(row.on_minutes for row in rows[:5]) == pytest.approx(45.4, abs=0.5)
+
+
 @pytest.mark.parametrize(
     "schedule",
     [None, {"monday": "not slots"}, {day: [{"start": "0"}] for day in DAYS}],

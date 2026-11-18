@@ -173,7 +173,7 @@ Example: a slot at 19 C from 05:40 to 06:25 and a warm-up delay of 14 minutes. G
 
 Example: the comfort temperature is 19.3 °C, so the plan aims for 19.5 °C, and the delay is 14 minutes. The room at 07:30 needs 42 minutes of arriving heat to reach 19.5 °C. Heat takes 14 minutes to arrive, so the plan switches on 42 plus 14 minutes before 07:30, at 06:34, and holds 19.5 °C from 07:30. With no delay it would have switched on 14 minutes later and the room would reach the target at the same time.
 
-**A known limit.** If Hive's mode is MANUAL (a temperature set by hand, held until changed), the schedule forecast still follows the programmed slots as though the mode were SCHEDULE, so it will not show the manual temperature. Only OFF is treated differently.
+**While Hive is in MANUAL.** If the newest poll is MANUAL (a temperature set by hand, or the Away Override, held until changed) with no boost running, this forecast holds that temperature for the whole forecast instead of following the programmed slots. A boost running, or SCHEDULE mode, follows the slots as before. Future absences are not predicted, and a Day-Ahead Forecast frozen while MANUAL keeps that assumption.
 
 Each 10-minute row is stored with its heating minutes and cost (the minutes times the boiler's learned kW, times the gas unit rate of section 10, read once for each hour). Rows carry their own start and end, so the panels judge a day complete by the minutes its rows cover, never by counting rows. The dashboard draws the two room lines dotted on the temperature chart, and a separate panel shows the minutes and cost of each, the backtest error, whether the model is trusted and the warm-up delay.
 

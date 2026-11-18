@@ -36,6 +36,7 @@ ONE_DAY = timedelta(days=1)
 CURRENT = "current"
 PLAN = "plan"
 OFF_MODE = "OFF"
+MANUAL_MODE = "MANUAL"
 MAX_READING_AGE = timedelta(minutes=30)
 STORED_MINUTES = 10  # one row per this many minutes
 STORED_SPAN = timedelta(minutes=STORED_MINUTES)
@@ -126,10 +127,10 @@ class RoomForecastJob:
                 lambda hour: self._mariadb.read_gas_unit_rate(self._region_code, hour)
             ),
         )
-        self._store_current(inputs, status[2] == OFF_MODE)
+        self._store_current(inputs, _held_target(status[2], status[3], status[4]))
         self._store_plan(inputs, local_day.to_local_date(now))
 
-    def _store_current(self, inputs: _Inputs, heating_off: bool) -> None:
+    def _store_current(self, inputs: _Inputs, held: float | None) -> None:
         schedule = room_forecast.parse_schedule(
             self._mariadb.read_latest_heating_schedule()
         )
@@ -149,10 +150,9 @@ class RoomForecastJob:
             inputs.start,
             inputs.weather,
             lambda local: (
-                # the thermostat will not heat
-                room_forecast.NO_TARGET
-                if heating_off
-                else room_forecast.schedule_target_at_step(schedule, local)
+                room_forecast.schedule_target_at_step(schedule, local)
+                if held is None
+                else held
             ),
         )
         self._store(CURRENT, inputs, planned)
@@ -344,6 +344,19 @@ class RoomForecastJob:
         return [
             float(STEP_MINUTES) if index in on_steps else 0.0 for index in range(count)
         ]
+
+
+def _held_target(
+    mode: str | None, target: float | None, boost_active: bool | None
+) -> float | None:
+    """The target the thermostat holds for the whole horizon, or None when it
+    follows the Hive schedule. OFF will not heat; MANUAL with no boost running
+    (the Away Override, or set by hand) holds its stored target."""
+    if mode == OFF_MODE:
+        return room_forecast.NO_TARGET
+    if mode == MANUAL_MODE and not boost_active:
+        return target
+    return None
 
 
 def _hours_with_weather(

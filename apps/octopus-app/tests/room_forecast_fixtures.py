@@ -86,8 +86,14 @@ def tuesday_slot_schedule() -> dict[str, Any]:
 
 
 def seed_reading(
-    client: MariaDBClient, at: datetime, room: float, mode: str = "SCHEDULE"
+    client: MariaDBClient,
+    at: datetime,
+    room: float,
+    mode: str = "SCHEDULE",
+    **poll: Any,
 ) -> None:
+    """One thermostat poll at `at`; `poll` overrides its other columns, such as
+    target_temp (7 C by default) or boost_active (False)."""
     with client.session_write_scope() as session:
         session.execute(
             heating_status_table.insert(),
@@ -99,6 +105,7 @@ def seed_reading(
                     "mode": mode,
                     "state": "OFF",
                     "boost_active": False,
+                    **poll,
                 }
             ],
         )

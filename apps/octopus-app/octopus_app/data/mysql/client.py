@@ -1080,14 +1080,21 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
 
     def read_latest_heating_status(
         self,
-    ) -> tuple[datetime, float | None, str | None] | None:
-        """The newest thermostat poll's (time, room temperature, mode), or None
-        when there is none or hive-app's table is missing."""
+    ) -> tuple[datetime, float | None, str | None, float | None, bool | None] | None:
+        """The newest thermostat poll's (time, room temperature, mode, target
+        temperature, boost active), or None when there is none or hive-app's
+        table is missing."""
         hs = heating_status_table
         try:
             with self.session_read_scope() as session:
                 row = (
-                    session.query(hs.c.polled_at, hs.c.current_temp, hs.c.mode)
+                    session.query(
+                        hs.c.polled_at,
+                        hs.c.current_temp,
+                        hs.c.mode,
+                        hs.c.target_temp,
+                        hs.c.boost_active,
+                    )
                     .order_by(hs.c.polled_at.desc(), hs.c.id.desc())
                     .first()
                 )
@@ -1095,7 +1102,17 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             if not _is_missing_table_error(error):
                 raise
             return None
-        return None if row is None else (row.polled_at, row.current_temp, row.mode)
+        return (
+            None
+            if row is None
+            else (
+                row.polled_at,
+                row.current_temp,
+                row.mode,
+                row.target_temp,
+                row.boost_active,
+            )
+        )
 
     def read_heating_on_hours(self, start: datetime, end: datetime) -> list[datetime]:
         """The starts (naive UTC) of the hours in [start, end) that contain a
