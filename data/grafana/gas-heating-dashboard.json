@@ -903,7 +903,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Gas cost of the heating in each completed half-hour, at that half-hour's gas unit rate (no standing charge). Heating is any half-hour the thermostat called for heat or a boost was on. 'Measured' half-hours use Octopus's half-hourly gas less a learned hot-water baseline; 'estimated' half-hours (the newest ~1.5 days, until the gas arrives) use the minutes on times the boiler's learned kW. A half-hour with too many missing Hive readings is left blank, not shown as zero.",
+      "description": "Gas cost of the heating in each completed half-hour, at that half-hour's gas unit rate (no standing charge). Heating is any half-hour the thermostat called for heat or a boost was on. 'Measured' half-hours use Octopus's half-hourly gas less a learned hot-water baseline; 'estimated' half-hours (the newest ~1.5 days, until the gas arrives) use the minutes on, priced at a learned warm-up kW for the first 20 minutes of each heating run and a steady kW after (a single learned kW when there is too little evidence to learn both). A half-hour with too many missing Hive readings is left blank, not shown as zero.",
       "fieldConfig": {
         "defaults": {
           "color": {

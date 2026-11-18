@@ -185,6 +185,7 @@ class HeatingIntervalRecord:  # pylint: disable=too-many-instance-attributes
     ends_at: datetime
     poll_count: int
     on_minutes: int
+    early_on_minutes: int | None
     measured_kwh: float | None
     heating_kwh: float | None
     source: str
