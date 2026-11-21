@@ -1,6 +1,7 @@
 """Recomputes the recent completed half-hours of heating and what each cost."""
 
 import logging.config
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
@@ -38,8 +39,11 @@ class HeatingIntervalJob:
             or local_day.to_local_date(resume_from.replace(tzinfo=UTC))
             >= window_first_day
         ):
-            self._recompute(now, self._day_start(window_first_day), end)
+            first_start = self._day_start(window_first_day)
+            self._fill_early_on_minutes(first_start)
+            self._recompute(now, first_start, end)
             return
+        self._fill_early_on_minutes(resume_from)
         # A local day at a time, so each learns only from the rows before it.
         logger.info(f"Heating intervals: backfilling from {resume_from} UTC to {end}.")
         start = resume_from
@@ -48,6 +52,38 @@ class HeatingIntervalJob:
             chunk_end = min(self._day_start(day + timedelta(days=1)), end)
             self._recompute(now, start, chunk_end)
             start = chunk_end
+
+    def _fill_early_on_minutes(self, first_start: datetime) -> None:
+        """Works out the early on-minutes of the Heating Intervals stored in the 28
+        days before the first window without them, from the thermostat polls kept
+        (so a Heating Run that began earlier is seen whole), and writes only that
+        column."""
+        missing = [
+            row.starts_at
+            for row in self._mariadb.read_heating_intervals(
+                first_start - timedelta(days=heating_intervals.BASELINE_DAYS),
+                first_start,
+            )
+            if row.early_on_minutes is None
+        ]
+        if not missing:
+            return
+        polls = self._mariadb.read_heating_polls(
+            missing[0] - heating_intervals.RUN_LOOKBACK,
+            missing[-1] + heating_intervals.INTERVAL,
+        )
+        on_minutes = heating_intervals.heating_on_minutes(polls)
+        filled = {
+            starts_at: on_minutes[starts_at][2]
+            for starts_at in missing
+            if starts_at in on_minutes
+        }
+        if not filled:
+            return
+        self._mariadb.write_early_on_minutes(filled)
+        logger.info(
+            f"Heating intervals: filled early on-minutes of {len(filled)} row(s)."
+        )
 
     def _resume_from(self) -> datetime | None:
         """Where a backfill starts (naive UTC): the end of the newest stored
@@ -67,9 +103,16 @@ class HeatingIntervalJob:
         return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
 
     def _recompute(self, now: datetime, start: datetime, end: datetime) -> None:
-        on_intervals = heating_intervals.heating_on_minutes(
-            self._mariadb.read_heating_polls(start, end)
-        )
+        # Polls from before the window, so a Heating Run that began earlier is seen whole.
+        on_intervals = {
+            interval: polls_on
+            for interval, polls_on in heating_intervals.heating_on_minutes(
+                self._mariadb.read_heating_polls(
+                    start - heating_intervals.RUN_LOOKBACK, end
+                )
+            ).items()
+            if interval >= start
+        }
         gas = self._measured_gas(start, end)
         earlier = self._mariadb.read_heating_intervals(
             end - timedelta(days=heating_intervals.BASELINE_DAYS), start
@@ -81,33 +124,56 @@ class HeatingIntervalJob:
             for interval, polls_on in sorted(on_intervals.items())
             if interval in gas
         ]
-        boiler_kw = self._boiler_kw(earlier, measured)
+        power, two_phase = self._boiler_power(earlier, measured)
+        stored = {
+            row.starts_at: row.estimated_heating_kwh
+            for row in self._mariadb.read_heating_intervals(start, end)
+            if row.estimated_heating_kwh is not None
+        }
+        measured = [
+            replace(
+                row,
+                estimated_heating_kwh=stored.get(
+                    row.starts_at,
+                    heating_intervals.estimated_cost(
+                        row.on_minutes, row.early_on_minutes or 0, None, power
+                    )[0],
+                ),
+            )
+            for row in measured
+        ]
         estimated = [
-            self._record(interval, polls_on, None, baselines, boiler_kw)
+            self._record(interval, polls_on, None, baselines, power)
             for interval, polls_on in sorted(on_intervals.items())
             if interval not in gas
         ]
         rows = sorted(measured + estimated, key=lambda row: row.starts_at)
         self._mariadb.replace_heating_intervals(start, end, rows)
+        learned = (
+            f"a Warm-up {power.warm_up_kw:.1f} kW and a Steady {power.steady_kw:.1f} kW"
+            if two_phase
+            else f"the single {power.steady_kw:.1f} kW"
+        )
         logger.info(
             f"Heating intervals: wrote {len(rows)} half-hour(s) "
-            f"({len(measured)} measured) from {start} to {end} UTC."
+            f"({len(measured)} measured) from {start} to {end} UTC, "
+            f"estimating at {learned}."
         )
 
     def _record(
         self,
         starts_at: datetime,
-        polls_on: tuple[int, int],
+        polls_on: tuple[int, int, int],
         measured: float | None,
         baselines: dict[int, float],
-        boiler_kw: float = heating_intervals.DEFAULT_BOILER_KW,
+        power: heating_intervals.BoilerPower = heating_intervals.DEFAULT_POWER,
     ) -> HeatingIntervalRecord:
-        poll_count, on_minutes = polls_on
+        poll_count, on_minutes, early_on_minutes = polls_on
         unit_rate = self._mariadb.read_gas_unit_rate(self._region_code, starts_at)
         if measured is None:
             source = heating_intervals.ESTIMATED
             kwh, cost = heating_intervals.estimated_cost(
-                on_minutes, unit_rate, boiler_kw
+                on_minutes, early_on_minutes, unit_rate, power
             )
         else:
             source = heating_intervals.MEASURED
@@ -124,26 +190,42 @@ class HeatingIntervalJob:
             ends_at=starts_at + heating_intervals.INTERVAL,
             poll_count=poll_count,
             on_minutes=on_minutes,
+            early_on_minutes=early_on_minutes,
             measured_kwh=measured,
             heating_kwh=kwh,
             source=source,
             unit_rate=unit_rate,
             cost_gbp=cost,
             computed_at=self._computed_at,
+            estimated_heating_kwh=kwh if measured is None else None,
         )
 
     @staticmethod
-    def _boiler_kw(
+    def _boiler_power(
         earlier: list[HeatingIntervalRecord], measured: list[HeatingIntervalRecord]
-    ) -> float:
-        """The boiler kW learned from the measured half-hours stored in the 28
-        days before the recompute window (`earlier`) plus those of the window
-        itself."""
-        return heating_intervals.learned_boiler_kw(
-            (row.on_minutes, row.heating_kwh or 0.0)
+    ) -> tuple[heating_intervals.BoilerPower, bool]:
+        """The boiler power to estimate with, and whether it was learned in two
+        phases. It is learned from the measured half-hours stored in the 28 days
+        before the recompute window (`earlier`) plus those of the window itself.
+        Returns (Warm-up kW and Steady kW, True) when they can be learned from the
+        half-hours that have early on-minutes; otherwise (the single learned kW for
+        both phases, from every measured half-hour, False)."""
+        rows = [
+            row
             for row in earlier + measured
             if row.source == heating_intervals.MEASURED
+        ]
+        learned = heating_intervals.learned_boiler_power(
+            (row.on_minutes, row.early_on_minutes, row.heating_kwh or 0.0)
+            for row in rows
+            if row.early_on_minutes is not None
         )
+        if learned is not None:
+            return learned, True
+        kw = heating_intervals.learned_boiler_kw(
+            (row.on_minutes, row.heating_kwh or 0.0) for row in rows
+        )
+        return heating_intervals.BoilerPower(kw, kw), False
 
     def _measured_gas(self, start: datetime, end: datetime) -> dict[datetime, float]:
         """The metered gas of the half-hours in [start, end). Read from the start
@@ -160,7 +242,7 @@ class HeatingIntervalJob:
     @staticmethod
     def _baselines(
         earlier: list[HeatingIntervalRecord],
-        on_intervals: dict[datetime, tuple[int, int]],
+        on_intervals: dict[datetime, tuple[int, int, int]],
         gas: dict[datetime, float],
     ) -> dict[int, float]:
         """Hot-water baselines from the heating-off half-hours stored in the 28
@@ -176,7 +258,7 @@ class HeatingIntervalJob:
             ]
             + [
                 (start, gas[start])
-                for start, (_, on_minutes) in on_intervals.items()
+                for start, (_, on_minutes, _) in on_intervals.items()
                 if on_minutes == 0 and start in gas
             ]
         )

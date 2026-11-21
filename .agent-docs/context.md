@@ -211,7 +211,23 @@ _Avoid_: boost cost (boost is only one way heating comes on), heating hour (the 
 The typical gas used in a half-hour of the day with no heating on, learned from the last 28 days and subtracted from measured gas in heating half-hours.
 
 **Effective Boiler kW**:
-The gas the boiler draws per hour of heating-on time, learned from measured Heating Intervals and used to estimate those without measured gas.
+The gas the boiler draws per hour of heating-on time, averaged over a whole Heating Run, learned from measured Heating Intervals. It prices the room forecast, and Heating Intervals when Warm-up and Steady kW have too little evidence.
+
+**Heating Run**:
+An unbroken stretch of thermostat demand. A single missed or OFF poll inside it does not end it.
+_Avoid_: heating period, burn
+
+**Warm-up kW**:
+The gas the boiler draws per hour in the first 20 minutes of a Heating Run, while the radiator water is still cold, learned from measured Heating Intervals.
+_Avoid_: start kW, peak kW
+
+**Steady kW**:
+The gas the boiler draws per hour after a Heating Run's first 20 minutes, once the boiler has turned itself down, learned alongside Warm-up kW.
+_Avoid_: late kW, modulated kW
+
+**Heating Estimate**:
+The heating kWh that Warm-up and Steady kW (or the Effective Boiler kW) give a Heating Interval. It is kept, frozen at its last value, once measured gas arrives, so estimate and actual can be compared.
+_Avoid_: estimated kWh (that is metered gas converted to kWh)
 
 ### Thermal Model and Comfort
 

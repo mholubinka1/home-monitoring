@@ -18,8 +18,10 @@ from sqlalchemy import (
     String,
     Table,
     and_,
+    bindparam,
     func,
     or_,
+    update,
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
@@ -971,6 +973,30 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 session.add_all(hi(**_values_of(row)) for row in rows)
         except Exception as e:
             logger.error(f"Failed to replace heating intervals: {e}")
+            raise MariaDBError(e) from e
+
+    def write_early_on_minutes(self, early_on_minutes: dict[datetime, int]) -> None:
+        """Sets early_on_minutes, and nothing else, on the stored Heating Interval
+        rows by starts_at (naive UTC)."""
+        if not early_on_minutes:
+            return
+        hi = model.heating_interval
+        statement = (
+            update(hi.__table__)
+            .where(hi.__table__.c.starts_at == bindparam("row_starts_at"))
+            .values(early_on_minutes=bindparam("row_early"))
+        )
+        try:
+            with self.session_write_scope() as session:
+                session.execute(
+                    statement,
+                    [
+                        {"row_starts_at": starts_at, "row_early": early}
+                        for starts_at, early in early_on_minutes.items()
+                    ],
+                )
+        except Exception as e:
+            logger.error(f"Failed to write early on-minutes: {e}")
             raise MariaDBError(e) from e
 
     def replace_room_forecast(
