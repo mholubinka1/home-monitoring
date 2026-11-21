@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: bugfix-comfort-schedule-allow-no-midnight-entry
 
 ## Comfort Schedule writes days with no 00:00 entry
