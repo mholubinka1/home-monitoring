@@ -75,7 +75,7 @@ def build_week(
         for _, starts_at, ends_at, target in slots:
             entries.append(_entry(_london_minutes(starts_at), target))
             end = _london_minutes(ends_at, round_up=True)
-            # Hive has no midnight end, so a slot ending at midnight closes at 23:59.
+            # A start must be 0-1439, so a slot ending at midnight closes at 23:59.
             close = end % MINUTES_IN_DAY or MINUTES_IN_DAY - 1
             entries.append(_entry(close, away_temperature))
         week[WEEKDAYS[day.weekday()]] = entries
