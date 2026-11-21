@@ -117,6 +117,35 @@ def test_the_whole_week_is_posted_to_the_heating_node_and_read_back(
     assert outcome == "applied"
 
 
+def test_a_week_whose_days_have_no_midnight_entry_is_sent_and_verified(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a week shaped like Hive's own, with no entry at 00:00 on any day (the
+    # night carries on at the previous day's last setting), which Hive stores as sent
+    week = {
+        day: [
+            {"start": 340, "value": {"target": 19.0}},
+            {"start": 385, "value": {"target": 7.0}},
+        ]
+        for day in _DAYS
+    }
+    source, hive = _source(
+        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [week]
+    )
+
+    # When the week is written
+    outcome = source.write_comfort_schedule(week)
+
+    # Then it is posted as it is and the read-back matched
+    assert len(hive.posts) == 1
+    _, _, kwargs = hive.posts[0]
+    assert json.loads(kwargs["data"]) == {"schedule": week}
+    assert outcome == "applied"
+
+
 def test_a_read_back_that_differs_at_first_but_matches_on_a_second_read_is_applied(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
@@ -158,10 +187,6 @@ def test_a_week_that_never_reads_back_as_sent_is_not_verified(
     assert outcome == "not_verified"
 
 
-def _first_entry_not_at_midnight(week: dict[str, Any]) -> None:
-    week["monday"][0]["start"] = 60
-
-
 def _target_off_a_half_degree(week: dict[str, Any]) -> None:
     week["monday"][1]["value"]["target"] = 19.3
 
@@ -199,7 +224,6 @@ def _a_day_that_is_not_a_list(week: dict[str, Any]) -> None:
     [
         _an_entry_without_a_value,
         _a_day_that_is_not_a_list,
-        _first_entry_not_at_midnight,
         _target_off_a_half_degree,
         _a_day_missing,
         _an_empty_day,

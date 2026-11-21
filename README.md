@@ -183,11 +183,13 @@ late. Lengthen `away_delay_minutes` if that bites.
 The Comfort Schedule writes the Comfort Plan into Hive's weekly schedule, so the
 household no longer maintains one by hand. At each heating poll, hive-app builds the
 week from the schedule it just read: today's and tomorrow's weekdays are replaced from
-the newest plan slots (the Away Temperature at 00:00, the Comfort Temperature from the
-slot's start to its end, then the Away Temperature again), and the other five weekdays
-keep whatever was last written. A start rounds earlier and an end later to a whole
-minute, so the Comfort Window is never shortened. A slot that starts at midnight
-replaces the leading Away entry. A day with no plan slot keeps its entries, and so does
+the newest plan slots (the Comfort Temperature from the slot's start, then the Away
+Temperature from its end), and the other five weekdays keep whatever was last written.
+Like Hive's own days, a written day has no entry at 00:00: before a day's first entry,
+Hive holds the previous day's last setting. A start rounds earlier and an end later to a
+whole minute, so the Comfort Window is never shortened, except that a slot ending at
+midnight closes with the Away Temperature at 23:59, so its Comfort Temperature never
+runs on through the night into the next day. A day with no plan slot keeps its entries, and so does
 a day whose slot does not lie within it (a comfort window opening just after midnight
 with pre-heat from the evening before, or running past midnight): that case is logged
 as a WARNING on a poll that writes or records the week (so if nothing else changes the
@@ -213,7 +215,7 @@ once more after a few seconds if the first read differs, and stores the outcome 
 
 If a poll cannot read Hive's weekly schedule, nothing is written (the five untouched days
 come from it) and a WARNING is logged. A week that breaks a write rule (every weekday
-present, entries starting at 00:00, whole-minute starts, targets in half degrees) is
+present, no empty day, distinct whole-minute starts, targets in half degrees) is
 refused before anything is sent and stored as `failed`, with the rule in the log and in
 the action's `detail`; a `dry_run` records the same refusal once, so a bad week shows up
 before `on`. When Someone Is Home begins after an Away Override, the schedule is
