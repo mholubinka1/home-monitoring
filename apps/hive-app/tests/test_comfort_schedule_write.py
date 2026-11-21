@@ -83,10 +83,11 @@ class _FakeHiveSource:
 
 
 def _hives_week() -> dict[str, Any]:
-    """The week Hive holds: 06:30 to 07:15 at 18 C, 7 C otherwise, every day."""
+    """The week Hive holds: 06:30 to 07:15 at 18 C, 7 C otherwise, every day. Like
+    Hive's own week, no day has an entry at 00:00: the night carries on at the
+    previous day's last setting."""
     return {
         day: [
-            {"start": 0, "value": {"target": 7}},
             {"start": 390, "value": {"target": 18}},
             {"start": 435, "value": {"target": 7}},
         ]
@@ -244,12 +245,11 @@ def test_a_plan_slot_replaces_its_day_and_the_whole_week_is_written(
     # When the heating poll runs
     retriever.refresh(NOW)
 
-    # Then all seven days are posted with today's replaced: the Away Temperature
-    # at 00:00 (minute 0), 19 C from 05:40 (minute 340), the Away Temperature again
-    # from 06:25 (minute 385); the other days are as Hive holds them
+    # Then all seven days are posted with today's replaced, as Hive writes its own
+    # days: 19 C from 05:40 (minute 340) and the Away Temperature from 06:25
+    # (minute 385), with no entry at 00:00; the other days are as Hive holds them
     expected = _hives_week()
     expected["wednesday"] = [
-        {"start": 0, "value": {"target": AWAY}},
         {"start": 340, "value": {"target": 19.0}},
         {"start": 385, "value": {"target": AWAY}},
     ]
@@ -272,8 +272,7 @@ def _retriever(mariadb: MariaDBClient, source: _FakeHiveSource) -> HeatingRetrie
 def test_nothing_is_written_when_the_built_week_equals_hives(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given Hive already holds today's plan: Away from 00:00, 19 C from 05:40, Away
-    # from 06:25
+    # Given Hive already holds today's plan: 19 C from 05:40, Away from 06:25
     _seed_plan_slots(
         mariadb_client,
         [
@@ -289,7 +288,6 @@ def test_nothing_is_written_when_the_built_week_equals_hives(
     )
     week = _hives_week()
     week["wednesday"] = [
-        {"start": 0, "value": {"target": 7}},
         {"start": 340, "value": {"target": 19}},
         {"start": 385, "value": {"target": 7}},
     ]
@@ -303,7 +301,7 @@ def test_nothing_is_written_when_the_built_week_equals_hives(
     assert not _actions(mariadb_client)
 
 
-def test_a_plan_slot_ending_at_midnight_leaves_its_day_with_no_closing_entry(
+def test_a_plan_slot_ending_at_midnight_closes_with_the_away_temperature_at_2359(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given today's plan slot runs from 17:00 to midnight at 19 C
@@ -325,16 +323,17 @@ def test_a_plan_slot_ending_at_midnight_leaves_its_day_with_no_closing_entry(
     # When the heating poll runs
     _retriever(mariadb_client, source).refresh(NOW)
 
-    # Then Wednesday is Away from 00:00 and 19 C from 17:00 (minute 1020), with
-    # nothing after it
+    # Then Wednesday is 19 C from 17:00 (minute 1020) and the Away Temperature from
+    # 23:59 (minute 1439), so 19 C never runs on into Thursday's night (Hive holds a
+    # day's last setting until the next day's first entry)
     written = _only(source.schedule_writes)
     assert written["wednesday"] == [
-        {"start": 0, "value": {"target": AWAY}},
         {"start": 1020, "value": {"target": 19.0}},
+        {"start": 1439, "value": {"target": AWAY}},
     ]
 
 
-def test_a_slot_starting_at_midnight_replaces_the_leading_away_entry(
+def test_a_slot_starting_at_midnight_is_its_days_only_entry_at_minute_0(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given today's plan slot runs from 00:00 to 06:25 at 19 C
@@ -356,8 +355,8 @@ def test_a_slot_starting_at_midnight_replaces_the_leading_away_entry(
     # When the heating poll runs
     _retriever(mariadb_client, source).refresh(NOW)
 
-    # Then Wednesday starts at 19 C at minute 0, with no second entry at minute 0,
-    # and the Away Temperature from 06:25 (minute 385)
+    # Then Wednesday's first entry is 19 C at minute 0, with no other entry at
+    # minute 0, and the Away Temperature from 06:25 (minute 385)
     written = _only(source.schedule_writes)
     assert written["wednesday"] == [
         {"start": 0, "value": {"target": 19.0}},
@@ -402,7 +401,7 @@ def test_a_slot_that_does_not_lie_within_its_day_is_not_written_and_is_warned_of
     # day), Thursday is replaced, and a WARNING names Wednesday
     written = _only(source.schedule_writes)
     assert written["wednesday"] == _hives_week()["wednesday"]
-    assert written["thursday"][1] == {"start": 340, "value": {"target": 19.0}}
+    assert written["thursday"][0] == {"start": 340, "value": {"target": 19.0}}
     assert any(
         record.levelno == logging.WARNING and "wednesday" in record.getMessage().lower()
         for record in caplog.records
@@ -477,7 +476,6 @@ def test_a_day_with_no_plan_slot_keeps_hives_entries(
     written = _only(source.schedule_writes)
     assert written["wednesday"] == _hives_week()["wednesday"]
     assert written["thursday"] == [
-        {"start": 0, "value": {"target": AWAY}},
         {"start": 340, "value": {"target": 19.0}},
         {"start": 385, "value": {"target": AWAY}},
     ]
@@ -486,10 +484,12 @@ def test_a_day_with_no_plan_slot_keeps_hives_entries(
 def test_a_refused_week_keeps_its_rule_in_the_log_and_the_stored_detail(
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Given Hive's write is refused for a rule (a day not starting at midnight)
+    # Given Hive's write is refused for a rule (a target off a half degree)
     _seed_todays_plan(mariadb_client)
     source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
-    source.schedule_error = WeekRuleError("monday does not start at midnight")
+    source.schedule_error = WeekRuleError(
+        "monday has a target that is not in half degrees"
+    )
 
     # When the heating poll runs
     with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
@@ -500,9 +500,9 @@ def test_a_refused_week_keeps_its_rule_in_the_log_and_the_stored_detail(
     (action,) = _actions(mariadb_client)
     assert (action.outcome, action.detail) == (
         "failed",
-        "ValueError: monday does not start at midnight",
+        "ValueError: monday has a target that is not in half degrees",
     )
-    assert "monday does not start at midnight" in caplog.text
+    assert "monday has a target that is not in half degrees" in caplog.text
 
 
 def test_a_value_error_from_the_hive_session_is_stored_by_type_name_only(
@@ -527,11 +527,11 @@ def test_a_value_error_from_the_hive_session_is_stored_by_type_name_only(
 def test_a_dry_run_records_a_refusal_once_and_logs_its_rule(
     mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Given Hive holds a Monday that does not start at midnight, which `on` would
+    # Given Hive holds a Monday with a target off a half degree, which `on` would
     # refuse, and a plan for today
     _seed_todays_plan(mariadb_client)
     week = _hives_week()
-    week["monday"][0]["start"] = 60
+    week["monday"][0]["value"]["target"] = 18.3
     source = _FakeHiveSource(mariadb_client, _status(week))
     retriever = _dry_run_retriever(mariadb_client, source)
 
@@ -546,9 +546,9 @@ def test_a_dry_run_records_a_refusal_once_and_logs_its_rule(
     assert (action.outcome, action.dry_run, action.detail) == (
         "failed",
         True,
-        "ValueError: monday does not start at midnight",
+        "ValueError: monday has a target that is not in half degrees",
     )
-    assert "monday does not start at midnight" in caplog.text
+    assert "monday has a target that is not in half degrees" in caplog.text
     assert not source.schedule_writes
 
 
@@ -778,7 +778,6 @@ def test_plan_instants_are_converted_at_their_own_london_offset(
     # Then the day's entries are the London clock minutes: 05:40 (340), 06:25 (385)
     written = _only(source.schedule_writes)
     assert written[weekday] == [
-        {"start": 0, "value": {"target": AWAY}},
         {"start": 340, "value": {"target": 19.0}},
         {"start": 385, "value": {"target": AWAY}},
     ]
@@ -810,7 +809,7 @@ def test_a_start_rounds_earlier_and_an_end_rounds_later_to_whole_minutes(
     # Then the start is 05:40 (minute 340, earlier) and the end 06:25 (385, later),
     # so the Comfort Window is never shortened
     written = _only(source.schedule_writes)
-    assert [entry["start"] for entry in written["wednesday"]] == [0, 340, 385]
+    assert [entry["start"] for entry in written["wednesday"]] == [340, 385]
 
 
 _BASE_CONFIG: dict[str, Any] = {

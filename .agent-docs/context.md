@@ -258,7 +258,7 @@ The least heating that keeps the room at the Comfort Temperature (rounded up to 
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Schedule**:
-The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close, the Away Temperature at all other times. It replaces the household's hand-set schedule.
+The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at midnight), then the Away Temperature. Like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
 _Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
