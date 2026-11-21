@@ -85,9 +85,11 @@ one. The Comfort Window loses only its final minute.
   (`test_comfort_schedule_hive_write.py`): "first entry not at midnight" leaves the
   parametrised list of refused weeks, and a week whose days have no 00:00 entry is sent
   and verified.
-- Prior art: the #808 tests in those two files, and the dry-run refusal tests that use
-  "monday does not start at midnight" only as a sample message from a faked
-  `WeekRuleError` (they keep working because the message is faked, not produced).
+- Prior art: the #808 tests in those two files. Two refusal tests use "monday does not
+  start at midnight" as their sample rule. The `on` one fakes the `WeekRuleError`, and
+  the dry-run one gets it from the real `validate_week` via a Monday starting at minute
+  60. Both switch to a rule that still exists (a target off a half degree), and the
+  dry-run one breaks its Monday that way.
 
 ## Out of Scope
 

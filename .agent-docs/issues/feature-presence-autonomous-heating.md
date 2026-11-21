@@ -185,11 +185,11 @@ A `comfort_schedule.control` setting (`off`, `dry_run` or `on`, default off), wo
 
 ### Acceptance criteria
 
-- [x] Given `comfort_schedule: on` and plan slots for today and tomorrow, when the heating poll runs and the built week differs from Hive's, then all seven days are posted with today and tomorrow replaced (Away Temperature at 00:00, Comfort Temperature from the rounded-earlier start, Away Temperature from the rounded-later end).
+- [x] Given `comfort_schedule: on` and plan slots for today and tomorrow, when the heating poll runs and the built week differs from Hive's, then all seven days are posted with today and tomorrow replaced (Away Temperature at 00:00, Comfort Temperature from the rounded-earlier start, Away Temperature from the rounded-later end). *Superseded by #823: no Away entry is written at 00:00.*
 - [x] Given the built week equals Hive's, when the heating poll runs, then nothing is written.
-- [x] Given a plan slot ending at midnight, when the week is built, then that day has no closing entry.
+- [x] Given a plan slot ending at midnight, when the week is built, then that day has no closing entry. *Superseded by #823: it closes with the Away Temperature at 23:59.*
 - [x] Given a day with no plan slot, when the week is built, then that day's entries are unchanged.
-- [x] Given a plan slot starting at local midnight, when the week is built, then it replaces the leading Away entry, with no second entry at minute 0.
+- [x] Given a plan slot starting at local midnight, when the week is built, then it replaces the leading Away entry, with no second entry at minute 0. *Superseded by #823: there is no leading Away entry; the slot is the day's first entry.*
 - [x] Given a plan slot that does not lie within its local day (it starts before the day's midnight or ends after the next one), when the heating poll writes or records the week, then that day keeps Hive's entries and a WARNING names the weekday.
 - [x] Given the override is in force and Someone Is Home begins, when the heating poll runs, then the Comfort Schedule is written before SCHEDULE is restored.
 - [x] Given Hive answers 200 but the read-back differs, when the write completes, then a `not_verified` action is stored, a WARNING is logged, and the polls of the next 60 minutes write nothing.
