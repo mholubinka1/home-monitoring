@@ -7,6 +7,7 @@ test client, with a fake notifier recording what would be sent."""
 
 from datetime import UTC, datetime, time, timedelta
 
+import pytest
 import responses
 
 from hive_app.common.config import QuietHours
@@ -235,3 +236,30 @@ def test_an_alert_names_both_reasons_when_hive_is_offline_and_off(
 
     # Then the alert names both reasons
     assert notifier.sent == [("unreachable", timedelta(minutes=31), "offline and OFF")]
+
+
+def test_a_reachable_poll_stored_mid_check_does_not_re_alert_the_ended_spell(
+    mariadb_client: MariaDBClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given an alert was sent for a spell offline since 31 minutes ago
+    _store_polls(mariadb_client, NOW - timedelta(hours=1), NOW - timedelta(minutes=33))
+    _store_polls(mariadb_client, NOW - timedelta(minutes=31), NOW, online=False)
+    notifier = FakeNotifier()
+    watchdog = HeatingWatchdog(mariadb_client, notifier)
+    watchdog.check(NOW)
+
+    # When, during the next check, the heating poll stores a reachable row just
+    # after the watchdog read the spell
+    back = NOW + timedelta(minutes=2)
+    read_spell = mariadb_client.read_unreachable_spell
+
+    def read_then_poll_lands(since: datetime) -> tuple[datetime, str] | None:
+        spell = read_spell(since)
+        _store_polls(mariadb_client, back, back)
+        return spell
+
+    monkeypatch.setattr(mariadb_client, "read_unreachable_spell", read_then_poll_lands)
+    watchdog.check(back)
+
+    # Then the ended spell is not alerted again
+    assert [kind for kind, _, _ in notifier.sent].count("unreachable") == 1

@@ -40,9 +40,11 @@ class HeatingWatchdog:
     def check(self, now: datetime) -> None:
         if is_quiet(self._quiet_hours, now):
             return
-        spell = self._mariadb.read_unreachable_spell(now - SPELL_WINDOW)
+        # Recovery first, then the spell: a poll stored between the two reads
+        # must not leave a stale spell to re-alert the outage that just ended.
         if not self._announce_reachable(now):
             return
+        spell = self._mariadb.read_unreachable_spell(now - SPELL_WINDOW)
         if spell is None:
             return
         started_at, reason = spell
