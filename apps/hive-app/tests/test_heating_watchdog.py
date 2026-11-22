@@ -36,7 +36,7 @@ def _store_polls(  # pylint: disable=too-many-arguments
     last: datetime,
     *,
     online: bool | None = True,
-    mode: str = "SCHEDULE",
+    mode: str | None = "SCHEDULE",
     step: timedelta = timedelta(minutes=2),
 ) -> None:
     """One stored poll every `step` (2 minutes) from first to last, inclusive."""
@@ -47,7 +47,8 @@ def _store_polls(  # pylint: disable=too-many-arguments
                 polled_at=polled_at,
                 current_temp=18.0,
                 target_temp=10.0,
-                mode=mode,
+                # apyhiveapi's getMode returns None when the key is missing.
+                mode=mode,  # type: ignore[arg-type]
                 state="OFF",
                 boost_active=False,
                 boost_ends_at=None,
@@ -198,3 +199,39 @@ def test_the_unreachable_alert_is_posted_to_ntfy_with_its_reason_and_age(
     body = request.body.decode("utf-8")
     assert "offline" in body
     assert "31 minutes" in body
+
+
+def test_a_poll_with_no_mode_and_online_ends_the_spell(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given an alert was sent for a spell offline since 31 minutes ago
+    _store_polls(mariadb_client, NOW - timedelta(hours=1), NOW - timedelta(minutes=33))
+    _store_polls(mariadb_client, NOW - timedelta(minutes=31), NOW, online=False)
+    notifier = FakeNotifier()
+    watchdog = HeatingWatchdog(mariadb_client, notifier)
+    watchdog.check(NOW)
+
+    # When a poll is stored online but with no mode (the library reported none)
+    back = NOW + timedelta(minutes=2)
+    _store_polls(mariadb_client, back, back, online=True, mode=None)
+    watchdog.check(back)
+
+    # Then the spell has ended: one reachable notice, 33 minutes long
+    assert notifier.sent[1:] == [("reachable", timedelta(minutes=33), "")]
+
+
+def test_an_alert_names_both_reasons_when_hive_is_offline_and_off(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given polls offline and in mode OFF for the last 31 minutes
+    _store_polls(mariadb_client, NOW - timedelta(hours=1), NOW - timedelta(minutes=33))
+    _store_polls(
+        mariadb_client, NOW - timedelta(minutes=31), NOW, online=False, mode="OFF"
+    )
+    notifier = FakeNotifier()
+
+    # When the watchdog checks
+    HeatingWatchdog(mariadb_client, notifier).check(NOW)
+
+    # Then the alert names both reasons
+    assert notifier.sent == [("unreachable", timedelta(minutes=31), "offline and OFF")]

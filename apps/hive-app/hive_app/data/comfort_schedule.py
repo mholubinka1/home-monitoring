@@ -134,15 +134,21 @@ def validate_week(week: dict[str, Any]) -> None:
 def fingerprint_week(week: dict[str, Any]) -> str:
     """A stable SHA-256 hex digest of a week, to tell one from another: entries
     sorted by start and targets as floats, so equal weeks match however Hive
-    orders or types them."""
-    normalised = {
-        day: [
-            {
-                "start": entry["start"],
-                "value": {"target": float(entry["value"]["target"])},
-            }
-            for entry in sorted(entries, key=lambda entry: entry["start"])
-        ]
-        for day, entries in week.items()
-    }
-    return hashlib.sha256(json.dumps(normalised, sort_keys=True).encode()).hexdigest()
+    orders or types them. A malformed week (as Hive could return) is hashed as
+    it is, so it never matches a well-formed one and never raises."""
+    try:
+        normalised: Any = {
+            day: [
+                {
+                    "start": entry["start"],
+                    "value": {"target": float(entry["value"]["target"])},
+                }
+                for entry in sorted(entries, key=lambda entry: entry["start"])
+            ]
+            for day, entries in week.items()
+        }
+    except (AttributeError, KeyError, TypeError, ValueError):
+        normalised = week
+    return hashlib.sha256(
+        json.dumps(normalised, sort_keys=True, default=str).encode()
+    ).hexdigest()

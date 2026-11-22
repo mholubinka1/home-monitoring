@@ -159,7 +159,7 @@ class MariaDBClient(MariaDBClientBase):
         since `since` (UTC) are read, so a spell older than that starts at the
         oldest poll in the window."""
         hs = sql_model.heating_status
-        unreachable = or_(hs.online.is_(False), hs.mode == "OFF")
+        unreachable = or_(hs.online.is_(False), func.coalesce(hs.mode, "") == "OFF")
         in_window = hs.polled_at >= since.replace(tzinfo=None)
         with self.session_read_scope() as session:
             newest = (
@@ -195,7 +195,7 @@ class MariaDBClient(MariaDBClientBase):
                 session.query(func.min(hs.polled_at))
                 .filter(
                     hs.polled_at > moment.replace(tzinfo=None),
-                    ~or_(hs.online.is_(False), hs.mode == "OFF"),
+                    ~or_(hs.online.is_(False), func.coalesce(hs.mode, "") == "OFF"),
                 )
                 .scalar()
             )

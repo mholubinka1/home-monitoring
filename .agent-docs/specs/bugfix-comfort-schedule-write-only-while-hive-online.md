@@ -113,11 +113,17 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
   `PresenceWatchdog` pattern):
   - When it runs: a job every `PRESENCE_WATCHDOG_INTERVAL_SECONDS`, registered only when
     ntfy is configured and `comfort_schedule.control` is `on`.
-  - Unreachable means a stored poll with `online` false or mode `OFF`.
+  - Unreachable means a stored poll with `online` false or mode `OFF`. A poll with no
+    mode (NULL) and `online` not false is reachable.
   - Alert: the newest stored poll is unreachable and has been since a time more than
     `LOST_AFTER` (30 minutes) ago. The start is the first unreachable poll after the
-    newest reachable one, or the oldest stored poll if there is none. One alert per spell,
-    no reminders, with its reason (offline, OFF, or both).
+    newest reachable one, or the oldest poll read if there is none. Only the last 7 days
+    of polls are read (`SPELL_WINDOW`, on the `polled_at` index), so the per-minute check
+    never scans the whole table on the Pi's 512 MB MariaDB. A longer spell is still one
+    spell: while an alert is outstanding, a new alert needs a reachable poll after the
+    alerted start. One alert per spell, no reminders, with its reason (offline, OFF, or
+    both). A send that fails is not counted as delivered and is retried at the next
+    check, as the presence watchdog does.
   - Clear: one "reachable again" notice with the spell's length once a reachable poll
     follows an alert.
   - State is in memory, so a restart mid-spell alerts again. Quiet hours are respected

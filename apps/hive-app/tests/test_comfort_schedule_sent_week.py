@@ -165,3 +165,24 @@ def test_a_sent_week_unshown_after_15_minutes_is_not_verified_once_and_resent(
     assert not_verified.detail == sent.detail
     assert caplog.text.lower().count("not verified") == 1
     assert len(source.schedule_writes) == 4
+
+
+def test_a_malformed_hive_week_while_a_week_is_pending_does_not_stop_the_poll(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a sent week, and Hive then returning a week whose Monday has an entry
+    # with no target
+    seed_todays_plan(mariadb_client)
+    source = FakeHiveSource(mariadb_client, status_of(hives_week()))
+    retriever = retriever_for(mariadb_client, source)
+    retriever.refresh(NOW)
+    malformed = hives_week()
+    malformed["monday"].append({"start": 600})
+    source.status = status_of(malformed)
+
+    # When the next poll runs
+    retriever.refresh(NOW + timedelta(minutes=2))
+
+    # Then the poll completes without raising and nothing is recorded applied
+    outcomes = [a.outcome for a in actions(mariadb_client)]
+    assert "applied" not in outcomes

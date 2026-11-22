@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from apyhiveapi.helper.hive_exceptions import HiveApiError
 
 from hive_app.common.config import HiveSettings
 from hive_app.data.hive_client import HiveApiSource
@@ -50,9 +51,13 @@ class _Hive:
         self.posts: list[tuple[str, str, dict[str, Any]]] = []
         self.read_count = 0
         self._reads = reads
+        # What the library's request raises for a non-2xx answer, when set.
+        self.refusal: Exception | None = None
 
     async def request(self, method: str, url: str, **kwargs: Any) -> Any:
         self.posts.append((method, url, kwargs))
+        if self.refusal is not None:
+            raise self.refusal
         return SimpleNamespace(status=200)
 
     def stored_week_for_read(self) -> dict[str, Any]:
@@ -141,6 +146,22 @@ def test_a_week_whose_days_have_no_midnight_entry_is_sent(
     _, _, kwargs = hive.posts[0]
     assert json.loads(kwargs["data"]) == {"schedule": week}
     assert outcome == "sent"
+
+
+def test_a_write_hive_refuses_while_online_still_raises(
+    install_fake_hive: Callable[..., Any],
+    mariadb_client: MariaDBClient,
+    tmp_path: Path,
+) -> None:
+    # Given Hive is online but answers the POST with a non-2xx status (the
+    # library's request then raises HiveApiError)
+    source, hive = _source(install_fake_hive, mariadb_client, tmp_path, [_week()])
+    hive.refusal = HiveApiError()
+
+    # When the week is written
+    # Then the refusal is raised, for the control to store as failed
+    with pytest.raises(HiveApiError):
+        source.write_comfort_schedule(_week())
 
 
 def test_a_week_is_not_posted_when_the_writes_own_session_finds_hive_offline(
