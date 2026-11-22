@@ -15,6 +15,7 @@ class HeatingStatus:  # pylint: disable=too-many-instance-attributes
     schedule: dict[str, Any]
     working: bool | None = None
     weekly_schedule: dict[str, Any] | None = None
+    online: bool | None = None
 
 
 @dataclass

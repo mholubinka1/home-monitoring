@@ -36,6 +36,7 @@ class heating_status(SQLBase):
     boost_ends_at = Column(DateTime)
     schedule = Column(JSON)
     working = Column(Boolean)
+    online = Column(Boolean)
 
 
 class heating_schedule(SQLBase):

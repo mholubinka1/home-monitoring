@@ -440,6 +440,7 @@ class HiveApiSource:
             device = self._climate_device(hive)
             # Before any getter: getScheduleNowNextLater mutates this data.
             weekly_schedule = self._weekly_schedule(hive, device)
+            online = self._online_flag(hive, device)
             current_temp = await hive.heating.getCurrentTemperature(device)
             target_temp = await hive.heating.getTargetTemperature(device)
             mode = await hive.heating.getMode(device)
@@ -468,6 +469,7 @@ class HiveApiSource:
             schedule=schedule,
             working=working,
             weekly_schedule=weekly_schedule,
+            online=online,
         )
 
     # -- HiveSource: heating write verbs --
@@ -571,6 +573,16 @@ class HiveApiSource:
             return None
         # The library's now/next/later parse adds datetimes to these slots.
         return copy.deepcopy(schedule)
+
+    @staticmethod
+    def _online_flag(hive: Hive, device: dict[str, Any]) -> bool | None:
+        """Whether Hive reports the heating product reachable, from the product
+        data the library already holds; None when missing or not a bool."""
+        try:
+            online = hive.session.data.products[device["hiveID"]]["props"]["online"]
+        except (AttributeError, KeyError, TypeError):
+            return None
+        return online if isinstance(online, bool) else None
 
     def _as_working_flag(self, reported: object) -> bool | None:
         """The thermostat's own "heating is working" report, or None (logged)
