@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: bugfix-comfort-schedule-write-only-while-hive-online
 
 ## Each heating poll records Hive Online
