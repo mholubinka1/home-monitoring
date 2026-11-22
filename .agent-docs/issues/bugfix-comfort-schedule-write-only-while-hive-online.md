@@ -33,14 +33,14 @@ The Away Temperature defaults to 10 °C. The Comfort Schedule write posts only w
 
 ### Acceptance criteria
 
-- [ ] Given no away_temperature is configured, when the settings load, then the Away Temperature is 10.0.
-- [ ] Given the built week differs from Hive's and Hive is online, when the heating poll runs, then the week is posted once, with no read-back, and recorded `sent` with its fingerprint.
-- [ ] Given a `sent` week, when a later poll reads that week from Hive with whole-number targets, then `applied` is recorded.
-- [ ] Given a `sent` week not yet shown by Hive, when the next online poll runs, then the week is resent and no new row is written.
-- [ ] Given a `sent` week still not shown 15 minutes after it was sent, when the next online poll runs, then `not_verified` is recorded once with a WARNING and the week is resent.
-- [ ] Given a `sent` week, when the plan changes, then the new week is posted at the next online poll and recorded `sent`.
-- [ ] Given Hive reports the heating product offline at the poll, when the built week differs, then nothing is posted and no row is written.
-- [ ] Given the product is offline in the write's own session, when the week is written, then nothing is posted and no row is written.
+- [x] Given no away_temperature is configured, when the settings load, then the Away Temperature is 10.0.
+- [x] Given the built week differs from Hive's and Hive is online, when the heating poll runs, then the week is posted once, with no read-back, and recorded `sent` with its fingerprint.
+- [x] Given a `sent` week, when a later poll reads that week from Hive with whole-number targets, then `applied` is recorded.
+- [x] Given a `sent` week not yet shown by Hive, when the next online poll runs, then the week is resent and no new row is written.
+- [x] Given a `sent` week still not shown 15 minutes after it was sent, when the next online poll runs, then `not_verified` is recorded once with a WARNING and the week is resent.
+- [x] Given a `sent` week, when the plan changes, then the new week is posted at the next online poll and recorded `sent`.
+- [x] Given Hive reports the heating product offline at the poll, when the built week differs, then nothing is posted and no row is written.
+- [x] Given the product is offline in the write's own session, when the week is written, then nothing is posted and no row is written.
 
 ---
 

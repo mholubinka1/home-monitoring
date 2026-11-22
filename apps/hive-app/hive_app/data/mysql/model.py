@@ -74,6 +74,8 @@ OUTCOME_APPLIED = "applied"
 OUTCOME_DRY_RUN = "dry_run"
 OUTCOME_FAILED = "failed"
 OUTCOME_NOT_VERIFIED = "not_verified"
+OUTCOME_OFFLINE = "offline"
+OUTCOME_SENT = "sent"
 OUTCOME_SKIPPED = "skipped"
 
 

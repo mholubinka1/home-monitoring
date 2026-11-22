@@ -149,9 +149,11 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 ### Presence-based heating control (hive-app)
 
 While No One Is Home, hive-app sets the thermostat to MANUAL at the Away
-Temperature (`comfort_schedule.away_temperature`, 7 °C by default, 5–32 °C in half
-degrees) and writes it again at any poll where the thermostat isn't already there, so a hand
-change doesn't last.
+Temperature (`comfort_schedule.away_temperature`, 10 °C by default, 5–32 °C in half
+degrees; avoid 7 °C, Hive's frost protection, which the Hive app shows as "Off") and
+writes it again at any poll where the thermostat isn't already there, so a hand change
+doesn't last. While Hive reports the heating product offline, these writes are skipped
+(nothing is recorded) and tried again at the next poll that finds it online.
 When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 
 - A running boost is never interrupted, and a restore waits for the boost to end.
@@ -202,16 +204,22 @@ point of it.
 `comfort_schedule.control` has three settings, default `off`, and works with or without
 a `presence` section. `dry_run` records one `comfort_schedule` action with outcome
 `dry_run` (and logs the would-be week) each time the built week changes, and never calls
-Hive. `on` posts all seven days to Hive in its own session, then reads the schedule back,
-once more after a few seconds if the first read differs, and stores the outcome in
-`heating_control_action`:
+Hive. `on` posts all seven days to Hive in its own session, only while Hive reports the
+heating product online (`props.online`), and stores the outcome in
+`heating_control_action`. Hive answers 200 and echoes a week back even when the
+thermostat never receives it, so a write counts only once a later regular poll reads it:
 
-- `applied`: Hive stored exactly what was sent.
-- `not_verified`: Hive answered but kept something else. A WARNING is logged and
-  nothing is written again for 60 minutes.
+- `sent`: the week was posted. Until a poll reads it, it is resent at every poll that
+  finds Hive online (every 2 minutes), with no new row, unless the plan changes.
+- `applied`: a later poll read exactly the sent week.
+- `not_verified`: no poll read the sent week within 15 minutes. Logged once as a
+  WARNING; resending continues.
 - `failed`: the write raised. Only the exception type is stored, never its message,
   except for a write-rule refusal (below), whose rule text is kept. It is retried at the
   next poll.
+
+While Hive reports the heating product offline, nothing is posted or recorded; each poll
+stores the flag in `heating_status.online`.
 
 If a poll cannot read Hive's weekly schedule, nothing is written (the five untouched days
 come from it) and a WARNING is logged. A week that breaks a write rule (every weekday

@@ -43,7 +43,9 @@ class _FakeHiveSource:
         self._mariadb = mariadb
         self.status = status
         self.schedule_writes: list[dict[str, Any]] = []
-        self.schedule_outcome = "applied"
+        # As the real HiveApiSource: a posted week is "sent", "offline" when
+        # the write's own session found the product offline.
+        self.schedule_outcome = "sent"
         self.schedule_error: Exception | None = None
         # Every write verb called, in order.
         self.calls: list[str] = []
@@ -255,12 +257,15 @@ def test_a_plan_slot_replaces_its_day_and_the_whole_week_is_written(
     ]
     assert source.schedule_writes == [expected]
     # and the write is recorded as a comfort_schedule action
+    # and the write is recorded as a sent comfort_schedule action carrying the
+    # week's fingerprint, for a later poll to confirm
     (action,) = _actions(mariadb_client)
     assert (action.action, action.outcome, action.dry_run) == (
         "comfort_schedule",
-        "applied",
+        "sent",
         False,
     )
+    assert re.fullmatch(r"[0-9a-f]{64}", action.detail or "")
 
 
 def _retriever(mariadb: MariaDBClient, source: _FakeHiveSource) -> HeatingRetriever:
@@ -675,39 +680,11 @@ def test_a_failed_write_is_stored_without_its_message_and_retried_next_poll(
     retriever.refresh(NOW)
 
     # Then the failure is stored by its exception type only and not raised, and the
-    # next poll writes the week and records it applied
-    failed, applied = _actions(mariadb_client)
+    # next poll writes the week and records it sent
+    failed, sent = _actions(mariadb_client)
     assert (failed.outcome, failed.detail) == ("failed", "RuntimeError")
-    assert applied.outcome == "applied"
+    assert sent.outcome == "sent"
     assert len(source.schedule_writes) == 1
-
-
-def test_a_not_verified_write_is_not_repeated_for_an_hour(
-    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
-) -> None:
-    # Given a write Hive answered but read back different
-    _seed_todays_plan(mariadb_client)
-    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
-    source.schedule_outcome = "not_verified"
-    retriever = _retriever(mariadb_client, source)
-    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
-        retriever.refresh(NOW)
-    assert "not verified" in caplog.text.lower()
-
-    # When polls run 2 and 59 minutes later (Hive still differs)
-    retriever.refresh(NOW + timedelta(minutes=2))
-    retriever.refresh(NOW + timedelta(minutes=59))
-
-    # Then nothing more is written
-    assert len(source.schedule_writes) == 1
-
-    # But 60 minutes after the first write the week is written again
-    retriever.refresh(NOW + timedelta(minutes=60))
-    assert len(source.schedule_writes) == 2
-    assert [a.outcome for a in _actions(mariadb_client)] == [
-        "not_verified",
-        "not_verified",
-    ]
 
 
 def test_the_comfort_schedule_is_written_before_schedule_is_restored_on_return(

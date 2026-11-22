@@ -2,6 +2,8 @@
 tomorrow replaced by the Comfort Plan, where the plan has slots for them."""
 
 import copy
+import hashlib
+import json
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -127,3 +129,20 @@ def validate_week(week: dict[str, Any]) -> None:
                 raise WeekRuleError(f"{day} has a target that is not a number")
             if (target * 2) % 1 != 0:
                 raise WeekRuleError(f"{day} has a target that is not in half degrees")
+
+
+def fingerprint_week(week: dict[str, Any]) -> str:
+    """A stable SHA-256 hex digest of a week, to tell one from another: entries
+    sorted by start and targets as floats, so equal weeks match however Hive
+    orders or types them."""
+    normalised = {
+        day: [
+            {
+                "start": entry["start"],
+                "value": {"target": float(entry["value"]["target"])},
+            }
+            for entry in sorted(entries, key=lambda entry: entry["start"])
+        ]
+        for day, entries in week.items()
+    }
+    return hashlib.sha256(json.dumps(normalised, sort_keys=True).encode()).hexdigest()

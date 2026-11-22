@@ -1,5 +1,3 @@
-import hashlib
-import json
 import logging.config
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,10 +13,11 @@ from hive_app.data.comfort_schedule import (
     REASON_NO_SLOT,
     WeekRuleError,
     build_week,
+    fingerprint_week,
     validate_week,
 )
 from hive_app.data.model import HeatingStatus, HiveAuthState
-from hive_app.data.mysql.client import MariaDBClient
+from hive_app.data.mysql.client import ComfortScheduleAction, MariaDBClient
 from hive_app.data.mysql.model import (
     ACTION_AWAY_OVERRIDE,
     ACTION_COMFORT_SCHEDULE,
@@ -27,6 +26,8 @@ from hive_app.data.mysql.model import (
     OUTCOME_DRY_RUN,
     OUTCOME_FAILED,
     OUTCOME_NOT_VERIFIED,
+    OUTCOME_OFFLINE,
+    OUTCOME_SENT,
     OUTCOME_SKIPPED,
 )
 from hive_app.data.presence import NO_ONE_HOME, SOMEONE_HOME, UNKNOWN
@@ -35,7 +36,8 @@ logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
 UNKNOWN_HOLD = timedelta(minutes=10)
-NOT_VERIFIED_BACKOFF = timedelta(minutes=60)
+NOT_VERIFIED_AFTER = timedelta(minutes=15)
+OFFLINE_MESSAGE = "Comfort Schedule not written: Hive reports the product offline"
 # heating_control_action.detail is a String(255).
 DETAIL_MAX_LENGTH = 255
 
@@ -232,11 +234,6 @@ class PresenceHeatingControl:
         return before
 
 
-def _fingerprint(week: dict[str, Any]) -> str:
-    """A stable SHA-256 hex digest of a week, to tell one from another."""
-    return hashlib.sha256(json.dumps(week, sort_keys=True).encode("utf-8")).hexdigest()
-
-
 def _failure_detail(error: Exception) -> str:
     """What is stored and logged of a failed write: the type name only, as the
     message may hold secrets. A WeekRuleError is a write-rule refusal, whose message
@@ -281,13 +278,34 @@ class ComfortScheduleControl:
                 "weekly schedule."
             )
             return
+        if not self._dry_run and self._confirm_pending(now, status.weekly_schedule):
+            return
         week, kept_days = self._build_week(now, status.weekly_schedule)
         if week == status.weekly_schedule:
             return
         if self._dry_run:
             self._record_dry_run(now, week, kept_days)
-        elif not self._backed_off(now):
-            self._write_week(now, week, kept_days)
+        elif status.online is False:
+            logger.debug(OFFLINE_MESSAGE)
+        else:
+            self._write_week(now, week, kept_days, self._pending_row(week))
+
+    def _confirm_pending(self, now: datetime, hive_week: dict[str, Any]) -> bool:
+        """Record `applied` when the newest real row is pending (sent or not
+        verified) and Hive's week now has its fingerprint."""
+        pending = self._pending_row(hive_week)
+        if pending is None:
+            return False
+        self._mariadb.write_heating_control_action(
+            now,
+            ACTION_COMFORT_SCHEDULE,
+            None,
+            None,
+            False,
+            OUTCOME_APPLIED,
+            pending.detail,
+        )
+        return True
 
     def _build_week(
         self, now: datetime, hive_week: dict[str, Any]
@@ -319,7 +337,7 @@ class ComfortScheduleControl:
         except WeekRuleError as error:
             self._record_dry_run_refusal(now, _failure_detail(error))
             return
-        fingerprint = _fingerprint(week)
+        fingerprint = fingerprint_week(week)
         latest = self._mariadb.read_latest_comfort_schedule_dry_run_fingerprint()
         if fingerprint == latest:
             return
@@ -349,22 +367,30 @@ class ComfortScheduleControl:
             refusal,
         )
 
-    def _backed_off(self, now: datetime) -> bool:
-        """Whether a write was not verified less than NOT_VERIFIED_BACKOFF ago."""
-        not_verified_at = self._mariadb.read_latest_not_verified_comfort_schedule_at()
+    def _pending_row(self, week: dict[str, Any]) -> ComfortScheduleAction | None:
+        """The newest real row when it was sent (or not verified) with this
+        week's fingerprint and is awaiting Hive showing it, else None."""
+        latest = self._mariadb.read_latest_real_comfort_schedule_action()
         if (
-            not_verified_at is not None
-            and now.replace(tzinfo=None) - not_verified_at < NOT_VERIFIED_BACKOFF
+            latest is not None
+            and latest.outcome in (OUTCOME_SENT, OUTCOME_NOT_VERIFIED)
+            and latest.detail == fingerprint_week(week)
         ):
-            logger.debug("Comfort Schedule write held back after a not verified one")
-            return True
-        return False
+            return latest
+        return None
 
     def _write_week(
-        self, now: datetime, week: dict[str, Any], kept_days: list[tuple[str, str]]
+        self,
+        now: datetime,
+        week: dict[str, Any],
+        kept_days: list[tuple[str, str]],
+        pending: ComfortScheduleAction | None = None,
     ) -> None:
         """Send the week and store its outcome; a failure is stored as `failed`
-        with the exception type name only, and never raised out of the poll."""
+        with the exception type name only, and never raised out of the poll. An
+        offline answer, or a resend of a pending week, stores no row, except
+        that a week still unshown NOT_VERIFIED_AFTER after it was sent is
+        stored once as `not_verified`."""
         self._log_kept_days(kept_days)
         detail = None
         try:
@@ -372,13 +398,29 @@ class ComfortScheduleControl:
         except Exception as error:  # pylint: disable=broad-exception-caught
             outcome, detail = OUTCOME_FAILED, _failure_detail(error)
             logger.warning("Comfort Schedule write failed: %s", detail)
-        if outcome == OUTCOME_NOT_VERIFIED:
-            logger.warning(
-                "Comfort Schedule write was not verified: Hive's stored week "
-                "differs from what was sent."
-            )
+        if outcome == OUTCOME_OFFLINE:
+            logger.debug(OFFLINE_MESSAGE)
+            return
+        if outcome == OUTCOME_SENT:
+            detail = fingerprint_week(week)
+            if pending is not None:
+                if not self._is_overdue(now, pending):
+                    logger.debug("Comfort Schedule week resent: Hive has not shown it")
+                    return
+                logger.warning(
+                    "Comfort Schedule write was not verified: Hive has not shown "
+                    "the week sent."
+                )
+                outcome = OUTCOME_NOT_VERIFIED
         self._mariadb.write_heating_control_action(
             now, ACTION_COMFORT_SCHEDULE, None, None, False, outcome, detail
+        )
+
+    @staticmethod
+    def _is_overdue(now: datetime, pending: ComfortScheduleAction) -> bool:
+        return (
+            pending.outcome == OUTCOME_SENT
+            and now.replace(tzinfo=None) - pending.acted_at >= NOT_VERIFIED_AFTER
         )
 
 
@@ -390,7 +432,7 @@ class HeatingRetriever:
         client: HiveSource,
         mariadb: MariaDBClient | None = None,
         control: str = CONTROL_OFF,
-        away_temperature: float = 7.0,
+        away_temperature: float = 10.0,
         *,
         comfort_control: str = CONTROL_OFF,
     ) -> None:

@@ -65,10 +65,12 @@ def _source(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     reads: list[dict[str, Any]],
+    product_props: dict[str, Any] | None = None,
 ) -> tuple[HiveApiSource, _Hive]:
-    fake = install_fake_hive(login_result=_LOGGED_IN, product_state={})
+    fake = install_fake_hive(
+        login_result=_LOGGED_IN, product_state={}, product_props=product_props
+    )
     hive = _Hive(reads)
     fake.api = SimpleNamespace(
         getAll=fake.api.getAll, request=hive.request, urls={"nodes": _NODES_URL}
@@ -81,8 +83,6 @@ def _source(
         return True
 
     fake.session.getDevices = get_devices
-    # The re-read waits a few seconds in production; not in a test.
-    monkeypatch.setattr("hive_app.data.hive_client.SCHEDULE_REREAD_SECONDS", 0)
     settings = HiveSettings(
         username="user@example.com",
         password="hunter2",
@@ -91,22 +91,21 @@ def _source(
     return HiveApiSource(settings, mariadb_client), hive
 
 
-def test_the_whole_week_is_posted_to_the_heating_node_and_read_back(
+def test_the_whole_week_is_posted_once_with_no_read_back_and_is_sent(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Given Hive stores exactly what it is sent
-    source, hive = _source(
-        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [_week()]
-    )
+    # Given Hive keeps showing the old week (it echoes writes it never delivers,
+    # so a read in the same session proves nothing)
+    old = {day: [{"start": 390, "value": {"target": 7.0}}] for day in _DAYS}
+    source, hive = _source(install_fake_hive, mariadb_client, tmp_path, [old])
 
     # When the week is written
     outcome = source.write_comfort_schedule(_week())
 
-    # Then one POST goes to the heating node with the week as the JSON body, and
-    # the read-back matched
+    # Then one POST goes to the heating node with the week as the JSON body, Hive
+    # is not read back, and the week is sent
     assert len(hive.posts) == 1
     method, url, kwargs = hive.posts[0]
     assert (method, url) == (
@@ -114,77 +113,57 @@ def test_the_whole_week_is_posted_to_the_heating_node_and_read_back(
         f"https://hive.example/nodes/heating/{THERMOSTAT_HIVE_ID}",
     )
     assert json.loads(kwargs["data"]) == {"schedule": _week()}
-    assert outcome == "applied"
+    assert hive.read_count == 0
+    assert outcome == "sent"
 
 
-def test_a_week_whose_days_have_no_midnight_entry_is_sent_and_verified(
+def test_a_week_whose_days_have_no_midnight_entry_is_sent(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given a week shaped like Hive's own, with no entry at 00:00 on any day (the
-    # night carries on at the previous day's last setting), which Hive stores as sent
+    # night carries on at the previous day's last setting)
     week = {
         day: [
             {"start": 340, "value": {"target": 19.0}},
-            {"start": 385, "value": {"target": 7.0}},
+            {"start": 385, "value": {"target": 10.0}},
         ]
         for day in _DAYS
     }
-    source, hive = _source(
-        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [week]
-    )
+    source, hive = _source(install_fake_hive, mariadb_client, tmp_path, [week])
 
     # When the week is written
     outcome = source.write_comfort_schedule(week)
 
-    # Then it is posted as it is and the read-back matched
+    # Then it is posted as it is and sent
     assert len(hive.posts) == 1
     _, _, kwargs = hive.posts[0]
     assert json.loads(kwargs["data"]) == {"schedule": week}
-    assert outcome == "applied"
+    assert outcome == "sent"
 
 
-def test_a_read_back_that_differs_at_first_but_matches_on_a_second_read_is_applied(
+def test_a_week_is_not_posted_when_the_writes_own_session_finds_hive_offline(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Given Hive's first read still shows the old week (the spike saw a whole-week
-    # write read back different at 2 seconds), and the second shows the new one
-    old = {day: [{"start": 0, "value": {"target": 7.0}}] for day in _DAYS}
+    # Given the write's own session finds the heating product offline (Hive
+    # answers such a write with 404 NOT_FOUND, or echoes it and never delivers it)
     source, hive = _source(
-        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [old, _week()]
+        install_fake_hive,
+        mariadb_client,
+        tmp_path,
+        [_week()],
+        product_props={"online": False},
     )
 
     # When the week is written
     outcome = source.write_comfort_schedule(_week())
 
-    # Then it is read twice and counts as applied
-    assert hive.read_count == 2
-    assert outcome == "applied"
-
-
-def test_a_week_that_never_reads_back_as_sent_is_not_verified(
-    install_fake_hive: Callable[..., Any],
-    mariadb_client: MariaDBClient,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Given Hive answers 200 but keeps showing the old week
-    old = {day: [{"start": 0, "value": {"target": 7.0}}] for day in _DAYS}
-    source, hive = _source(
-        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [old]
-    )
-
-    # When the week is written
-    outcome = source.write_comfort_schedule(_week())
-
-    # Then it was read once more after the first mismatch, and is not verified
-    assert hive.read_count == 2
-    assert outcome == "not_verified"
+    # Then nothing is posted and the outcome is offline
+    assert not hive.posts
+    assert outcome == "offline"
 
 
 def _target_off_a_half_degree(week: dict[str, Any]) -> None:
@@ -236,13 +215,10 @@ def test_a_week_that_breaks_a_rule_is_refused_before_anything_is_sent(
     install_fake_hive: Callable[..., Any],
     mariadb_client: MariaDBClient,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     break_it: Callable[[dict[str, Any]], None],
 ) -> None:
     # Given a week that breaks one of the write rules
-    source, hive = _source(
-        install_fake_hive, mariadb_client, tmp_path, monkeypatch, [_week()]
-    )
+    source, hive = _source(install_fake_hive, mariadb_client, tmp_path, [_week()])
     week = _week()
     break_it(week)
 

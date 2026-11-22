@@ -1,7 +1,7 @@
 import logging.config
 from datetime import UTC, date, datetime
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import (
     Column,
@@ -89,6 +89,15 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     return value
+
+
+class ComfortScheduleAction(NamedTuple):
+    """A comfort_schedule action row: when (naive UTC, as stored), its outcome
+    and its detail."""
+
+    acted_at: datetime
+    outcome: str
+    detail: str | None
 
 
 class MariaDBClient(MariaDBClientBase):
@@ -328,22 +337,24 @@ class MariaDBClient(MariaDBClientBase):
                 .scalar()
             )
 
-    def read_latest_not_verified_comfort_schedule_at(self) -> datetime | None:
-        """When the newest real comfort_schedule write was not verified (naive
-        UTC, as stored), or None when there is none."""
+    def read_latest_real_comfort_schedule_action(
+        self,
+    ) -> ComfortScheduleAction | None:
+        """The newest real (not dry run) comfort_schedule action as (acted_at
+        (naive UTC, as stored), outcome, detail), or None when there is none."""
         action = sql_model.heating_control_action
         with self.session_read_scope() as session:
-            return (
-                session.query(action.acted_at)
+            row = (
+                session.query(action.acted_at, action.outcome, action.detail)
                 .filter(
                     action.action == sql_model.ACTION_COMFORT_SCHEDULE,
                     action.dry_run.is_(False),
-                    action.outcome == sql_model.OUTCOME_NOT_VERIFIED,
                 )
                 .order_by(action.id.desc())
                 .limit(1)
-                .scalar()
+                .first()
             )
+            return None if row is None else ComfortScheduleAction(*row)
 
     def latest_failed_job_error(self, job_name: str, since: datetime) -> str | None:
         """The first non-blank line (at most 200 characters) of the error of the most

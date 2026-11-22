@@ -72,10 +72,11 @@ presence:
 # and sends nothing to Hive.
 # away_temperature: the temperature (degrees C) outside the Comfort Window, and
 # the one the Away Override holds while no one is home: 5 to 32, on a half
-# degree. Default 7.0.
+# degree. Default 10.0. Avoid 7.0: it is Hive's frost protection, which the Hive
+# app shows as "Off".
 # comfort_schedule:
 #   control: off
-#   away_temperature: 7.0
+#   away_temperature: 10.0
 
 # Optional: the IANA timezone that defines a "local day" (default Europe/London).
 # Must match octopus-app's timezone setting.
