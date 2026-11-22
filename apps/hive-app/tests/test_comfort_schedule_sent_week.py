@@ -207,3 +207,42 @@ def test_a_malformed_hive_week_while_a_week_is_pending_does_not_stop_the_poll(
     # Then the poll completes without raising and nothing is recorded applied
     outcomes = [a.outcome for a in actions(mariadb_client)]
     assert "applied" not in outcomes
+
+
+def test_a_resend_that_raises_keeps_the_week_pending_for_its_landing(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a sent week, and its resend at the next poll raising (Hive answered 500)
+    seed_todays_plan(mariadb_client)
+    source = FakeHiveSource(mariadb_client, status_of(hives_week()))
+    retriever = retriever_for(mariadb_client, source)
+    retriever.refresh(NOW)
+    sent_week = only(source.schedule_writes)
+    source.schedule_error = RuntimeError("HTTP 500")
+    retriever.refresh(NOW + timedelta(minutes=2))
+
+    # When a later poll reads the sent week from Hive
+    source.schedule_error = None
+    source.status = status_of(_as_hive_returns(sent_week))
+    retriever.refresh(NOW + timedelta(minutes=4))
+
+    # Then the failed resend left no row, and the landing is recorded applied
+    assert [a.outcome for a in actions(mariadb_client)] == ["sent", "applied"]
+
+
+def test_days_keeping_hives_entries_are_logged_once_not_on_every_resend(
+    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Given today's plan only, so tomorrow (Thursday) keeps Hive's entries
+    seed_todays_plan(mariadb_client)
+    source = FakeHiveSource(mariadb_client, status_of(hives_week()))
+    retriever = retriever_for(mariadb_client, source)
+
+    # When the week is posted, then resent at the next poll (Hive not showing it)
+    with caplog.at_level(logging.INFO, logger=APP_LOGGER_NAME):
+        retriever.refresh(NOW)
+        retriever.refresh(NOW + timedelta(minutes=2))
+
+    # Then Thursday is logged once, on the poll that posted
+    assert len(source.schedule_writes) == 2
+    assert caplog.text.count("no plan slot for thursday") == 1

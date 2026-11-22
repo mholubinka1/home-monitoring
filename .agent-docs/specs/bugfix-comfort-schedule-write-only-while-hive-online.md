@@ -101,8 +101,12 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
   5. Otherwise (no pending week, or the plan changed), post now and record `sent`.
 
   A post or resend that returns `offline` writes no row, so a `not_verified` that falls
-  due on such a poll is recorded at the next online one. One that raises is recorded as
-  `failed`, as today, and the next online poll posts afresh. The 60-minute
+  due on such a poll is recorded at the next online one. A first post that raises is
+  recorded as `failed`, as today, and the next online poll posts afresh. A resend that
+  raises (a week is already pending) logs a WARNING and writes no row, so the pending
+  row stays newest and the week's later landing is still recorded `applied`.
+  Logging which days kept Hive's entries happens only when a new week is posted, not on
+  every resend, as the feature spec requires ("not on every poll"). The 60-minute
   `NOT_VERIFIED_BACKOFF` and its reader go. A new MariaDB reader returns the newest real
   comfort_schedule action (`acted_at`, `outcome`, `detail`). Dry run is unchanged.
 - **Fingerprint** (`hive_app.data.comfort_schedule`): taken of a normalised week: each
@@ -125,7 +129,8 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
     of polls are read (`SPELL_WINDOW`, on the `polled_at` index), so the per-minute check
     never scans the whole table on the Pi's 512 MB MariaDB. A longer spell is still one
     spell: while an alert is outstanding, a new alert needs a reachable poll after the
-    alerted start. One alert per spell, no reminders, with its reason (offline, OFF, or
+    alerted start (looked for within the same 7 days, so a months-long OFF spell is
+    never scanned in full). One alert per spell, no reminders, with its reason (offline, OFF, or
     both). A send that fails is not counted as delivered and is retried at the next
     check, as the presence watchdog does.
   - Clear: one "reachable again" notice with the spell's length once a reachable poll

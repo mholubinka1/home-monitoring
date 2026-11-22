@@ -41,7 +41,7 @@ class HeatingWatchdog:
         if is_quiet(self._quiet_hours, now):
             return
         spell = self._mariadb.read_unreachable_spell(now - SPELL_WINDOW)
-        if not self._announce_reachable():
+        if not self._announce_reachable(now):
             return
         if spell is None:
             return
@@ -57,15 +57,18 @@ class HeatingWatchdog:
             return
         self._alerted_spell = started_at
 
-    def _announce_reachable(self) -> bool:
+    def _announce_reachable(self, now: datetime) -> bool:
         """Sends the reachable notice if an alerted spell has ended; False only if
         the send failed. The spell has ended when a reachable poll followed its
         start, even if a new spell began since (its start slides with the window
-        when it is long, so it is not compared)."""
+        when it is long, so it is not compared). Only the last SPELL_WINDOW of
+        polls is searched, so a months-long spell is never read in full."""
         began = self._alerted_spell
         if began is None:
             return True
-        returned = self._mariadb.first_reachable_heating_polled_after(began)
+        returned = self._mariadb.first_reachable_heating_polled_after(
+            max(began, now - SPELL_WINDOW)
+        )
         if returned is None:
             return True
         try:

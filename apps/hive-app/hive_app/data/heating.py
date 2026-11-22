@@ -399,18 +399,22 @@ class ComfortScheduleControl:
         kept_days: list[tuple[str, str]],
         pending: ComfortScheduleAction | None,
     ) -> None:
-        """Send the week and store its outcome; a failure is stored as `failed`
-        with the exception type name only, and never raised out of the poll. An
-        offline answer, or a resend of a pending week, stores no row, except
-        that a week still unshown NOT_VERIFIED_AFTER after it was sent is
-        stored once as `not_verified`."""
-        self._log_kept_days(kept_days)
+        """Send the week and store its outcome; a failed first post is stored as
+        `failed` with the exception type name only, and never raised out of the
+        poll. An offline answer, or a resend of a pending week (failed or not),
+        stores no row, so the pending row stays newest, except that a week still
+        unshown NOT_VERIFIED_AFTER after it was sent is stored once as
+        `not_verified`. Kept days are logged only when a new week is posted."""
+        if pending is None:
+            self._log_kept_days(kept_days)
         detail = None
         try:
             outcome = self._client.write_comfort_schedule(week)
         except Exception as error:  # pylint: disable=broad-exception-caught
             outcome, detail = OUTCOME_FAILED, _failure_detail(error)
             logger.warning("Comfort Schedule write failed: %s", detail)
+            if pending is not None:
+                return
         if outcome == OUTCOME_OFFLINE:
             logger.debug(OFFLINE_MESSAGE)
             return
