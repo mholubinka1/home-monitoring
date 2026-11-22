@@ -132,6 +132,7 @@ class PresenceHeatingControl:
             _Write(ACTION_AWAY_OVERRIDE, MODE_MANUAL, self._away_temperature),
             lambda: self._client.apply_away_override(self._away_temperature),
             self._dry_run,
+            status,
         )
 
     def _adopt_away_temperature(self, now: datetime) -> None:
@@ -182,6 +183,7 @@ class PresenceHeatingControl:
             _Write(ACTION_RESTORE_SCHEDULE, MODE_SCHEDULE, None),
             self._client.restore_schedule,
             dry_run,
+            status,
         )
 
     @staticmethod
@@ -199,15 +201,24 @@ class PresenceHeatingControl:
         write: _Write,
         send: Callable[[], str],
         dry_run: bool,
+        status: HeatingStatus,
     ) -> None:
         """Send one write and store its outcome; a failure is stored as `failed`
-        with the exception type name only, and never raised out of the poll."""
+        with the exception type name only, and never raised out of the poll. A
+        real write is skipped while Hive reports the product offline, and tried
+        again at the next poll."""
         action, mode, target = write.action, write.mode, write.target
         detail = None
         if dry_run:
             logger.info("Heating control would set %s: %s %s", action, mode, target)
             self._mariadb.write_heating_control_action(
                 now, action, mode, target, True, OUTCOME_DRY_RUN
+            )
+            return
+        if status.online is False:
+            logger.debug(
+                "Heating control %s not sent: Hive reports the product offline",
+                action,
             )
             return
         try:

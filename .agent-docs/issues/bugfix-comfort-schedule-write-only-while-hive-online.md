@@ -58,8 +58,8 @@ A real Away Override or restore is skipped while the poll reports the heating pr
 
 ### Acceptance criteria
 
-- [ ] Given No One Is Home and Hive reports the heating product offline, when the heating poll runs, then no Away Override is sent and no row is written.
-- [ ] Given that skipped Away Override, when a later poll finds Hive online, then the Away Override is sent.
+- [x] Given No One Is Home and Hive reports the heating product offline, when the heating poll runs, then no Away Override is sent and no row is written.
+- [x] Given that skipped Away Override, when a later poll finds Hive online, then the Away Override is sent.
 
 ---
 
