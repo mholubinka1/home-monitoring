@@ -1,6 +1,7 @@
-"""HiveApiSource.write_comfort_schedule: the whole week posted to Hive's heating
-node in this call's own session, then read back (spec: feature-presence-
-autonomous-heating, issue #808).
+"""HiveApiSource.write_comfort_schedule: the whole week posted once to Hive's
+heating node in this call's own session, with no read-back, and not posted while
+that session finds the product offline (spec: feature-presence-autonomous-heating,
+issue #808; bugfix-comfort-schedule-write-only-while-hive-online, issue #826).
 
 Hive's API is faked at the boundary: its `request` records the POST and its
 `getDevices` stands in for the fresh product read, storing whatever each read is
