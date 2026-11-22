@@ -75,6 +75,15 @@ def _is_missing_table_error(error: Exception) -> bool:
     return code == 1146
 
 
+# A poll Hive can't act on: the heating product offline, or mode OFF. A poll with
+# no mode counts as reachable.
+_MODE_OFF = "OFF"
+_UNREACHABLE_POLL = or_(
+    sql_model.heating_status.online.is_(False),
+    func.coalesce(sql_model.heating_status.mode, "") == _MODE_OFF,
+)
+
+
 def _forecast_scoped_id(source: str, target_date: date) -> str:
     return f"{source}_{target_date.strftime('%Y%m%d')}"
 
@@ -159,7 +168,6 @@ class MariaDBClient(MariaDBClientBase):
         since `since` (UTC) are read, so a spell older than that starts at the
         oldest poll in the window."""
         hs = sql_model.heating_status
-        unreachable = or_(hs.online.is_(False), func.coalesce(hs.mode, "") == "OFF")
         in_window = hs.polled_at >= since.replace(tzinfo=None)
         with self.session_read_scope() as session:
             newest = (
@@ -168,11 +176,13 @@ class MariaDBClient(MariaDBClientBase):
                 .order_by(hs.polled_at.desc())
                 .first()
             )
-            if newest is None or not (newest.online is False or newest.mode == "OFF"):
+            if newest is None or not (
+                newest.online is False or newest.mode == _MODE_OFF
+            ):
                 return None
             last_reachable = (
                 session.query(func.max(hs.polled_at))
-                .filter(in_window, ~unreachable)
+                .filter(in_window, ~_UNREACHABLE_POLL)
                 .scalar()
             )
             start_query = session.query(func.min(hs.polled_at)).filter(in_window)
@@ -180,7 +190,7 @@ class MariaDBClient(MariaDBClientBase):
                 start_query = start_query.filter(hs.polled_at > last_reachable)
             start = start_query.scalar()
         offline = newest.online is False
-        off = newest.mode == "OFF"
+        off = newest.mode == _MODE_OFF
         cause = (
             "offline and OFF" if offline and off else "offline" if offline else "OFF"
         )
@@ -195,7 +205,7 @@ class MariaDBClient(MariaDBClientBase):
                 session.query(func.min(hs.polled_at))
                 .filter(
                     hs.polled_at > moment.replace(tzinfo=None),
-                    ~or_(hs.online.is_(False), func.coalesce(hs.mode, "") == "OFF"),
+                    ~_UNREACHABLE_POLL,
                 )
                 .scalar()
             )

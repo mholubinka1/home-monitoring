@@ -167,6 +167,27 @@ def test_a_sent_week_unshown_after_15_minutes_is_not_verified_once_and_resent(
     assert len(source.schedule_writes) == 4
 
 
+def test_nothing_is_posted_when_hive_holds_the_week_in_another_entry_order(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive already holds today's plan, but lists Wednesday's entries in the
+    # reverse order (Away from 06:25 first, then 19 C from 05:40)
+    seed_todays_plan(mariadb_client)
+    week = hives_week()
+    week["wednesday"] = [
+        {"start": 385, "value": {"target": 7}},  # the tests' Away Temperature
+        {"start": 340, "value": {"target": 19}},
+    ]
+    source = FakeHiveSource(mariadb_client, status_of(week))
+
+    # When the heating poll runs
+    retriever_for(mariadb_client, source).refresh(NOW)
+
+    # Then nothing is posted and nothing is recorded: it is the same week
+    assert not source.schedule_writes
+    assert not actions(mariadb_client)
+
+
 def test_a_malformed_hive_week_while_a_week_is_pending_does_not_stop_the_poll(
     mariadb_client: MariaDBClient,
 ) -> None:

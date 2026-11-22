@@ -292,7 +292,9 @@ class ComfortScheduleControl:
         if not self._dry_run and self._confirm_pending(now, status.weekly_schedule):
             return
         week, kept_days = self._build_week(now, status.weekly_schedule)
-        if week == status.weekly_schedule:
+        # Fingerprints, as for confirming: the same week however Hive orders or
+        # types its entries.
+        if fingerprint_week(week) == fingerprint_week(status.weekly_schedule):
             return
         if self._dry_run:
             self._record_dry_run(now, week, kept_days)
