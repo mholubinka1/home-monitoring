@@ -395,7 +395,7 @@ class ComfortScheduleControl:
         now: datetime,
         week: dict[str, Any],
         kept_days: list[tuple[str, str]],
-        pending: ComfortScheduleAction | None = None,
+        pending: ComfortScheduleAction | None,
     ) -> None:
         """Send the week and store its outcome; a failure is stored as `failed`
         with the exception type name only, and never raised out of the poll. An

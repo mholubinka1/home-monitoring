@@ -87,7 +87,8 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
   `not_verified` row carries the week's fingerprint in `detail`. Each poll, after the
   existing "no readable week" check:
   1. If the newest row is pending (`sent` or `not_verified`) and Hive's week has that
-     row's fingerprint, record `applied` with the same fingerprint.
+     row's fingerprint, record `applied` with the same fingerprint. That ends the poll:
+     a plan that moved meanwhile is posted at the next poll, 2 minutes later.
   2. If the built week equals Hive's week, stop.
   3. If Hive reports the product offline, stop. No row is written, and the next online
      poll tries again.
@@ -97,7 +98,8 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
      WARNING. That happens once, because the newest row is then `not_verified`.
   5. Otherwise (no pending week, or the plan changed), post now and record `sent`.
 
-  A post or resend that returns `offline` writes no row. One that raises is recorded as
+  A post or resend that returns `offline` writes no row, so a `not_verified` that falls
+  due on such a poll is recorded at the next online one. One that raises is recorded as
   `failed`, as today, and the next online poll posts afresh. The 60-minute
   `NOT_VERIFIED_BACKOFF` and its reader go. A new MariaDB reader returns the newest real
   comfort_schedule action (`acted_at`, `outcome`, `detail`). Dry run is unchanged.
