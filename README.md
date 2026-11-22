@@ -232,15 +232,18 @@ Hive's real week before setting `on`.
 
 ### ntfy notifications (hive-app)
 
-hive-app sends two kinds of ntfy.sh alert. **Hive data lost** fires when no new heating
+hive-app sends three kinds of ntfy.sh alert. **Hive data lost** fires when no new heating
 status has arrived for 30 minutes, whatever the cause (see
 [ADR-0031](.agent-docs/adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md), which
 replaced the re-authentication alerts of
 [ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
 stays on `job_run` and the dashboard. **Presence signal lost** fires when the open
 presence period has been Presence Unknown for 30 minutes (Pi-hole can't be read), when a
-`presence` section is configured. The Hive job checks the newest `heating_status` row every
-minute, so it works across restarts. It does not fire if the hive-app container itself is
+`presence` section is configured. **Hive heating unreachable** fires once when the stored
+polls have shown the heating product offline (`heating_status.online` false) or in mode
+OFF for 30 minutes, when `comfort_schedule.control` is `on` (the Comfort Schedule can't
+take effect then); one "reachable again" notice follows when a poll is reachable. The Hive
+job checks the newest `heating_status` row every minute, so it works across restarts. It does not fire if the hive-app container itself is
 down.
 
 - **Topic:** `home-monitoring-hive-auth-ntfy-<guid-no-dashes>`. ntfy.sh topics are public,
