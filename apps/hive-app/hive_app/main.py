@@ -24,6 +24,7 @@ from hive_app.common.decorator import retry_with_exponential_backoff
 from hive_app.common.logging import APP_LOGGER_NAME, config
 from hive_app.data.auth import HiveAuthenticator
 from hive_app.data.heating import HeatingRetriever, HiveSource
+from hive_app.data.heating_watchdog import HeatingWatchdog
 from hive_app.data.hive_client import HiveApiSource
 from hive_app.data.mysql.client import MariaDBClient
 from hive_app.data.notify import NtfyDataNotifier
@@ -227,6 +228,29 @@ def build_presence_watchdog_job(
         scheduler,
         PresenceWatchdog(mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours),
     )
+
+
+def build_heating_watchdog_job(
+    scheduler: Scheduler,
+    mariadb: MariaDBClient,
+    ntfy: NtfySettings | None,
+    comfort_control: str,
+) -> Job | None:
+    """Registers the Heating Unreachable alert only when ntfy is configured and
+    the Comfort Schedule is on."""
+    if ntfy is None or not ntfy.topic_url or comfort_control != "on":
+        return None
+    watchdog = HeatingWatchdog(
+        mariadb, NtfyDataNotifier(ntfy.topic_url), ntfy.quiet_hours
+    )
+
+    def check_safely() -> None:
+        try:
+            watchdog.check(datetime.now(UTC))
+        except Exception:
+            logger.exception("Heating watchdog check failed.")
+
+    return scheduler.every(PRESENCE_WATCHDOG_INTERVAL_SECONDS).seconds.do(check_safely)
 
 
 def register_presence_night_check_job(
@@ -438,6 +462,13 @@ def main() -> None:
     authenticate_at_startup(authenticator)
     register_heating_refresh_job(default_scheduler, heating, mariadb)
     build_hive_watchdog_job(default_scheduler, mariadb, settings.ntfy)
+
+    build_heating_watchdog_job(
+        default_scheduler,
+        mariadb,
+        settings.ntfy,
+        settings.comfort_schedule.control,
+    )
 
     weather = _build_weather_retriever(settings.location, mariadb)
     register_weather_jobs(default_scheduler, weather, mariadb)

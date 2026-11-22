@@ -152,6 +152,55 @@ class MariaDBClient(MariaDBClientBase):
             # The database stores naive UTC; stamp it back as UTC.
             return latest.replace(tzinfo=UTC) if latest is not None else None
 
+    def read_unreachable_spell(self, since: datetime) -> tuple[datetime, str] | None:
+        """The start (UTC) of the current unreachable spell and the newest poll's
+        cause ("offline", "OFF" or "offline and OFF"), or None when the newest
+        poll is reachable. Unreachable is online false or mode OFF. Only polls
+        since `since` (UTC) are read, so a spell older than that starts at the
+        oldest poll in the window."""
+        hs = sql_model.heating_status
+        unreachable = or_(hs.online.is_(False), hs.mode == "OFF")
+        in_window = hs.polled_at >= since.replace(tzinfo=None)
+        with self.session_read_scope() as session:
+            newest = (
+                session.query(hs.online, hs.mode)
+                .filter(in_window)
+                .order_by(hs.polled_at.desc())
+                .first()
+            )
+            if newest is None or not (newest.online is False or newest.mode == "OFF"):
+                return None
+            last_reachable = (
+                session.query(func.max(hs.polled_at))
+                .filter(in_window, ~unreachable)
+                .scalar()
+            )
+            start_query = session.query(func.min(hs.polled_at)).filter(in_window)
+            if last_reachable is not None:
+                start_query = start_query.filter(hs.polled_at > last_reachable)
+            start = start_query.scalar()
+        offline = newest.online is False
+        off = newest.mode == "OFF"
+        cause = (
+            "offline and OFF" if offline and off else "offline" if offline else "OFF"
+        )
+        return start.replace(tzinfo=UTC), cause
+
+    def first_reachable_heating_polled_after(self, moment: datetime) -> datetime | None:
+        """When the first reachable (online not false, mode not OFF) heating_status
+        row after `moment` was polled (UTC), or None."""
+        hs = sql_model.heating_status
+        with self.session_read_scope() as session:
+            first = (
+                session.query(func.min(hs.polled_at))
+                .filter(
+                    hs.polled_at > moment.replace(tzinfo=None),
+                    ~or_(hs.online.is_(False), hs.mode == "OFF"),
+                )
+                .scalar()
+            )
+            return first.replace(tzinfo=UTC) if first is not None else None
+
     def first_heating_polled_after(self, moment: datetime) -> datetime | None:
         """When the first heating_status row after `moment` was polled (UTC)."""
         with self.session_read_scope() as session:

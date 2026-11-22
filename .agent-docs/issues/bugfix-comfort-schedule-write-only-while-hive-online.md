@@ -77,10 +77,10 @@ A new watchdog, built when ntfy is configured and `comfort_schedule.control` is 
 
 ### Acceptance criteria
 
-- [ ] Given stored polls offline or OFF for 31 minutes and control `on`, when the watchdog checks, then one alert is sent naming the reason.
-- [ ] Given stored polls unreachable for 29 minutes, when the watchdog checks, then no alert is sent.
-- [ ] Given an alert was sent and polls are still unreachable, when the watchdog checks again, then no second alert is sent.
-- [ ] Given an alert was sent, when a reachable poll is stored and the watchdog checks, then one "reachable again" notice is sent with the spell's length.
-- [ ] Given an unreachable spell over 30 minutes during quiet hours, when the watchdog checks, then no alert is sent.
+- [x] Given stored polls offline or OFF for 31 minutes and control `on`, when the watchdog checks, then one alert is sent naming the reason.
+- [x] Given stored polls unreachable for 29 minutes, when the watchdog checks, then no alert is sent.
+- [x] Given an alert was sent and polls are still unreachable, when the watchdog checks again, then no second alert is sent.
+- [x] Given an alert was sent, when a reachable poll is stored and the watchdog checks, then one "reachable again" notice is sent with the spell's length.
+- [x] Given an unreachable spell over 30 minutes during quiet hours, when the watchdog checks, then no alert is sent.
 
 ---
