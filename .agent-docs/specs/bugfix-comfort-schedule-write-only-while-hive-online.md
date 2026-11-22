@@ -89,7 +89,9 @@ ntfy alert goes out, then one notice when it clears. The Away Temperature defaul
   1. If the newest row is pending (`sent` or `not_verified`) and Hive's week has that
      row's fingerprint, record `applied` with the same fingerprint. That ends the poll:
      a plan that moved meanwhile is posted at the next poll, 2 minutes later.
-  2. If the built week equals Hive's week, stop.
+  2. If the built week equals Hive's week, stop. "Equals" compares fingerprints, as
+     step 1 does, so a week Hive lists in another entry order or with whole-number
+     targets is the same week (dry run included).
   3. If Hive reports the product offline, stop. No row is written, and the next online
      poll tries again.
   4. If the newest row is pending with the built week's fingerprint, resend it with no new
