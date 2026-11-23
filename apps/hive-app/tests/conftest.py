@@ -108,6 +108,9 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
         # copy each time a session starts, as each real poll's new Hive loads
         # fresh JSON.
         self._product_state = options.get("product_state") or {}
+        # The product's `props` (e.g. {"online": False}); left out when not given,
+        # as an account without the key would be.
+        self._product_props = options.get("product_props")
         self.session = SimpleNamespace(data=SimpleNamespace(products={}))
         self._load_products()
         self._registration_sets_password = registration_sets_password
@@ -153,9 +156,10 @@ class FakeApyHive:  # pylint: disable=too-many-instance-attributes
             return None
 
     def _load_products(self) -> None:
-        self.session.data.products = {
-            THERMOSTAT_HIVE_ID: {"state": copy.deepcopy(self._product_state)}
-        }
+        product: dict[str, Any] = {"state": copy.deepcopy(self._product_state)}
+        if self._product_props is not None:
+            product["props"] = copy.deepcopy(self._product_props)
+        self.session.data.products = {THERMOSTAT_HIVE_ID: product}
 
     @staticmethod
     def _heating_namespace(working: Any, mode: str) -> SimpleNamespace:

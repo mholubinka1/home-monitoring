@@ -22,6 +22,7 @@ from hive_app.data.presence import PresenceRetriever
 from hive_app.data.presence_watchdog import PresenceWatchdog
 from hive_app.data.watchdog import HiveDataWatchdog
 from hive_app.main import (
+    build_heating_watchdog_job,
     build_hive_watchdog,
     build_hive_watchdog_job,
     build_presence_job,
@@ -329,3 +330,25 @@ def test_presence_watchdog_jobs_exist_only_when_presence_is_configured(
         len(build_presence_watchdog_jobs(Scheduler(), mariadb_client, presence, None))
         == 1
     )
+
+
+def test_heating_watchdog_job_runs_every_60_seconds_only_with_ntfy_and_comfort_on(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a scheduler, and ntfy configured or not
+    scheduler = Scheduler()
+    ntfy = NtfySettings(topic_url="https://ntfy.sh/some-topic")
+
+    # When the heating watchdog job is built without ntfy, or with the Comfort
+    # Schedule not on, then nothing is scheduled
+    assert build_heating_watchdog_job(scheduler, mariadb_client, None, "on") is None
+    assert (
+        build_heating_watchdog_job(scheduler, mariadb_client, ntfy, "dry_run") is None
+    )
+    assert scheduler.get_jobs() == []
+
+    # When it is built with ntfy and the Comfort Schedule on, then it runs every
+    # 60 seconds
+    job = build_heating_watchdog_job(scheduler, mariadb_client, ntfy, "on")
+    assert job is not None
+    assert (job.interval, job.unit) == (60, "seconds")

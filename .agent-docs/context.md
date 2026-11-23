@@ -331,8 +331,20 @@ The thermostat held in MANUAL mode at the Away Temperature while No One Is Home,
 _Avoid_: away schedule, holiday mode (Hive's own feature, not used)
 
 **Away Temperature**:
-The configured target held outside the Comfort Window by the Comfort Schedule, and throughout by the Away Override; 7 °C by default.
+The configured target held outside the Comfort Window by the Comfort Schedule, and throughout by the Away Override; 10 °C by default. Not 7 °C: that is Hive's frost protection, which the Hive app shows as "Off".
 _Avoid_: frost temperature, setback
+
+**Hive Online**:
+Whether Hive reports the heating product as reachable (`props.online`). While it is offline, Hive's cloud accepts and echoes a write but the thermostat never receives it, so hive-app writes nothing.
+_Avoid_: connected, available
+
+**Heating Unreachable**:
+A spell of stored polls in which Hive reports the heating product offline or in mode OFF, so the Comfort Schedule can't take effect. Once it lasts 30 minutes, with the Comfort Schedule on, hive-app sends one ntfy alert, and one notice when it ends.
+_Avoid_: heating down, Hive outage (that is Hive data lost)
+
+**Sent Week**:
+A Comfort Schedule week posted to Hive and not yet seen by a later poll. It is resent at every poll while Hive is online, becomes applied when a poll reads that exact week, and is marked not verified (once) after 15 minutes without it.
+_Avoid_: pending write, unverified write
 
 ### Repository and Containers
 
