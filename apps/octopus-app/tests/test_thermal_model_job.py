@@ -149,7 +149,7 @@ def _history(  # pylint: disable=too-many-arguments,too-many-positional-argument
     numbers: Numbers,
     *,
     end: datetime = NOW,
-    conditions: Conditions = Conditions(),  # noqa: B008
+    conditions: Conditions = Conditions(),
     shift: Shift | None = None,
     delay_minutes: int = 0,
 ) -> list[GeneratedStep]:
@@ -221,7 +221,7 @@ def _poll_rows(steps: list[GeneratedStep], gaps: Gaps) -> list[dict[str, object]
 def _seed(
     client: MariaDBClient,
     steps: list[GeneratedStep],
-    gaps: Gaps = Gaps(),  # noqa: B008
+    gaps: Gaps = Gaps(),
 ) -> None:
     """Stores what hive-app would have: a poll every 2 minutes, and the hourly
     weather (the radiation stamped at the end of its hour)."""
