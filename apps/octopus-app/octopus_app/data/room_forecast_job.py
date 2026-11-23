@@ -290,8 +290,9 @@ class RoomForecastJob:
             on_minutes = round(sum(step.demand_minutes for step in steps), 1)
             kwh, cost = heating_intervals.estimated_cost(
                 on_minutes,
+                0,
                 inputs.unit_rates.at(starts_at.replace(minute=0)),
-                inputs.boiler_kw,
+                heating_intervals.BoilerPower(inputs.boiler_kw, inputs.boiler_kw),
             )
             rows.append(
                 RoomForecastIntervalRecord(

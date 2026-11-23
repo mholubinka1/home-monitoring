@@ -234,12 +234,14 @@ class heating_interval(SQLBase):
     ends_at = Column(DateTime, nullable=False)
     poll_count = Column(Integer, nullable=False)
     on_minutes = Column(Integer, nullable=False)
+    early_on_minutes = Column(Integer)
     measured_kwh = Column(_DOUBLE)
     heating_kwh = Column(_DOUBLE)
     source = Column(String(20), nullable=False)
     unit_rate = Column(_DOUBLE)  # pence per kWh
     cost_gbp = Column(_DOUBLE)
     computed_at = Column(DateTime, nullable=False)
+    estimated_heating_kwh = Column(_DOUBLE)
 
 
 class comfort_day(SQLBase):

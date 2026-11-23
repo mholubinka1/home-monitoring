@@ -229,6 +229,13 @@ def test_measured_and_estimated_heating_cost_are_stacked_bars() -> None:
     }
 
 
+def test_the_heating_cost_panel_says_estimates_use_a_warm_up_and_a_steady_kw() -> None:
+    description = _panel(HEATING_COST)["description"].lower()
+
+    assert "warm-up kw for the first 20 minutes of each heating run" in description
+    assert "steady kw after" in description
+
+
 def test_the_boost_panel_and_the_typed_boiler_rating_are_gone() -> None:
     dashboard = _load(GAS_HEATING_DASHBOARD)
     variables = {v["name"] for v in dashboard["templating"]["list"]}
