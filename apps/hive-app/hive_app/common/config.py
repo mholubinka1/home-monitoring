@@ -113,7 +113,7 @@ class ComfortScheduleSettings(BaseModel):
 
     # The temperature outside the Comfort Window, and the one the Away Override
     # holds while no one is home; the thermostat accepts 5-32 C in half degrees.
-    away_temperature: float = Field(default=7.0, ge=5, le=32, multiple_of=0.5)
+    away_temperature: float = Field(default=10.0, ge=5, le=32, multiple_of=0.5)
     control: Literal["off", "dry_run", "on"] = "off"
 
     @field_validator("control", mode="before")

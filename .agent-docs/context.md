@@ -211,7 +211,23 @@ _Avoid_: boost cost (boost is only one way heating comes on), heating hour (the 
 The typical gas used in a half-hour of the day with no heating on, learned from the last 28 days and subtracted from measured gas in heating half-hours.
 
 **Effective Boiler kW**:
-The gas the boiler draws per hour of heating-on time, learned from measured Heating Intervals and used to estimate those without measured gas.
+The gas the boiler draws per hour of heating-on time, averaged over a whole Heating Run, learned from measured Heating Intervals. It prices the room forecast, and Heating Intervals when Warm-up and Steady kW have too little evidence.
+
+**Heating Run**:
+An unbroken stretch of thermostat demand. A single missed or OFF poll inside it does not end it.
+_Avoid_: heating period, burn
+
+**Warm-up kW**:
+The gas the boiler draws per hour in the first 20 minutes of a Heating Run, while the radiator water is still cold, learned from measured Heating Intervals.
+_Avoid_: start kW, peak kW
+
+**Steady kW**:
+The gas the boiler draws per hour after a Heating Run's first 20 minutes, once the boiler has turned itself down, learned alongside Warm-up kW.
+_Avoid_: late kW, modulated kW
+
+**Heating Estimate**:
+The heating kWh that Warm-up and Steady kW (or the Effective Boiler kW) give a Heating Interval. It is kept, frozen at its last value, once measured gas arrives, so estimate and actual can be compared.
+_Avoid_: estimated kWh (that is metered gas converted to kWh)
 
 ### Thermal Model and Comfort
 
@@ -258,7 +274,7 @@ The least heating that keeps the room at the Comfort Temperature (rounded up to 
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Schedule**:
-The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close, the Away Temperature at all other times. It replaces the household's hand-set schedule.
+The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at midnight), then the Away Temperature. Like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
 _Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
@@ -331,8 +347,20 @@ The thermostat held in MANUAL mode at the Away Temperature while No One Is Home,
 _Avoid_: away schedule, holiday mode (Hive's own feature, not used)
 
 **Away Temperature**:
-The configured target held outside the Comfort Window by the Comfort Schedule, and throughout by the Away Override; 7 °C by default.
+The configured target held outside the Comfort Window by the Comfort Schedule, and throughout by the Away Override; 10 °C by default. Not 7 °C: that is Hive's frost protection, which the Hive app shows as "Off".
 _Avoid_: frost temperature, setback
+
+**Hive Online**:
+Whether Hive reports the heating product as reachable (`props.online`). While it is offline, Hive's cloud accepts and echoes a write but the thermostat never receives it, so hive-app writes nothing.
+_Avoid_: connected, available
+
+**Heating Unreachable**:
+A spell of stored polls in which Hive reports the heating product offline or in mode OFF, so the Comfort Schedule can't take effect. Once it lasts 30 minutes, with the Comfort Schedule on, hive-app sends one ntfy alert, and one notice when it ends.
+_Avoid_: heating down, Hive outage (that is Hive data lost)
+
+**Sent Week**:
+A Comfort Schedule week posted to Hive and not yet seen by a later poll. It is resent at every poll while Hive is online, becomes applied when a poll reads that exact week, and is marked not verified (once) after 15 minutes without it.
+_Avoid_: pending write, unverified write
 
 ### Repository and Containers
 

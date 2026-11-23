@@ -26,10 +26,14 @@ PRESENCE: dict[str, Any] = {
 }
 
 
-def test_the_away_temperature_defaults_to_seven_degrees() -> None:
+def test_the_away_temperature_defaults_to_ten_degrees() -> None:
+    # Given no away_temperature is configured
+    # When the settings load
     settings = HiveApplicationSettings.model_validate(VALID_CONFIG)
 
-    assert settings.comfort_schedule.away_temperature == 7.0
+    # Then the Away Temperature is 10.0, not Hive's 7 C frost protection, which
+    # the Hive app shows as "Off"
+    assert settings.comfort_schedule.away_temperature == 10.0
 
 
 def test_a_configured_away_temperature_is_kept() -> None:

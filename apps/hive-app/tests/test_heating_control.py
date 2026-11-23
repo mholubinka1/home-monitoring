@@ -71,7 +71,10 @@ class _FakeHiveSource:
 
 
 def _status(
-    mode: str = "SCHEDULE", target: float = 19.0, boost_active: bool = False
+    mode: str = "SCHEDULE",
+    target: float = 19.0,
+    boost_active: bool = False,
+    online: bool | None = None,
 ) -> HeatingStatus:
     return HeatingStatus(
         polled_at=NOW,
@@ -82,6 +85,7 @@ def _status(
         boost_active=boost_active,
         boost_ends_at=None,
         schedule={},
+        online=online,
     )
 
 
@@ -144,6 +148,39 @@ def test_away_override_is_applied_once_no_one_is_home(
     assert action.target == AWAY_TEMPERATURE
     assert action.dry_run is False
     assert action.outcome == "applied"
+
+
+def test_no_away_override_is_sent_or_recorded_while_hive_reports_offline(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given No One Is Home and Hive reports the heating product offline
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(online=False))
+
+    # When the heating poll runs
+    _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then no Away Override is sent and no row is written
+    assert not source.writes
+    assert not _actions(mariadb_client)
+
+
+def test_an_away_override_skipped_while_offline_is_sent_once_hive_is_online(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given an Away Override skipped while Hive reported the product offline
+    _no_one_home_for(mariadb_client)
+    source = _FakeHiveSource(mariadb_client, _status(online=False))
+    retriever = _retriever(mariadb_client, source)
+    retriever.refresh(NOW)
+
+    # When a later poll finds Hive online
+    _poll(retriever, source, _status(online=True))
+
+    # Then the Away Override is sent
+    assert source.writes == [("away_override", AWAY_TEMPERATURE)]
+    [action] = _actions(mariadb_client)
+    assert (action.action, action.outcome) == ("away_override", "applied")
 
 
 def test_nothing_is_written_when_the_thermostat_already_holds_the_away_temperature(

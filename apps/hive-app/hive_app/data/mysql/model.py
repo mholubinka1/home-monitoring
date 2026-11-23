@@ -36,6 +36,7 @@ class heating_status(SQLBase):
     boost_ends_at = Column(DateTime)
     schedule = Column(JSON)
     working = Column(Boolean)
+    online = Column(Boolean)
 
 
 class heating_schedule(SQLBase):
@@ -73,6 +74,8 @@ OUTCOME_APPLIED = "applied"
 OUTCOME_DRY_RUN = "dry_run"
 OUTCOME_FAILED = "failed"
 OUTCOME_NOT_VERIFIED = "not_verified"
+OUTCOME_OFFLINE = "offline"
+OUTCOME_SENT = "sent"
 OUTCOME_SKIPPED = "skipped"
 
 

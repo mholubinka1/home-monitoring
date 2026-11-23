@@ -23,13 +23,16 @@ from hive_app.data.comfort_schedule import validate_week
 from hive_app.data.heating import MODE_MANUAL, MODE_SCHEDULE
 from hive_app.data.model import HeatingStatus, HiveAuthState
 from hive_app.data.mysql.client import MariaDBClient
-from hive_app.data.mysql.model import OUTCOME_APPLIED, OUTCOME_NOT_VERIFIED
+from hive_app.data.mysql.model import (
+    OUTCOME_APPLIED,
+    OUTCOME_NOT_VERIFIED,
+    OUTCOME_OFFLINE,
+    OUTCOME_SENT,
+)
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-# How long Hive is given to settle before a whole-week write is read back again.
-SCHEDULE_REREAD_SECONDS = 5
 
 _RESUME_REQUIRES_RELOGIN_MESSAGE = (
     "Hive's persisted session can no longer be resumed (e.g. the remembered "
@@ -440,6 +443,7 @@ class HiveApiSource:
             device = self._climate_device(hive)
             # Before any getter: getScheduleNowNextLater mutates this data.
             weekly_schedule = self._weekly_schedule(hive, device)
+            online = self._online_flag(hive, device)
             current_temp = await hive.heating.getCurrentTemperature(device)
             target_temp = await hive.heating.getTargetTemperature(device)
             mode = await hive.heating.getMode(device)
@@ -468,6 +472,7 @@ class HiveApiSource:
             schedule=schedule,
             working=working,
             weekly_schedule=weekly_schedule,
+            online=online,
         )
 
     # -- HiveSource: heating write verbs --
@@ -485,8 +490,9 @@ class HiveApiSource:
 
     async def _write_week(self, week: dict[str, Any]) -> str:
         """POST the whole week to the heating node in this call's own session,
-        then re-read it: "applied" when Hive reports the week sent, else
-        "not_verified". A non-2xx answer raises (the library's request does)."""
+        and return "sent" (no read-back), or "offline" without posting when Hive
+        reports the product offline. A non-2xx answer raises (the
+        library's request does)."""
         state = self.read_auth_state()
         async with self._hive_session() as hive:
             await self._establish_session(hive, state)
@@ -494,26 +500,14 @@ class HiveApiSource:
 
             device = self._climate_device(hive)
             hive_id = device["hiveID"]
+            if self._online_flag(hive, device) is False:
+                return OUTCOME_OFFLINE
             await hive.api.request(
                 "post",
                 hive.api.urls["nodes"].format("heating", hive_id),
                 data=json.dumps({"schedule": week}),
             )
-            if await self._read_back_equals(hive, hive_id, week):
-                return OUTCOME_APPLIED
-            # A whole-week write can read back stale at first: wait, then read
-            # once more (never a loop).
-            await asyncio.sleep(SCHEDULE_REREAD_SECONDS)
-            if await self._read_back_equals(hive, hive_id, week):
-                return OUTCOME_APPLIED
-        return OUTCOME_NOT_VERIFIED
-
-    @staticmethod
-    async def _read_back_equals(hive: Hive, hive_id: str, week: dict[str, Any]) -> bool:
-        """A fresh read of the product, then whether its schedule is the week."""
-        if not await hive.session.getDevices(hive_id):
-            return False
-        return bool(hive.session.data.products[hive_id]["state"]["schedule"] == week)
+        return OUTCOME_SENT
 
     def restore_schedule(self) -> str:
         return asyncio.run(self._write_heating(MODE_SCHEDULE, None))
@@ -571,6 +565,16 @@ class HiveApiSource:
             return None
         # The library's now/next/later parse adds datetimes to these slots.
         return copy.deepcopy(schedule)
+
+    @staticmethod
+    def _online_flag(hive: Hive, device: dict[str, Any]) -> bool | None:
+        """Whether Hive reports the heating product reachable, from the product
+        data the library already holds; None when missing or not a bool."""
+        try:
+            online = hive.session.data.products[device["hiveID"]]["props"]["online"]
+        except (AttributeError, KeyError, TypeError):
+            return None
+        return online if isinstance(online, bool) else None
 
     def _as_working_flag(self, reported: object) -> bool | None:
         """The thermostat's own "heating is working" report, or None (logged)

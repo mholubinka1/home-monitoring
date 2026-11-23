@@ -149,9 +149,11 @@ one small overlap remains rather than being engineered away. `MARIADB_DATABASE` 
 ### Presence-based heating control (hive-app)
 
 While No One Is Home, hive-app sets the thermostat to MANUAL at the Away
-Temperature (`comfort_schedule.away_temperature`, 7 °C by default, 5–32 °C in half
-degrees) and writes it again at any poll where the thermostat isn't already there, so a hand
-change doesn't last.
+Temperature (`comfort_schedule.away_temperature`, 10 °C by default, 5–32 °C in half
+degrees; avoid 7 °C, Hive's frost protection, which the Hive app shows as "Off") and
+writes it again at any poll where the thermostat isn't already there, so a hand change
+doesn't last. While Hive reports the heating product offline, these writes are skipped
+(nothing is recorded) and tried again at the next poll that finds it online.
 When Someone Is Home again it writes SCHEDULE back. The rules, in short:
 
 - A running boost is never interrupted, and a restore waits for the boost to end.
@@ -183,37 +185,45 @@ late. Lengthen `away_delay_minutes` if that bites.
 The Comfort Schedule writes the Comfort Plan into Hive's weekly schedule, so the
 household no longer maintains one by hand. At each heating poll, hive-app builds the
 week from the schedule it just read: today's and tomorrow's weekdays are replaced from
-the newest plan slots (the Away Temperature at 00:00, the Comfort Temperature from the
-slot's start to its end, then the Away Temperature again), and the other five weekdays
-keep whatever was last written. A start rounds earlier and an end later to a whole
-minute, so the Comfort Window is never shortened. A slot that starts at midnight
-replaces the leading Away entry. A day with no plan slot keeps its entries, and so does
-a day whose slot does not lie within it (a comfort window opening just after midnight
-with pre-heat from the evening before, or running past midnight): that case is logged
-as a WARNING on a poll that writes or records the week (so if nothing else changes the
-day stays quietly on Hive's entries), and splitting such a slot across two days is not
-done. Hive is written
-only when the built week differs from the one it holds, so in practice that is after
-each hourly plan run that moves a slot. **Edits made in the Hive app are overwritten at
-the next difference**; that is the point of it.
+the newest plan slots (the Comfort Temperature from the slot's start, then the Away
+Temperature from its end), and the other five weekdays keep whatever was last written.
+Like Hive's own days, a written day has no entry at 00:00: before a day's first entry,
+Hive holds the previous day's last setting. A start rounds earlier and an end later to a
+whole minute, so the Comfort Window is never shortened, except that a slot ending at
+midnight closes with the Away Temperature at 23:59, so its Comfort Temperature never
+runs on through the night into the next day. A day with no plan slot keeps its
+entries, and so does a day whose slot does not lie within it (a comfort window opening
+just after midnight with pre-heat from the evening before, or running past midnight):
+that case is logged as a WARNING on a poll that writes or records the week (so if
+nothing else changes the day stays quietly on Hive's entries), and splitting such a slot
+across two days is not done. Hive is written only when the built week differs from the
+one it holds, so in practice that is after each hourly plan run that moves a slot.
+**Edits made in the Hive app are overwritten at the next difference**; that is the
+point of it.
 
 `comfort_schedule.control` has three settings, default `off`, and works with or without
 a `presence` section. `dry_run` records one `comfort_schedule` action with outcome
 `dry_run` (and logs the would-be week) each time the built week changes, and never calls
-Hive. `on` posts all seven days to Hive in its own session, then reads the schedule back,
-once more after a few seconds if the first read differs, and stores the outcome in
-`heating_control_action`:
+Hive. `on` posts all seven days to Hive in its own session, only while Hive reports the
+heating product online (`props.online`), and stores the outcome in
+`heating_control_action`. Hive answers 200 and echoes a week back even when the
+thermostat never receives it, so a write counts only once a later regular poll reads it:
 
-- `applied`: Hive stored exactly what was sent.
-- `not_verified`: Hive answered but kept something else. A WARNING is logged and
-  nothing is written again for 60 minutes.
+- `sent`: the week was posted. Until a poll reads it, it is resent at every poll that
+  finds Hive online (every 2 minutes), with no new row, unless the plan changes.
+- `applied`: a later poll read exactly the sent week.
+- `not_verified`: no poll read the sent week within 15 minutes. Logged once as a
+  WARNING; resending continues.
 - `failed`: the write raised. Only the exception type is stored, never its message,
   except for a write-rule refusal (below), whose rule text is kept. It is retried at the
   next poll.
 
+While Hive reports the heating product offline, nothing is posted or recorded; each poll
+stores the flag in `heating_status.online`.
+
 If a poll cannot read Hive's weekly schedule, nothing is written (the five untouched days
 come from it) and a WARNING is logged. A week that breaks a write rule (every weekday
-present, entries starting at 00:00, whole-minute starts, targets in half degrees) is
+present, no empty day, distinct whole-minute starts, targets in half degrees) is
 refused before anything is sent and stored as `failed`, with the rule in the log and in
 the action's `detail`; a `dry_run` records the same refusal once, so a bad week shows up
 before `on`. When Someone Is Home begins after an Away Override, the schedule is
@@ -222,15 +232,18 @@ Hive's real week before setting `on`.
 
 ### ntfy notifications (hive-app)
 
-hive-app sends two kinds of ntfy.sh alert. **Hive data lost** fires when no new heating
+hive-app sends three kinds of ntfy.sh alert. **Hive data lost** fires when no new heating
 status has arrived for 30 minutes, whatever the cause (see
 [ADR-0031](.agent-docs/adr/0031-hive-data-lost-alert-replaces-the-reauth-alert.md), which
 replaced the re-authentication alerts of
 [ADR-0018](.agent-docs/adr/0018-ntfy-for-hive-reauth-alerting.md)); every other failure
 stays on `job_run` and the dashboard. **Presence signal lost** fires when the open
 presence period has been Presence Unknown for 30 minutes (Pi-hole can't be read), when a
-`presence` section is configured. The Hive job checks the newest `heating_status` row every
-minute, so it works across restarts. It does not fire if the hive-app container itself is
+`presence` section is configured. **Hive heating unreachable** fires once when the stored
+polls have shown the heating product offline (`heating_status.online` false) or in mode
+OFF for 30 minutes, when `comfort_schedule.control` is `on` (the Comfort Schedule can't
+take effect then); one "reachable again" notice follows when a poll is reachable. The Hive
+job checks the newest `heating_status` row every minute, so it works across restarts. It does not fire if the hive-app container itself is
 down.
 
 - **Topic:** `home-monitoring-hive-auth-ntfy-<guid-no-dashes>`. ntfy.sh topics are public,

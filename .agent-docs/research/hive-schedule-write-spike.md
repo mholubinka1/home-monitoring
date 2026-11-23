@@ -54,4 +54,4 @@ The beta checks neither "the first slot is at 00:00" nor "targets are on half de
 
 ## Spec follow-up
 
-The spec's Comfort Schedule section says hive-app copies the beta's rules, including "the first at 0" and "targets are on half degrees". The beta doesn't have those two. They stay in hive-app as its own checks (the Comfort Schedule always starts each day at 00:00 and sends half-degree temperatures), and the spec now says so.
+The spec's Comfort Schedule section says hive-app copies the beta's rules, including "the first at 0" and "targets are on half degrees". The beta doesn't have those two. They stay in hive-app as its own checks (the Comfort Schedule always starts each day at 00:00 and sends half-degree temperatures), and the spec now says so. (Superseded by #823: the 00:00 check was dropped, because Hive's own week has no 00:00 entry on any day.)

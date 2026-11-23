@@ -101,6 +101,29 @@ class NtfyDataNotifier:
         )
         logger.info("Sent presence-restored notice to the configured ntfy.sh topic.")
 
+    def notify_heating_unreachable(self, age: timedelta, reason: str) -> None:
+        self._post(
+            f"Hive has reported the heating {reason} for {describe_duration(age)}; "
+            "the Comfort Schedule can't take effect.",
+            {
+                "Title": "hive-app: Hive heating unreachable",
+                "Priority": "high",
+                "Tags": "warning",
+            },
+        )
+        logger.info("Sent heating-unreachable alert to the configured ntfy.sh topic.")
+
+    def notify_heating_reachable(self, outage: timedelta) -> None:
+        self._post(
+            f"Hive heating is reachable again after {describe_duration(outage)}.",
+            {
+                "Title": "hive-app: Hive heating reachable again",
+                "Priority": "default",
+                "Tags": "white_check_mark",
+            },
+        )
+        logger.info("Sent heating-reachable notice to the configured ntfy.sh topic.")
+
     def _post(self, body: str, headers: dict[str, str]) -> None:
         response = requests.post(
             self._topic_url,
