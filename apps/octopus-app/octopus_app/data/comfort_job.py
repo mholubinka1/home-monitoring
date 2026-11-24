@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from logging import Logger, getLogger
 
 from common import local_day
+from octopus_app.common.config import ComfortWindows
 from octopus_app.common.logging import APP_LOGGER_NAME, config
 from octopus_app.data import comfort
 from octopus_app.data.model import ComfortDayRecord
@@ -31,8 +32,11 @@ class _Evidence:
 
 
 class ComfortDayJob:
-    def __init__(self, mariadb: MariaDBClient) -> None:
+    def __init__(
+        self, mariadb: MariaDBClient, comfort_windows: ComfortWindows | None = None
+    ) -> None:
         self._mariadb = mariadb
+        self._windows = comfort_windows or ComfortWindows()
 
     def refresh(self, now: datetime | None = None) -> None:
         """Writes the local days from the newest stored one to today, each learned
@@ -98,7 +102,16 @@ class ComfortDayJob:
     ) -> ComfortDayRecord | None:
         day_start = _day_start(day)
         day_end = _day_start(day + timedelta(days=1))
-        polls = self._mariadb.read_room_temperatures(day_start, day_end)
+        # From one boost gap earlier, so a boost running across midnight is not
+        # taken for a new one; only the day's own polls are used for the rest.
+        thermostat_polls = self._mariadb.read_comfort_polls(
+            day_start - comfort.BOOST_GAP, day_end
+        )
+        polls = [
+            (poll.polled_at, poll.current_temp)
+            for poll in thermostat_polls
+            if poll.polled_at >= day_start
+        ]
         if not polls:
             return None
         # Only the day's own periods, so a long backfill checks each poll against

@@ -196,6 +196,17 @@ class HeatingIntervalRecord:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass(frozen=True)
+class ThermostatPoll:
+    """One 2-minute thermostat reading from hive-app's heating_status (naive UTC)."""
+
+    polled_at: datetime
+    current_temp: float | None
+    target_temp: float | None
+    state: str | None
+    boost_active: bool | None
+
+
+@dataclass(frozen=True)
 class ComfortDayRecord:
     """One local day's comfort figures as stored (ADR-0034)."""
 

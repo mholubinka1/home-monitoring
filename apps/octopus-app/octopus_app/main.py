@@ -468,7 +468,7 @@ def main() -> None:
     register_heating_hour_job(
         default_scheduler,
         HeatingIntervalJob(client.mariadb, client.region_code),
-        ComfortDayJob(client.mariadb),
+        ComfortDayJob(client.mariadb, settings.comfort_windows),
         ThermalModelJob(client.mariadb),
         RoomForecastJob(client.mariadb, client.region_code, settings.comfort_windows),
         client.mariadb,

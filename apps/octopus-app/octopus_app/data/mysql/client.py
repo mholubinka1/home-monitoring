@@ -46,6 +46,7 @@ from octopus_app.data.model import (
     StoredHeatingModel,
     StoredThermalModel,
     ThermalModelRecord,
+    ThermostatPoll,
     as_energy_char,
     energy_from_char,
 )
@@ -864,18 +865,30 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
         )
         return [(row.polled_at, row.current_temp) for row in rows]
 
-    def read_room_temperatures(
+    def read_comfort_polls(
         self, start: datetime, end: datetime
-    ) -> list[tuple[datetime, float | None]]:
-        """The (time, room temperature) of the thermostat polls in [start, end)
-        (naive UTC), oldest first."""
+    ) -> list[ThermostatPoll]:
+        """The thermostat polls in [start, end) (naive UTC), oldest first, with
+        the target, state and boost the comfort job judges them by."""
         hs = heating_status_table
         rows = self._read_heating_status(
             hs.c.polled_at,
             hs.c.current_temp,
+            hs.c.target_temp,
+            hs.c.state,
+            hs.c.boost_active,
             where=(hs.c.polled_at >= start, hs.c.polled_at < end),
         )
-        return [(row.polled_at, row.current_temp) for row in rows]
+        return [
+            ThermostatPoll(
+                row.polled_at,
+                row.current_temp,
+                row.target_temp,
+                row.state,
+                row.boost_active,
+            )
+            for row in rows
+        ]
 
     def read_no_one_home_periods(
         self, start: datetime, end: datetime
