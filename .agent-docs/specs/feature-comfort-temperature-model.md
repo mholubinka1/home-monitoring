@@ -1,5 +1,7 @@
 # Comfort temperature model
 
+> **Superseded in part (2026-11-24):** the learning rule below (the weighted median at Boost Starts) was replaced by half-degree steps on Held Boosts and Quiet Days, [ADR-0040](../adr/0040-comfort-temperature-steps-half-a-degree-on-held-boosts-and-quiet-days.md) and [its spec](feature-comfort-temperature-half-degree-steps.md). Counted Hours, minutes below and settling stand.
+
 ## Problem Statement
 
 The gas dashboard's fourth panel, "Minutes Below Target", counts a minute only while a schedule target is active and the room is more than a typed margin under it. The thermostat target sits at the 7 C frost setting except for a short morning schedule, so the panel shows 0 almost every day and says nothing about when the house felt cold. The two text boxes behind it (`comfort_target`, default 15, and `comfort_margin`, default 1.0) are guesses the household has to maintain.

@@ -69,7 +69,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the learned comfort temperature: the typical room temperature at which a boost is pressed, over the two years before each day, with recent boosts counting more (one value per day, so it is drawn as a step). It is not a thermostat setting, and it is absent until 5 boosts have been seen. The two dotted room forecast lines are the predicted room temperature, every 10 minutes, if the Hive schedule runs as set (current schedule) and under the comfort plan with the shortest pre-heat (comfort plan).",
+      "description": "Indoor and target temperature from the thermostat (every 2-minute reading, averaged per Grafana interval when the range is long) and outdoor temperature from the weather (hourly; live readings are preferred over the archive). The dashed outdoor forecast line continues from the latest outdoor reading with the forecast daily mean temperature (drawn at midday); a forecast day disappears as real readings cover it. The gap between indoor and target is the demand for heat. The target holds until changed, so it is drawn as a step. The comfort line is the comfort temperature the comfort plan holds, drawn as a step: it rises half a degree after a boost while the house was holding it, and falls half a degree after 3 quiet days, never below 16 \u00b0C. It is not a thermostat setting. The two dotted room forecast lines are the predicted room temperature, every 10 minutes, if the Hive schedule runs as set (current schedule) and under the comfort plan with the shortest pre-heat (comfort plan).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -396,7 +396,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time, comfort\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    LEAST(\n      CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),\n      $__timeTo()\n    ) AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.date = (\n    SELECT MAX(l.date) FROM comfort_day l\n    WHERE l.comfort_temp IS NOT NULL\n      AND CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()\n  )\n) d\nWHERE time >= $__timeFrom() - INTERVAL 1 DAY\n  AND time <= $__timeTo()\nORDER BY time;",
+          "rawSql": "SELECT time, comfort\nFROM (\n  SELECT\n    CONVERT_TZ(CAST(c.date AS DATETIME), '${timezone}', 'UTC') AS time,\n    c.comfort_temp AS comfort\n  FROM comfort_day c\n  WHERE c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    c.raised_at AS time,\n    c.comfort_temp + 0.5 AS comfort\n  FROM comfort_day c\n  WHERE c.raised_at IS NOT NULL\n    AND c.comfort_temp IS NOT NULL\n\n  UNION ALL\n\n  SELECT\n    LEAST(\n      CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),\n      $__timeTo()\n    ) AS time,\n    c.comfort_temp + IF(c.raised_at IS NULL OR c.raised_at > $__timeTo(), 0, 0.5) AS comfort\n  FROM comfort_day c\n  WHERE c.date = (\n    SELECT MAX(l.date) FROM comfort_day l\n    WHERE l.comfort_temp IS NOT NULL\n      AND CONVERT_TZ(CAST(l.date AS DATETIME), '${timezone}', 'UTC') <= $__timeTo()\n  )\n) d\nWHERE time >= $__timeFrom() - INTERVAL 1 DAY\n  AND time <= $__timeTo()\nORDER BY time;",
           "refId": "D",
           "sql": {
             "columns": [
@@ -1054,7 +1054,7 @@
         "type": "mysql",
         "uid": "${DS_MYSQL}"
       },
-      "description": "Minutes per day the room was below the learned comfort temperature (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 365 days before the day, and never while no one is home (the Presence panel). Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
+      "description": "Minutes per day the room was below the comfort temperature in force at each reading (the comfort line on the temperatures panel), counted only in clock hours in which the heating has been on at least once in the 365 days before the day, and never while no one is home (the Presence panel). Worked out hourly by octopus-app; a finished day never changes. A day with no comfort temperature yet is a gap, not a zero.",
       "fieldConfig": {
         "defaults": {
           "color": {

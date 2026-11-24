@@ -86,8 +86,8 @@ The gas dashboard's comfort line (panel 1, query D) adds a point at `raised_at` 
 
 ### Acceptance criteria
 
-- [ ] Given a day with `raised_at`, when the dashboard's comfort query is read, then it has a point at midnight with the start value and a point at `raised_at` with +0.5, drawn as steps.
-- [ ] Given the queries document, when compared with the dashboard, then the comfort query and panel text match and link ADR-0040.
-- [ ] Given the explainer, when read, then section 11 describes the steps with a worked example and "rounded up to a half degree" is gone from the plan text.
+- [x] Given a day with `raised_at`, when the dashboard's comfort query is read, then it has a point at midnight with the start value and a point at `raised_at` with +0.5, drawn as steps.
+- [x] Given the queries document, when compared with the dashboard, then the comfort query and panel text match and link ADR-0040.
+- [x] Given the explainer, when read, then section 11 describes the steps with a worked example and "rounded up to a half degree" is gone from the plan text.
 
 ---
