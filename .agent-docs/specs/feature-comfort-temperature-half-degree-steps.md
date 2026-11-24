@@ -12,7 +12,7 @@ The Comfort Temperature is no longer learned from boost-start temperatures. It m
 - **Down 0.5 °C after 3 Quiet Days** since the last step. A Quiet Day is one on which, inside the Comfort Window, someone was home for at least 2 hours while Hive held the Comfort Temperature, the heating ran, and there was no Held Boost. The step applies from the next day.
 - **Days that are neither, and boosts that are not held, count for nothing.** They neither add to the count nor reset it. That includes days away, Hive outages, dry runs, the Away Override, and boosts during a late warm-up.
 - **Never below 16 °C.** This floor is hardcoded and deliberately not configurable. There is no ceiling.
-- **Where it starts.** It carries on from the newest stored value rounded up to a half degree (16.8 becomes 17.0 on the Pi, which the house holds today). A fresh install with nothing stored starts at the 16 °C floor.
+- **Where it starts.** It carries on from the newest stored value rounded up to a half degree, never below the floor (16.8 becomes 17.0 on the Pi, which the house holds today). A fresh install with nothing stored starts at the 16 °C floor.
 
 The stepped value replaces the median everywhere: the Comfort Plan, the dashboard's comfort line, and the minutes below comfort. There are no notifications. The dashboard line shows each step, and each day's stored row records what kind of day it was and the running count of Quiet Days.
 
@@ -51,7 +51,7 @@ The stepped value replaces the median everywhere: the Comfort Plan, the dashboar
 
 ```text
 previous row missing                      -> start 16.0 (the floor), count 0
-previous row has quiet_count NULL         -> start round_up_to_half(comfort_temp), count 0   # settled before this change
+previous row has quiet_count NULL         -> start max(16.0, round_up_to_half(comfort_temp)), count 0   # settled before this change
 otherwise end = comfort_temp + (0.5 if raised_at else 0)
     previous quiet_count >= 3             -> start max(16.0, end - 0.5), count 0
     else                                  -> start end, count previous quiet_count
@@ -89,7 +89,7 @@ Existing columns change meaning from the first stepped day on, and the meanings 
 - `read_boost_polls` is removed.
 - `read_latest_comfort_temperature` is replaced by a read of the newest `comfort_day` row before a date that has a `comfort_temp`, returned as a `ComfortDayRecord`. The comfort job uses it for a run's first predecessor, and the room forecast job (with the date set to tomorrow) for today's row.
 
-**Room forecast job.** `_store_plan` reads the newest comfort row up to today and plans for the value in force at the end of what is known: `comfort_temp`, plus 0.5 when `raised_at` is set. A pre-change row is rounded up to a half degree through the same comfort-module helper. The plan no longer rounds a stepped value. With no row at all, the plan isn't stored, as today. Today and tomorrow get the same value. A step down for tomorrow appears after midnight, on the first hourly run that writes the new day's row, which is before the window opens. hive-app is unchanged: it writes whatever plan slots it finds.
+**Room forecast job.** `_store_plan` reads the newest comfort row up to today and plans for the value in force at the end of what is known: `comfort_temp`, plus 0.5 when `raised_at` is set. A pre-change row is rounded up to a half degree, never below the floor, through the same comfort-module helper. The plan no longer rounds a stepped value. With no row at all, the plan isn't stored, as today. Today and tomorrow get the same value. A step down for tomorrow appears after midnight, on the first hourly run that writes the new day's row, which is before the window opens. hive-app is unchanged: it writes whatever plan slots it finds.
 
 **Scheduling.** Unchanged. The comfort job runs hourly after a successful heating-interval run and before the room forecast. So a raise reaches Hive within about an hour, and the boost itself warms the room in the meantime.
 
