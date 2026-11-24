@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-comfort-temperature-half-degree-steps
 
 ## Prefactor: the comfort job gets the Comfort Windows and full thermostat polls
