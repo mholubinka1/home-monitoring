@@ -204,6 +204,7 @@ class ThermostatPoll:
     target_temp: float | None
     state: str | None
     boost_active: bool | None
+    online: bool | None = None  # False when Hive could not reach the thermostat
 
 
 @dataclass(frozen=True)

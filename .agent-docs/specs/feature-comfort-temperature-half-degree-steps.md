@@ -9,7 +9,7 @@ The Comfort Plan holds the room at the Comfort Temperature, which is learned as 
 The Comfort Temperature is no longer learned from boost-start temperatures. It moves in half-degree steps (ADR-0040):
 
 - **Up 0.5 °C after a Held Boost**: a boost started inside the Comfort Window while Hive was holding the Comfort Temperature and the room was no more than 0.5 °C below it. The raise takes effect at once: the rest of the day's window is held warmer from the next hourly plan. A day gives at most one raise.
-- **Down 0.5 °C after 3 Quiet Days** since the last step. A Quiet Day is one on which, inside the Comfort Window, someone was home for at least 2 hours while Hive held the Comfort Temperature, the heating ran, and there was no Held Boost. The step applies from the next day.
+- **Down 0.5 °C after 3 Quiet Days** since the last step. A Quiet Day is one on which, inside the Comfort Window, someone was home for at least 2 hours while Hive held the Comfort Temperature, the heating ran, and nobody started a boost. The step applies from the next day.
 - **Days that are neither, and boosts that are not held, count for nothing.** They neither add to the count nor reset it. That includes days away, Hive outages, dry runs, the Away Override, and boosts during a late warm-up.
 - **Never below 16 °C.** This floor is hardcoded and deliberately not configurable. There is no ceiling.
 - **Where it starts.** It carries on from the newest stored value rounded up to a half degree, never below the floor (16.8 becomes 17.0 on the Pi, which the house holds today). A fresh install with nothing stored starts at the 16 °C floor.
@@ -43,9 +43,9 @@ The stepped value replaces the median everywhere: the Comfort Plan, the dashboar
 
 - `COMFORT_FLOOR = 16.0`, with a comment that it is deliberately hardcoded and not configurable (ADR-0040). Also `COMFORT_STEP = 0.5`, `QUIET_DAYS_PER_STEP = 3`, `HELD_MARGIN = 0.5` (how far below the target the room may be for a boost to count as held) and `QUIET_MINUTES = 120`.
 - `round_up_to_half` moves here from the room forecast module, its only remaining use being the seed.
-- **A held poll** is one whose Hive target equals the Comfort Temperature in force at that poll, compared in half degrees.
+- **A held poll** is one whose Hive target equals the Comfort Temperature in force at that poll, compared in half degrees, and that is not offline (`online = False`). While Hive cannot reach the thermostat it repeats stale values, so an offline poll is never evidence.
 - **A Held Boost** is a Boost Start that meets three conditions. It is inside the day's Comfort Window. The poll just before it was held and no more than `BOOST_GAP` earlier. Its room temperature is at least the target minus `HELD_MARGIN`. Only the first Held Boost of a day counts, and its time becomes the day's `raised_at`.
-- **A Quiet Day** is a day with no Held Boost, on which three things hold. Inside the Comfort Window, `POLL_MINUTES ×` the polls that were held and outside a No One Is Home period come to at least `QUIET_MINUTES`. At least one poll in the window had the heating on (`state = 'ON'` or boost active, ADR-0033). And the day is settled; the provisional row for today may also show `quiet`, but the step itself is only applied when the next day's row is written.
+- **A Quiet Day** is a day with no Boost Start inside the Comfort Window (a Held Boost raises; any other boost there makes the day count for nothing), on which three things hold. Inside the Comfort Window, `POLL_MINUTES ×` the polls that were held and outside a No One Is Home period come to at least `QUIET_MINUTES`. At least one online poll in the window had the heating on (`state = 'ON'` or boost active, ADR-0033). And the day is settled; the provisional row for today may also show `quiet`, but the step itself is only applied when the next day's row is written.
 - **The Comfort Window** for a day comes from the existing `comfort_window(windows, day)` in the room forecast module.
 - **Each day starts from the previous stored row** (the newest earlier day with a `comfort_temp`), using this rule from the design:
 
@@ -59,7 +59,7 @@ day's quiet_count = 0 after a Held Boost, count + 1 on a Quiet Day, else count u
 ```
 
 - **The value in force at a moment** is the day's `comfort_temp` before `raised_at` and `comfort_temp + 0.5` from it on.
-- `minutes_below` keeps its rules (strictly below, counted hours only, not during No One Is Home) but compares each poll with the value in force at that poll.
+- `minutes_below` keeps its rules (strictly below, counted hours only, not during No One Is Home) but compares each poll with the value in force at that poll, and leaves out offline polls, whose stale room reading would otherwise count for the whole outage.
 
 **Schema (additive, ADR-0005).** `comfort_day` gains three nullable columns, added by Schema Sync:
 
@@ -70,7 +70,7 @@ day's quiet_count = 0 after a Held Boost, count + 1 on a Quiet Day, else count u
 Existing columns change meaning from the first stepped day on, and the meanings go in the model's comments:
 
 - `comfort_temp` is the value at the start of the day.
-- `boost_starts` (NOT NULL, and Schema Sync can't relax it) is the number of Boost Starts on the day itself.
+- `boost_starts` (NOT NULL, and Schema Sync can't relax it) is the number of Boost Starts on the day itself, counted whether or not the first reading has a room temperature.
 - `counted_hours`, `minutes_below` and `computed_at` are unchanged.
 
 `ComfortDayRecord` gains the three fields, with defaults of None.
@@ -85,7 +85,7 @@ Existing columns change meaning from the first stepped day on, and the meanings 
 
 **MariaDB client.** These changes cover the reads:
 
-- `read_room_temperatures` is replaced by a read of each poll's `(polled_at, current_temp, target_temp, state, boost_active)` in a UTC range. Like the existing reads, a missing table reads as no rows.
+- `read_room_temperatures` is replaced by a read of each poll's `(polled_at, current_temp, target_temp, state, boost_active, online)` in a UTC range; octopus-app's mirror of hive-app's `heating_status` gains the `online` column hive-app already writes. Like the existing reads, a missing table reads as no rows.
 - `read_boost_polls` is removed.
 - `read_latest_comfort_temperature` is replaced by a read of the newest `comfort_day` row before a date that has a `comfort_temp`, returned as a `ComfortDayRecord`. The comfort job uses it for a run's first predecessor, and the room forecast job (with the date set to tomorrow) for today's row.
 

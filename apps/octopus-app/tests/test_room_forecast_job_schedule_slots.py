@@ -233,7 +233,8 @@ def test_the_plan_slot_runs_from_its_pre_heat_start_to_midnight_at_a_rounded_tar
     RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW_PLAN)
 
     # Then tomorrow's plan slot starts before 06:30 (the pre-heat), ends at
-    # midnight and holds 19.5 C, the comfort temperature rounded up to a half
+    # midnight and holds 19.5 C, the pre-change comfort temperature rounded up to a
+    # half
     tomorrow = [row for row in slot_rows(client, "plan") if row.day.day == 18]
     assert len(tomorrow) == 1
     slot = tomorrow[0]

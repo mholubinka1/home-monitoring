@@ -124,6 +124,7 @@ heating_status_table = Table(
     Column("boost_ends_at", DateTime),
     Column("schedule", JSON),
     Column("working", Boolean),
+    Column("online", Boolean),
     schema="octopus",
 )
 
@@ -860,6 +861,7 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             hs.c.target_temp,
             hs.c.state,
             hs.c.boost_active,
+            hs.c.online,
             where=(hs.c.polled_at >= start, hs.c.polled_at < end),
         )
         return [
@@ -869,6 +871,7 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
                 row.target_temp,
                 row.state,
                 row.boost_active,
+                row.online,
             )
             for row in rows
         ]

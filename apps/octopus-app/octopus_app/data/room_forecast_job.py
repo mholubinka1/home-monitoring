@@ -385,21 +385,12 @@ def _naive_utc_start_of(day: date) -> datetime:
     return local_day.start_of_local_day(day).astimezone(UTC).replace(tzinfo=None)
 
 
-def _utc_of(local: datetime) -> datetime:
-    """A naive local wall-clock time as naive UTC."""
-    return (
-        local.replace(tzinfo=local_day.get_local_timezone())
-        .astimezone(UTC)
-        .replace(tzinfo=None)
-    )
-
-
 def _instants_of(slot: room_forecast.Slot) -> tuple[datetime, datetime]:
     """A slot's naive local start and end as naive UTC, the end never before the
     start (a boundary inside a clock change's skipped hour maps to an earlier
     instant)."""
-    starts = _utc_of(slot.start)
-    return starts, max(starts, _utc_of(slot.end))
+    starts = local_day.naive_utc_of(slot.start)
+    return starts, max(starts, local_day.naive_utc_of(slot.end))
 
 
 def _local(moment: datetime) -> datetime:

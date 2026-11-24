@@ -27,10 +27,12 @@ def _seed_polls(  # pylint: disable=too-many-arguments
     boost: bool = False,
     target: float | None = None,
     on: bool = False,
+    online: bool = True,
 ) -> None:
     """`count` two-minute polls from `start` with the room at `room`; Hive's
     target is `target`, else 20.0 in a boost and the 7.0 frost setting outside;
-    the heating is on in a boost or when `on`."""
+    the heating is on in a boost or when `on`; `online` is whether Hive could
+    reach the thermostat."""
     rows = [
         {
             "polled_at": start + timedelta(minutes=2 * i),
@@ -39,6 +41,7 @@ def _seed_polls(  # pylint: disable=too-many-arguments
             "mode": "SCHEDULE",
             "state": "ON" if boost or on else "OFF",
             "boost_active": boost,
+            "online": online,
         }
         for i in range(count)
     ]
@@ -819,3 +822,119 @@ def test_an_old_value_below_the_floor_starts_the_next_day_at_sixteen(
 
     # Then today starts at the 16 C floor, not 15.5
     assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0
+
+
+def test_polls_while_the_thermostat_is_offline_do_not_make_a_quiet_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two hours in the window where Hive still reports 17.0 and the heating
+    # on, but the thermostat was offline throughout (stale values)
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, HELD),
+        room=17.0,
+        count=60,
+        target=17.0,
+        on=True,
+        online=False,
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then it is not quiet: an outage never moves the Comfort Temperature
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.day_kind is None
+    assert today.quiet_count == 0
+
+
+def test_a_boost_after_an_offline_poll_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive reports 17.0 with the thermostat offline, and then a boost at a
+    # room of 16.8
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, HELD - timedelta(minutes=10)),
+        room=17.0,
+        count=5,
+        target=17.0,
+        online=False,
+    )
+    _seed_polls(mariadb_client, _at(TODAY, HELD), room=16.8, count=3, boost=True)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at is None
+
+
+def test_a_boost_whose_first_reading_has_no_room_temperature_still_counts(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a boost whose first poll has no room reading, then readable polls
+    _seed_polls(mariadb_client, _at(TODAY), room=None, boost=True)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, EVENING + timedelta(minutes=2)),
+        room=16.5,
+        count=2,
+        boost=True,
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].boost_starts == 1
+
+
+def test_heating_on_only_while_offline_does_not_make_a_quiet_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two hours held at home online with the heating off, and the only
+    # heating-on polls from while the thermostat was offline
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_quiet_day(mariadb_client, TODAY, on=False)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, timedelta(hours=21)),
+        room=17.0,
+        count=5,
+        target=17.0,
+        on=True,
+        online=False,
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].day_kind is None
+
+
+def test_offline_readings_add_no_minutes_below(mariadb_client: MariaDBClient) -> None:
+    # Given a cold evening (ten polls at 16.5 against 17.0 in a counted hour) read
+    # while the thermostat was offline, so the reading is stale
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
+    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10, online=False)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0
+
+
+def test_a_day_with_a_boost_that_was_not_held_is_not_quiet(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two Quiet Days counted, and today a boost at 08:00 during a late
+    # warm-up (room 15.8 against 17.0, not held), then two hours held at home
+    _seed_stepped_comfort(
+        mariadb_client, TODAY - timedelta(days=1), 17.0, quiet_count=2
+    )
+    _seed_held_boost(mariadb_client, TODAY, room=15.8, at=timedelta(hours=8))
+    _seed_quiet_day(mariadb_client, TODAY)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then the day counts for nothing: neither quiet nor a raise, count unchanged
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.day_kind is None
+    assert today.quiet_count == 2

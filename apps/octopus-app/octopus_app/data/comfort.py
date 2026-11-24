@@ -21,14 +21,24 @@ HELD_MARGIN = 0.5
 QUIET_DAYS_PER_STEP = 3
 QUIET_MINUTES = 120
 
-BoostStart = tuple[datetime, float]
 Period = tuple[datetime, datetime | None]  # (started_at, ended_at); None is open
 DayKind = Literal["held_boost", "quiet"] | None
 
 
-def _holds(target: float | None, comfort_temp: float) -> bool:
-    """Whether Hive's target is the comfort temperature, in half degrees."""
-    return target is not None and round(target * 2) == round(comfort_temp * 2)
+def _reachable(poll: ThermostatPoll) -> bool:
+    """Whether Hive could reach the thermostat for the poll: an offline poll
+    repeats stale values, so it is never evidence. NULL (older rows) is online."""
+    return poll.online is not False
+
+
+def _holds(poll: ThermostatPoll, comfort_temp: float) -> bool:
+    """Whether the poll shows Hive holding the comfort temperature, in half
+    degrees, with the thermostat reachable."""
+    return (
+        _reachable(poll)
+        and poll.target_temp is not None
+        and round(poll.target_temp * 2) == round(comfort_temp * 2)
+    )
 
 
 def _within(at: datetime, periods: Iterable[Period]) -> bool:
@@ -44,18 +54,15 @@ def _starts_boost(previous_boost: datetime | None, polled_at: datetime) -> bool:
     return previous_boost is None or polled_at - previous_boost > BOOST_GAP
 
 
-def boost_starts(
-    boost_polls: Iterable[tuple[datetime, float | None]],
-) -> list[BoostStart]:
-    """The (time, room temperature) at which each boost started, from the polls
-    with boost active, oldest first. A poll starts a boost when it is more than
-    10 minutes after the previous boost poll; a start with no room temperature
-    is left out."""
-    starts: list[BoostStart] = []
+def boost_starts(boost_poll_times: Iterable[datetime]) -> list[datetime]:
+    """When each boost started, from the times of the polls with boost active,
+    oldest first. A poll starts a boost when it is more than 10 minutes after the
+    previous boost poll, whether or not it has a room reading."""
+    starts: list[datetime] = []
     previous: datetime | None = None
-    for polled_at, room in boost_polls:
-        if _starts_boost(previous, polled_at) and room is not None:
-            starts.append((polled_at, room))
+    for polled_at in boost_poll_times:
+        if _starts_boost(previous, polled_at):
+            starts.append(polled_at)
         previous = polled_at
     return starts
 
@@ -66,7 +73,7 @@ def _held_before(
     """Whether the poll before a boost held the comfort temperature (in half
     degrees) and the boost started with the room within the margin of it."""
     return (
-        _holds(previous.target_temp, comfort_temp)
+        _holds(previous, comfort_temp)
         and boost.current_temp is not None
         and boost.current_temp >= comfort_temp - HELD_MARGIN
     )
@@ -107,19 +114,25 @@ def is_quiet_day(
     window: tuple[datetime, datetime],
     no_one_home: list[Period],
 ) -> bool:
-    """Whether a day with no Held Boost was quiet: Hive held the comfort
-    temperature (in half degrees) for at least QUIET_MINUTES of the Comfort
-    Window (naive UTC) with someone home, and the heating was on at some point
+    """Whether a day was quiet: no boost started in the Comfort Window (naive
+    UTC), Hive held the comfort temperature (in half degrees) for at least
+    QUIET_MINUTES of it with someone home, and the heating was on at some point
     in it."""
     opens, closes = window
+    polls = list(polls)
+    if any(
+        opens <= start < closes
+        for start in boost_starts(poll.polled_at for poll in polls if poll.boost_active)
+    ):
+        return False
     in_window = [poll for poll in polls if opens <= poll.polled_at < closes]
     held_minutes = POLL_MINUTES * sum(
-        _holds(poll.target_temp, comfort_temp)
-        and not _within(poll.polled_at, no_one_home)
+        _holds(poll, comfort_temp) and not _within(poll.polled_at, no_one_home)
         for poll in in_window
     )
     return held_minutes >= QUIET_MINUTES and any(
-        poll.state == "ON" or poll.boost_active for poll in in_window
+        _reachable(poll) and (poll.state == "ON" or poll.boost_active)
+        for poll in in_window
     )
 
 
@@ -193,23 +206,24 @@ def counted_hours(heating_on_hours: Iterable[datetime]) -> list[int]:
 
 
 def minutes_below(
-    polls: Iterable[tuple[datetime, float | None]],
+    polls: Iterable[ThermostatPoll],
     comfort_temp: float,
     hours: Iterable[int],
     no_one_home: list[Period],
     raised_at: datetime | None = None,
 ) -> int:
-    """The minutes of the (time, room temperature) polls in which the room was
-    below the value in force (the comfort temperature, a step more from raised_at on)
-    during a counted hour, leaving out polls inside
-    a (started_at, ended_at) no_one_home period; ended_at None is still open."""
+    """The minutes of the day's polls in which the room was below the value in
+    force (the comfort temperature, a step more from raised_at on) during a
+    counted hour, leaving out offline polls and polls inside a no_one_home
+    period."""
     counted = set(hours)
     return POLL_MINUTES * sum(
-        room is not None
-        and room
+        _reachable(poll)
+        and poll.current_temp is not None
+        and poll.current_temp
         < comfort_temp
-        + (COMFORT_STEP if raised_at is not None and polled_at >= raised_at else 0)
-        and local_day.to_local_hour(polled_at) in counted
-        and not _within(polled_at, no_one_home)
-        for polled_at, room in polls
+        + (COMFORT_STEP if raised_at is not None and poll.polled_at >= raised_at else 0)
+        and local_day.to_local_hour(poll.polled_at) in counted
+        and not _within(poll.polled_at, no_one_home)
+        for poll in polls
     )

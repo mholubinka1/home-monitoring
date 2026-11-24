@@ -242,7 +242,7 @@ The first thermostat reading of a boost, more than 10 minutes after any earlier 
 A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was no more than 0.5 °C below it. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
 
 **Quiet Day**:
-A Local Day on which the Comfort Schedule was in force, someone was home for at least 2 hours of the Comfort Window, the heating ran in the window, and there was no Held Boost. It is the evidence that the Comfort Temperature is warm enough; a day that is neither counts for nothing.
+A Local Day on which the Comfort Schedule was in force, someone was home for at least 2 hours of the Comfort Window, the heating ran in the window, and no boost was started in the window; readings while the thermostat was offline count for neither. It is the evidence that the Comfort Temperature is warm enough; a day that is neither counts for nothing.
 
 **Heating Day**:
 A Local Day on which the heating was on at least once, by schedule or boost.

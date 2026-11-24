@@ -97,12 +97,8 @@ class ComfortDayJob:
         thermostat_polls = self._mariadb.read_comfort_polls(
             day_start - comfort.BOOST_GAP, day_end
         )
-        polls = [
-            (poll.polled_at, poll.current_temp)
-            for poll in thermostat_polls
-            if poll.polled_at >= day_start
-        ]
-        if not polls:
+        days_polls = [poll for poll in thermostat_polls if poll.polled_at >= day_start]
+        if not days_polls:
             return None
         # Only the day's own periods, so a long backfill checks each poll against
         # a handful, not every period of the run.
@@ -120,7 +116,7 @@ class ComfortDayJob:
         outcome = comfort.settle_day(
             previous,
             thermostat_polls,
-            (_naive_utc(opens), _naive_utc(closes)),
+            (local_day.naive_utc_of(opens), local_day.naive_utc_of(closes)),
             no_one_home_today,
         )
         return ComfortDayRecord(
@@ -129,17 +125,15 @@ class ComfortDayJob:
             boost_starts=len(
                 [
                     start
-                    for start, _ in comfort.boost_starts(
-                        (poll.polled_at, poll.current_temp)
-                        for poll in thermostat_polls
-                        if poll.boost_active
+                    for start in comfort.boost_starts(
+                        poll.polled_at for poll in thermostat_polls if poll.boost_active
                     )
                     if start >= day_start
                 ]
             ),
             counted_hours=",".join(str(hour) for hour in hours),
             minutes_below=comfort.minutes_below(
-                polls,
+                days_polls,
                 outcome.comfort_temp,
                 hours,
                 no_one_home_today,
@@ -150,14 +144,6 @@ class ComfortDayJob:
             day_kind=outcome.day_kind,
             quiet_count=outcome.quiet_count,
         )
-
-
-def _naive_utc(local: datetime) -> datetime:
-    return (
-        local.replace(tzinfo=local_day.get_local_timezone())
-        .astimezone(UTC)
-        .replace(tzinfo=None)
-    )
 
 
 def _day_start(day: date) -> datetime:

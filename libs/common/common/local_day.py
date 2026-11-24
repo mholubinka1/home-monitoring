@@ -47,6 +47,11 @@ def start_of_local_day(local_date: date) -> datetime:
     ).astimezone(UTC)
 
 
+def naive_utc_of(local: datetime) -> datetime:
+    """A naive local wall-clock time as naive UTC."""
+    return local.replace(tzinfo=_active_zone).astimezone(UTC).replace(tzinfo=None)
+
+
 def expected_half_hour_count(local_date: date) -> int:
     start_of_day = start_of_local_day(local_date)
     start_of_next_day = start_of_local_day(local_date + timedelta(days=1))
