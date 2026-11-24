@@ -26,16 +26,18 @@ def _seed_polls(  # pylint: disable=too-many-arguments
     count: int = 1,
     boost: bool = False,
     target: float | None = None,
+    on: bool = False,
 ) -> None:
     """`count` two-minute polls from `start` with the room at `room`; Hive's
-    target is `target`, else 20.0 in a boost and the 7.0 frost setting outside."""
+    target is `target`, else 20.0 in a boost and the 7.0 frost setting outside;
+    the heating is on in a boost or when `on`."""
     rows = [
         {
             "polled_at": start + timedelta(minutes=2 * i),
             "current_temp": room,
             "target_temp": target if target is not None else (20.0 if boost else 7.0),
             "mode": "SCHEDULE",
-            "state": "ON" if boost else "OFF",
+            "state": "ON" if boost or on else "OFF",
             "boost_active": boost,
         }
         for i in range(count)
@@ -667,3 +669,140 @@ def test_boost_starts_count_the_days_own_boosts(
 
     # Then today has three Boost Starts
     assert _comfort_days(mariadb_client)[TODAY].boost_starts == 3
+
+
+def _seed_quiet_day(
+    client: MariaDBClient,
+    day: date,
+    *,
+    comfort: float = 17.0,
+    minutes: int = 120,
+    on: bool = True,
+) -> None:
+    """Hive holding `comfort` from 19:00 for `minutes` with the room at it, the
+    heating on throughout when `on`, and no boost."""
+    _seed_polls(
+        client,
+        _at(day, HELD),
+        room=comfort,
+        count=minutes // 2,
+        target=comfort,
+        on=on,
+    )
+
+
+def test_three_quiet_days_step_the_next_day_down_half_a_degree(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 17.0 with no Quiet Days counted four days ago, then three days each
+    # with two hours held at home in the window, the heating on and no boost
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=4), 17.0)
+    quiet_days = [TODAY - timedelta(days=n) for n in (3, 2, 1)]
+    for day in quiet_days:
+        _seed_quiet_day(mariadb_client, day)
+    _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=8)), room=17.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then each is quiet, counting 1, 2, 3, and today starts 0.5 lower at 0
+    days = _comfort_days(mariadb_client)
+    assert [days[day].day_kind for day in quiet_days] == ["quiet"] * 3
+    assert [days[day].quiet_count for day in quiet_days] == [1, 2, 3]
+    assert days[TODAY].comfort_temp == 16.5
+    assert days[TODAY].quiet_count == 0
+
+
+def test_a_day_with_only_an_hour_held_at_home_is_not_quiet(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two Quiet Days counted, and today only one hour held at home
+    _seed_stepped_comfort(
+        mariadb_client, TODAY - timedelta(days=1), 17.0, quiet_count=2
+    )
+    _seed_quiet_day(mariadb_client, TODAY, minutes=60)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then it is neither quiet nor a raise, and the count is unchanged
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.day_kind is None
+    assert today.quiet_count == 2
+
+
+def test_held_time_while_no_one_is_home_does_not_count_towards_a_quiet_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two hours held from 19:00, but no one home from 20:00 to 21:00
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_quiet_day(mariadb_client, TODAY)
+    _seed_presence_period(
+        mariadb_client,
+        "no_one_home",
+        _at(TODAY, timedelta(hours=20)),
+        _at(TODAY, timedelta(hours=21)),
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then only an hour was held at home: not quiet
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.day_kind is None
+    assert today.quiet_count == 0
+
+
+def test_a_day_with_the_heating_never_on_in_the_window_is_not_quiet(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two hours held at home, with the room warm enough that the heating
+    # never came on
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_quiet_day(mariadb_client, TODAY, on=False)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].day_kind is None
+
+
+def test_a_day_with_no_evidence_neither_adds_to_nor_resets_the_count(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 17.0 five days ago, then a Quiet Day, a Quiet Day, a day away (a poll
+    # but nothing held), and a Quiet Day
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=5), 17.0)
+    _seed_quiet_day(mariadb_client, TODAY - timedelta(days=4))
+    _seed_quiet_day(mariadb_client, TODAY - timedelta(days=3))
+    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=2)), room=12.0)
+    _seed_quiet_day(mariadb_client, TODAY - timedelta(days=1))
+    _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=8)), room=17.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then the counts run 1, 2, 2, 3, and the step comes after the fourth day
+    days = _comfort_days(mariadb_client)
+    assert [days[TODAY - timedelta(days=n)].quiet_count for n in (4, 3, 2, 1)] == [
+        1,
+        2,
+        2,
+        3,
+    ]
+    assert days[TODAY - timedelta(days=1)].comfort_temp == 17.0
+    assert days[TODAY].comfort_temp == 16.5
+
+
+def test_at_the_floor_three_quiet_days_leave_it_at_sixteen(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 16.0 with two Quiet Days counted, and a third Quiet Day at 16.0
+    _seed_stepped_comfort(
+        mariadb_client, TODAY - timedelta(days=2), 16.0, quiet_count=2
+    )
+    _seed_quiet_day(mariadb_client, TODAY - timedelta(days=1), comfort=16.0)
+    _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=8)), room=16.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then today stays at 16.0 with the count reset
+    days = _comfort_days(mariadb_client)
+    assert days[TODAY - timedelta(days=1)].quiet_count == 3
+    assert days[TODAY].comfort_temp == 16.0
+    assert days[TODAY].quiet_count == 0

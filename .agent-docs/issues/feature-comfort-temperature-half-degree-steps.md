@@ -63,12 +63,12 @@ The staircase's downward half. A day with no Held Boost is a Quiet Day when, ins
 
 ### Acceptance criteria
 
-- [ ] Given 3 days in a row, each with at least 2 hours in the window held at home, the heating on and no Held Boost, when the job runs, then each is `quiet` with counts 1, 2, 3 and the next day starts 0.5 lower with count 0.
-- [ ] Given a day with only 1 hour held at home in the window, when the job runs, then it is neither quiet nor a raise and the count is unchanged.
-- [ ] Given held polls during a No One Is Home period, when the job runs, then they do not count towards the 2 hours.
-- [ ] Given a day with the heating never on in the window, when the job runs, then it is not quiet.
-- [ ] Given counts 1, 2, then a day away, then a Quiet Day, when the job runs, then the step happens after the fourth day.
-- [ ] Given a Comfort Temperature of 16.0 and 3 Quiet Days, when the next day is written, then it stays 16.0 with count 0.
+- [x] Given 3 days in a row, each with at least 2 hours in the window held at home, the heating on and no Held Boost, when the job runs, then each is `quiet` with counts 1, 2, 3 and the next day starts 0.5 lower with count 0.
+- [x] Given a day with only 1 hour held at home in the window, when the job runs, then it is neither quiet nor a raise and the count is unchanged.
+- [x] Given held polls during a No One Is Home period, when the job runs, then they do not count towards the 2 hours.
+- [x] Given a day with the heating never on in the window, when the job runs, then it is not quiet.
+- [x] Given counts 1, 2, then a day away, then a Quiet Day, when the job runs, then the step happens after the fourth day.
+- [x] Given a Comfort Temperature of 16.0 and 3 Quiet Days, when the next day is written, then it stays 16.0 with count 0.
 
 ---
 

@@ -116,14 +116,16 @@ class ComfortDayJob:
             for hour in evidence.heating_on_hours
             if day_start - COUNTED_HOURS_WINDOW <= hour < day_start
         )
-        comfort_temp = comfort.value_in_force_at_end(previous)
         opens, closes = room_forecast.comfort_window(self._windows, day)
-        raised_at = comfort.held_boost_start(
-            thermostat_polls, comfort_temp, (_naive_utc(opens), _naive_utc(closes))
+        outcome = comfort.settle_day(
+            previous,
+            thermostat_polls,
+            (_naive_utc(opens), _naive_utc(closes)),
+            no_one_home_today,
         )
         return ComfortDayRecord(
             date=day,
-            comfort_temp=comfort_temp,
+            comfort_temp=outcome.comfort_temp,
             boost_starts=len(
                 [
                     start
@@ -137,21 +139,17 @@ class ComfortDayJob:
             ),
             counted_hours=",".join(str(hour) for hour in hours),
             minutes_below=comfort.minutes_below(
-                polls, comfort_temp, hours, no_one_home_today, raised_at
+                polls,
+                outcome.comfort_temp,
+                hours,
+                no_one_home_today,
+                outcome.raised_at,
             ),
             computed_at=now.replace(tzinfo=None),
-            raised_at=raised_at,
-            day_kind=None if raised_at is None else "held_boost",
-            quiet_count=0 if raised_at is not None else _quiet_count_at_end(previous),
+            raised_at=outcome.raised_at,
+            day_kind=outcome.day_kind,
+            quiet_count=outcome.quiet_count,
         )
-
-
-def _quiet_count_at_end(row: ComfortDayRecord | None) -> int:
-    """The Quiet Days counted at the end of a stored day: none after a raise, with
-    no row or before the stepped rule."""
-    if row is None or row.raised_at is not None or row.quiet_count is None:
-        return 0
-    return row.quiet_count
 
 
 def _naive_utc(local: datetime) -> datetime:
