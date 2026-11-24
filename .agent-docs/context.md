@@ -232,14 +232,20 @@ _Avoid_: estimated kWh (that is metered gas converted to kWh)
 ### Thermal Model and Comfort
 
 **Comfort Temperature**:
-The room temperature below which the household usually reaches for boost: the weighted median room temperature at Boost Starts over the two years before a Local Day, each evidence point halving for every 60 Heating Days since it. It is learned, not the thermostat target ([ADR-0034](adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)).
+The room temperature the Comfort Plan holds, in half degrees: it rises 0.5 °C after a Held Boost and falls 0.5 °C after 3 Quiet Days, never below a hardcoded 16 °C. It replaced the boost median of ADR-0034, which could only rise once the room was held at it ([ADR-0040](adr/0040-comfort-temperature-steps-half-a-degree-on-held-boosts-and-quiet-days.md)).
 _Avoid_: comfort target, target temperature (the thermostat's setting)
 
 **Boost Start**:
-The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading. Its room temperature is the evidence the Comfort Temperature is learned from.
+The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading.
+
+**Held Boost**:
+A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was no more than 0.5 °C below it. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
+
+**Quiet Day**:
+A Local Day on which the Comfort Schedule was in force, someone was home for at least 2 hours of the Comfort Window, the heating ran in the window, and there was no Held Boost. It is the evidence that the Comfort Temperature is warm enough; a day that is neither counts for nothing.
 
 **Heating Day**:
-A Local Day on which the heating was on at least once, by schedule or boost. Boost evidence ages by heating days, not calendar days.
+A Local Day on which the heating was on at least once, by schedule or boost.
 
 **Counted Hour**:
 A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort.
@@ -257,7 +263,7 @@ _Avoid_: lag, dead time, pre-heat (the Comfort Plan's early start, which include
 
 **Heating Start**:
 The heating coming on after at least 30 minutes off. A Warm-Up Delay is learned only from a window with at least 10 of them.
-_Avoid_: Boost Start (a boost only, and evidence for the Comfort Temperature)
+_Avoid_: Boost Start (a boost only)
 
 **Backtest**:
 A replay of each of the last 14 days by a Thermal Model fitted only on data before that day; its average and worst error decide whether the model is usable.
@@ -270,7 +276,7 @@ _Avoid_: indoor forecast, temperature forecast (ambiguous with Weather Forecast)
 The Room Forecast for a day as it stood when that day began, never changed afterwards, so past days can be compared with what happened.
 
 **Comfort Plan**:
-The least heating that keeps the room at the Comfort Temperature (rounded up to a half degree) throughout the Comfort Window, including the pre-heat. It switches on and off on 2-minute marks, the thermostat's reading interval. Once the Comfort Schedule is enabled it is written to Hive; until then it is advice only.
+The least heating that keeps the room at the Comfort Temperature throughout the Comfort Window, including the pre-heat. It switches on and off on 2-minute marks, the thermostat's reading interval. Once the Comfort Schedule is enabled it is written to Hive; until then it is advice only.
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Schedule**:
