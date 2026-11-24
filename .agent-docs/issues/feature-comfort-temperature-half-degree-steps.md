@@ -33,19 +33,19 @@ Replace the boost-median rule with the staircase's upward half and its seed. `co
 
 ### Acceptance criteria
 
-- [ ] Given a pre-change comfort_day row of 16.8 yesterday, when today is written, then today starts at 17.0 with a quiet count of 0.
-- [ ] Given no earlier comfort_day row, when the first day is written, then it starts at 16.0.
-- [ ] Given today holds 17.0 and a boost starts in the Comfort Window at a room of 16.7 with the poll before it showing a Hive target of 17.0, when the job runs, then today has `raised_at` at that boost, `day_kind` `held_boost`, quiet count 0, and the next day starts at 17.5.
-- [ ] Given a second Held Boost later the same day, when the job runs, then today is raised only once.
-- [ ] Given a boost at a room of 16.4 against a target of 17.0, when the job runs, then it is not held and the quiet count is unchanged.
-- [ ] Given a boost outside the Comfort Window, when the job runs, then it is not held.
-- [ ] Given a boost whose previous poll showed a Hive target other than the Comfort Temperature (dry run, Away Override, manual change), when the job runs, then it is not held.
-- [ ] Given a Comfort Temperature of 20.0 and a Held Boost, when the next day is written, then it starts at 20.5.
-- [ ] Given a raise at 19:00, when minutes below are counted, then readings before 19:00 compare with 17.0 and readings after with 17.5.
-- [ ] Given 3 Boost Starts on the day, when the job runs, then `boost_starts` is 3.
-- [ ] Given today's row is 17.0 with `raised_at` set, when the room forecast runs, then the plan's slots hold 17.5; given 17.5 with no raise they hold 17.5; given a pre-change row of 16.8 they hold 17.0.
-- [ ] Given yesterday was settled under the new rule, when its evidence changes later, then it is not rewritten.
-- [ ] Given no `heating_status` table, when the job runs, then nothing is written and nothing raises.
+- [x] Given a pre-change comfort_day row of 16.8 yesterday, when today is written, then today starts at 17.0 with a quiet count of 0.
+- [x] Given no earlier comfort_day row, when the first day is written, then it starts at 16.0.
+- [x] Given today holds 17.0 and a boost starts in the Comfort Window at a room of 16.7 with the poll before it showing a Hive target of 17.0, when the job runs, then today has `raised_at` at that boost, `day_kind` `held_boost`, quiet count 0, and the next day starts at 17.5.
+- [x] Given a second Held Boost later the same day, when the job runs, then today is raised only once.
+- [x] Given a boost at a room of 16.4 against a target of 17.0, when the job runs, then it is not held and the quiet count is unchanged.
+- [x] Given a boost outside the Comfort Window, when the job runs, then it is not held.
+- [x] Given a boost whose previous poll showed a Hive target other than the Comfort Temperature (dry run, Away Override, manual change), when the job runs, then it is not held.
+- [x] Given a Comfort Temperature of 20.0 and a Held Boost, when the next day is written, then it starts at 20.5.
+- [x] Given a raise at 19:00, when minutes below are counted, then readings before 19:00 compare with 17.0 and readings after with 17.5.
+- [x] Given 3 Boost Starts on the day, when the job runs, then `boost_starts` is 3.
+- [x] Given today's row is 17.0 with `raised_at` set, when the room forecast runs, then the plan's slots hold 17.5; given 17.5 with no raise they hold 17.5; given a pre-change row of 16.8 they hold 17.0.
+- [x] Given yesterday was settled under the new rule, when its evidence changes later, then it is not rewritten.
+- [x] Given no `heating_status` table, when the job runs, then nothing is written and nothing raises.
 
 ---
 

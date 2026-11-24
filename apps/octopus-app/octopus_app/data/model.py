@@ -207,7 +207,7 @@ class ThermostatPoll:
 
 
 @dataclass(frozen=True)
-class ComfortDayRecord:
+class ComfortDayRecord:  # pylint: disable=too-many-instance-attributes
     """One local day's comfort figures as stored (ADR-0034)."""
 
     date: date
@@ -216,6 +216,9 @@ class ComfortDayRecord:
     counted_hours: str
     minutes_below: int | None
     computed_at: datetime
+    raised_at: datetime | None = None
+    day_kind: str | None = None
+    quiet_count: int | None = None
 
 
 @dataclass(frozen=True)

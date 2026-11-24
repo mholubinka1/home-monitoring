@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from octopus_app.common.config import ComfortWindow, ComfortWindows
+from octopus_app.data.comfort import round_up_to_half
 from octopus_app.data.room_forecast import (
     NO_TARGET,
     STEP,
@@ -18,7 +19,6 @@ from octopus_app.data.room_forecast import (
     hold_forecast,
     parse_schedule,
     plan_slots,
-    round_up_to_half,
     schedule_target_at_step,
     target_at,
 )

@@ -11,7 +11,7 @@ from logging import Logger, getLogger
 from common import local_day
 from octopus_app.common.config import ComfortWindows
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import heating_intervals, room_forecast
+from octopus_app.data import comfort, heating_intervals, room_forecast
 from octopus_app.data.model import (
     HourlyWeather,
     RoomForecastIntervalRecord,
@@ -192,15 +192,13 @@ class RoomForecastJob:
     def _store_plan(self, inputs: _Inputs, today: date) -> None:
         # The newest comfort temperature up to today's; tomorrow has no row yet, so
         # it serves both days.
-        comfort = self._mariadb.read_latest_comfort_temperature(
-            before=today + timedelta(days=1)
-        )
-        if comfort is None:
+        previous = self._mariadb.read_previous_comfort_day(today + timedelta(days=1))
+        if previous is None:
             logger.info("Room forecast: no comfort temperature, no plan stored.")
             self._mariadb.replace_room_forecast(LIVE, PLAN, [])
             self._mariadb.replace_room_forecast_slots(PLAN, [])
             return
-        target = room_forecast.round_up_to_half(comfort)
+        target = comfort.value_in_force_at_end(previous)
         self._store_plan_slots(inputs, target)
         planned = room_forecast.comfort_plan(
             inputs.model, inputs.start, inputs.weather, target, self._windows

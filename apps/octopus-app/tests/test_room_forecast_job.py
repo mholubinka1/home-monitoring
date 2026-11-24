@@ -607,6 +607,40 @@ def test_the_plan_holds_the_rounded_up_comfort_temperature_with_the_shortest_pre
     assert by_start[day.replace(hour=6, minute=30)].on_minutes == 0
 
 
+def test_the_plan_holds_the_raised_value_after_a_held_boost(
+    client: MariaDBClient,
+) -> None:
+    # Given today's Comfort Temperature is 19.0, raised by a Held Boost at 13:30
+    seed_plan_inputs(client)
+    seed_comfort(
+        client,
+        NOW.date(),
+        19.0,
+        raised_at=datetime(2026, 11, 17, 13, 30),
+        quiet_count=0,
+    )
+
+    # When the job runs
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
+
+    # Then today's plan slot holds 19.5
+    assert [
+        slot.target for slot in client.read_room_forecast_slots("plan", NOW.date())
+    ] == [19.5]
+
+
+def test_the_plan_holds_a_stepped_value_as_it_is(client: MariaDBClient) -> None:
+    # Given today's Comfort Temperature is 19.5 under the stepped rule
+    seed_plan_inputs(client)
+    seed_comfort(client, NOW.date(), 19.5, quiet_count=1)
+
+    RoomForecastJob(client, REGION, PINNED_WINDOWS).refresh(NOW)
+
+    assert [
+        slot.target for slot in client.read_room_forecast_slots("plan", NOW.date())
+    ] == [19.5]
+
+
 def test_the_weekend_plan_starts_at_0744(client: MariaDBClient) -> None:
     # Given it is Friday afternoon, so tomorrow is a Saturday, and a comfort
     # temperature of 19 C

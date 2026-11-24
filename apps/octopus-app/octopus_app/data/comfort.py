@@ -1,19 +1,20 @@
-"""The comfort temperature: the room temperature at which the household usually
-reaches for boost (ADR-0034)."""
+"""The comfort temperature: a value that starts each day at the one in force at the
+end of the day before and steps up by half a degree after a Held Boost (ADR-0040)."""
 
-from bisect import bisect_left, bisect_right
-from collections.abc import Iterable
-from datetime import date, datetime, timedelta
-from math import isclose
+from collections.abc import Iterable, Sequence
+from datetime import datetime, timedelta
+from math import ceil
 
 from common import local_day
 from octopus_app.data.heating_intervals import POLL_MINUTES
+from octopus_app.data.model import ComfortDayRecord, ThermostatPoll
 
-BOOST_WINDOW_DAYS = 730  # only bounds the read: a boost is dropped at ~1.6% weight
 COUNTED_HOURS_WINDOW_DAYS = 365
-HALF_LIFE_HEATING_DAYS = 60
-MIN_BOOST_STARTS = 5
 BOOST_GAP = timedelta(minutes=10)
+# Deliberately hardcoded, not configurable (ADR-0040).
+COMFORT_FLOOR = 16.0
+COMFORT_STEP = 0.5
+HELD_MARGIN = 0.5
 
 BoostStart = tuple[datetime, float]
 
@@ -34,46 +35,67 @@ def boost_starts(
     return starts
 
 
-def heating_days(heating_on_hours: Iterable[datetime]) -> list[date]:
-    """The local days, ascending, on which the heating was on, from the hours
-    (naive UTC starts) in which it was."""
-    return sorted({local_day.to_local_date(hour) for hour in heating_on_hours})
-
-
-def boost_weight(days_with_heating: list[date], boost_day: date, day: date) -> float:
-    """How much a boost on boost_day counts towards day's comfort temperature:
-    half as much for every 60 heating days between the two. Days without heating
-    (a summer) age nothing."""
-    heating_days_since = bisect_left(days_with_heating, day) - bisect_right(
-        days_with_heating, boost_day
+def _held_before(
+    previous: ThermostatPoll, boost: ThermostatPoll, comfort_temp: float
+) -> bool:
+    """Whether the poll before a boost held the comfort temperature (in half
+    degrees) and the boost started with the room within the margin of it."""
+    return (
+        previous.target_temp is not None
+        and round(previous.target_temp * 2) == round(comfort_temp * 2)
+        and boost.current_temp is not None
+        and boost.current_temp >= comfort_temp - HELD_MARGIN
     )
-    return 0.5 ** (heating_days_since / HALF_LIFE_HEATING_DAYS)
 
 
-def comfort_temperature(
-    weighted_start_temps: list[tuple[float, float]], carried: float | None
-) -> float | None:
-    """The weighted median of the (room temperature, weight) boost starts; with
-    under 5 of them, the last learned value carries on."""
-    if len(weighted_start_temps) < MIN_BOOST_STARTS:
-        return carried
-    return _weighted_median(weighted_start_temps)
+def held_boost_start(
+    polls: Sequence[ThermostatPoll],
+    comfort_temp: float,
+    window: tuple[datetime, datetime],
+) -> datetime | None:
+    """When the first Held Boost started, if any, from the day's polls (oldest
+    first, from one boost gap before midnight) and its Comfort Window (naive UTC).
+    A Held Boost is a Boost Start (as in boost_starts) inside the window, whose
+    poll just before it, at most a boost gap earlier, held the comfort temperature
+    (in half degrees), with the room within the margin of it."""
+    opens, closes = window
+    previous: ThermostatPoll | None = None
+    previous_boost: datetime | None = None
+    for poll in polls:
+        if poll.boost_active:
+            starts = (
+                previous_boost is None or poll.polled_at - previous_boost > BOOST_GAP
+            )
+            previous_boost = poll.polled_at
+            if (
+                starts
+                and previous is not None
+                and opens <= poll.polled_at < closes
+                and poll.polled_at - previous.polled_at <= BOOST_GAP
+                and _held_before(previous, poll, comfort_temp)
+            ):
+                return poll.polled_at
+        previous = poll
+    return None
 
 
-def _weighted_median(weighted_values: list[tuple[float, float]]) -> float:
-    """The lowest value at which the running weight reaches half the total, or
-    its midpoint with the next value when the running weight is exactly half, so
-    equal weights give the plain median."""
-    ordered = sorted(weighted_values)
-    half = sum(weight for _, weight in ordered) / 2
-    running = 0.0
-    for index, (value, weight) in enumerate(ordered):
-        running += weight
-        if isclose(running, half) and index + 1 < len(ordered):
-            return (value + ordered[index + 1][0]) / 2
-        if running > half:
-            return value
-    return ordered[-1][0]
+def round_up_to_half(temperature: float) -> float:
+    """The temperature rounded up to the next 0.5 C (Hive's step); a tiny guard
+    keeps float noise from lifting an exact half degree."""
+    return ceil(temperature * 2 - 1e-9) / 2
+
+
+def value_in_force_at_end(row: ComfortDayRecord | None) -> float:
+    """The comfort temperature in force at the end of a stored day: raised by a
+    step if it was raised; a row from before the stepped rule (no quiet count)
+    rounded up to a half degree; the floor with no row."""
+    if row is None or row.comfort_temp is None:
+        return COMFORT_FLOOR
+    if row.raised_at is not None:
+        return row.comfort_temp + COMFORT_STEP
+    if row.quiet_count is None:
+        return round_up_to_half(row.comfort_temp)
+    return row.comfort_temp
 
 
 def counted_hours(heating_on_hours: Iterable[datetime]) -> list[int]:
@@ -87,14 +109,18 @@ def minutes_below(
     comfort_temp: float,
     hours: Iterable[int],
     no_one_home: list[tuple[datetime, datetime | None]],
+    raised_at: datetime | None = None,
 ) -> int:
     """The minutes of the (time, room temperature) polls in which the room was
-    below the comfort temperature during a counted hour, leaving out polls inside
+    below the value in force (the comfort temperature, a step more from raised_at on)
+    during a counted hour, leaving out polls inside
     a (started_at, ended_at) no_one_home period; ended_at None is still open."""
     counted = set(hours)
     return POLL_MINUTES * sum(
         room is not None
-        and room < comfort_temp
+        and room
+        < comfort_temp
+        + (COMFORT_STEP if raised_at is not None and polled_at >= raised_at else 0)
         and local_day.to_local_hour(polled_at) in counted
         and not any(
             started <= polled_at and (ended is None or polled_at < ended)

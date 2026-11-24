@@ -1,5 +1,5 @@
 """Stores each local day's comfort temperature, counted hours and minutes below
-comfort (ADR-0034)."""
+comfort (ADR-0034, ADR-0040)."""
 
 import logging.config
 from dataclasses import dataclass
@@ -9,24 +9,22 @@ from logging import Logger, getLogger
 from common import local_day
 from octopus_app.common.config import ComfortWindows
 from octopus_app.common.logging import APP_LOGGER_NAME, config
-from octopus_app.data import comfort
+from octopus_app.data import comfort, room_forecast
 from octopus_app.data.model import ComfortDayRecord
 from octopus_app.data.mysql.client import MariaDBClient
 
 logging.config.dictConfig(config)
 logger: Logger = getLogger(APP_LOGGER_NAME)
 
-BOOST_WINDOW = timedelta(days=comfort.BOOST_WINDOW_DAYS)
 COUNTED_HOURS_WINDOW = timedelta(days=comfort.COUNTED_HOURS_WINDOW_DAYS)
 
 
 @dataclass(frozen=True)
 class _Evidence:
-    """What a run reads once and every day it writes draws on: the boost starts
-    and heated hours (naive UTC) before those days, and the no_one_home Presence
-    Periods during them."""
+    """What a run reads once and every day it writes draws on: the heated hours
+    (naive UTC) before those days, and the no_one_home Presence Periods during
+    them."""
 
-    boost_starts: list[comfort.BoostStart]
     heating_on_hours: list[datetime]
     no_one_home: list[tuple[datetime, datetime | None]]
 
@@ -39,9 +37,9 @@ class ComfortDayJob:
         self._windows = comfort_windows or ComfortWindows()
 
     def refresh(self, now: datetime | None = None) -> None:
-        """Writes the local days from the newest stored one to today, each learned
-        from the boosts of the two years, and the heated hours of the year, before
-        it. So today is rewritten on every run, a finished day one last time on
+        """Writes the local days from the newest stored one to today, each starting
+        at the value in force at the end of the day before and counting the heated
+        hours of the year before it. So today is rewritten on every run, a finished day one last time on
         the first run after it ends, and older days never. An empty table is
         filled from the first thermostat poll's day; a day with no polls gets no
         row."""
@@ -50,33 +48,25 @@ class ComfortDayJob:
         first_day = self._first_day_to_write()
         if first_day is None:
             return
-        evidence_start = _day_start(first_day) - BOOST_WINDOW
+        evidence_start = _day_start(first_day) - COUNTED_HOURS_WINDOW
         evidence_end = _day_start(today)
-        # From one boost gap earlier, so a boost already running as the earliest
-        # window opens is not taken for a new one.
-        boost_starts = comfort.boost_starts(
-            self._mariadb.read_boost_polls(
-                evidence_start - comfort.BOOST_GAP, evidence_end
-            )
-        )
         heating_on_hours = self._mariadb.read_heating_on_hours(
             evidence_start, evidence_end
         )
         evidence = _Evidence(
-            boost_starts=boost_starts,
             heating_on_hours=heating_on_hours,
             no_one_home=self._mariadb.read_no_one_home_periods(
                 _day_start(first_day), _day_start(today + timedelta(days=1))
             ),
         )
-        carried = self._mariadb.read_latest_comfort_temperature(first_day)
+        previous = self._mariadb.read_previous_comfort_day(first_day)
         rows = []
         day = first_day
         while day <= today:
-            row = self._comfort_day(day, evidence, carried, now)
+            row = self._comfort_day(day, evidence, previous, now)
             if row is not None:
                 rows.append(row)
-                carried = row.comfort_temp
+                previous = row
             day += timedelta(days=1)
         self._mariadb.write_comfort_days(rows)
         logger.info(
@@ -97,7 +87,7 @@ class ComfortDayJob:
         self,
         day: date,
         evidence: _Evidence,
-        carried: float | None,
+        previous: ComfortDayRecord | None,
         now: datetime,
     ) -> ComfortDayRecord | None:
         day_start = _day_start(day)
@@ -121,39 +111,55 @@ class ComfortDayJob:
             for started, ended in evidence.no_one_home
             if started < day_end and (ended is None or ended > day_start)
         ]
-        days_with_heating = comfort.heating_days(
-            hour for hour in evidence.heating_on_hours if hour < day_start
-        )
-        weighted_start_temps = [
-            (
-                room,
-                comfort.boost_weight(
-                    days_with_heating, local_day.to_local_date(at), day
-                ),
-            )
-            for at, room in evidence.boost_starts
-            if day_start - BOOST_WINDOW <= at < day_start
-        ]
         hours = comfort.counted_hours(
             hour
             for hour in evidence.heating_on_hours
             if day_start - COUNTED_HOURS_WINDOW <= hour < day_start
         )
-        comfort_temp = comfort.comfort_temperature(weighted_start_temps, carried)
+        comfort_temp = comfort.value_in_force_at_end(previous)
+        opens, closes = room_forecast.comfort_window(self._windows, day)
+        raised_at = comfort.held_boost_start(
+            thermostat_polls, comfort_temp, (_naive_utc(opens), _naive_utc(closes))
+        )
         return ComfortDayRecord(
             date=day,
             comfort_temp=comfort_temp,
-            boost_starts=len(weighted_start_temps),
+            boost_starts=len(
+                [
+                    start
+                    for start, _ in comfort.boost_starts(
+                        (poll.polled_at, poll.current_temp)
+                        for poll in thermostat_polls
+                        if poll.boost_active
+                    )
+                    if start >= day_start
+                ]
+            ),
             counted_hours=",".join(str(hour) for hour in hours),
-            minutes_below=(
-                None
-                if comfort_temp is None
-                else comfort.minutes_below(
-                    polls, comfort_temp, hours, no_one_home_today
-                )
+            minutes_below=comfort.minutes_below(
+                polls, comfort_temp, hours, no_one_home_today, raised_at
             ),
             computed_at=now.replace(tzinfo=None),
+            raised_at=raised_at,
+            day_kind=None if raised_at is None else "held_boost",
+            quiet_count=0 if raised_at is not None else _quiet_count_at_end(previous),
         )
+
+
+def _quiet_count_at_end(row: ComfortDayRecord | None) -> int:
+    """The Quiet Days counted at the end of a stored day: none after a raise, with
+    no row or before the stepped rule."""
+    if row is None or row.raised_at is not None or row.quiet_count is None:
+        return 0
+    return row.quiet_count
+
+
+def _naive_utc(local: datetime) -> datetime:
+    return (
+        local.replace(tzinfo=local_day.get_local_timezone())
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
 
 
 def _day_start(day: date) -> datetime:

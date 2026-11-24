@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 from octopus_app.data.comfort_job import ComfortDayJob
+from octopus_app.data.model import ComfortDayRecord
 from octopus_app.data.mysql import model
 from octopus_app.data.mysql.client import (
     MariaDBClient,
@@ -17,20 +18,22 @@ def _at(day: date, offset: timedelta = EVENING) -> datetime:
     return datetime(day.year, day.month, day.day) + offset
 
 
-def _seed_polls(
+def _seed_polls(  # pylint: disable=too-many-arguments
     client: MariaDBClient,
     start: datetime,
     *,
     room: float | None,
     count: int = 1,
     boost: bool = False,
+    target: float | None = None,
 ) -> None:
-    """`count` two-minute polls from `start` with the room at `room`."""
+    """`count` two-minute polls from `start` with the room at `room`; Hive's
+    target is `target`, else 20.0 in a boost and the 7.0 frost setting outside."""
     rows = [
         {
             "polled_at": start + timedelta(minutes=2 * i),
             "current_temp": room,
-            "target_temp": 20.0 if boost else 7.0,
+            "target_temp": target if target is not None else (20.0 if boost else 7.0),
             "mode": "SCHEDULE",
             "state": "ON" if boost else "OFF",
             "boost_active": boost,
@@ -41,15 +44,50 @@ def _seed_polls(
         session.execute(heating_status_table.insert(), rows)
 
 
-def _seed_boosts_on_earlier_days(
-    client: MariaDBClient, rooms: list[float], *, before: date = TODAY
+def _seed_stored_comfort(
+    client: MariaDBClient, day: date, comfort_temp: float | None
 ) -> None:
-    """One boost on each of the days before `before`, newest first, starting
-    with the room at each of `rooms`."""
-    for days_ago, room in enumerate(rooms, start=1):
-        _seed_polls(
-            client, _at(before - timedelta(days=days_ago)), room=room, boost=True
-        )
+    """A comfort_day row for `day`, settled as the old rule left it (no quiet
+    count), at `comfort_temp`."""
+    client.write_comfort_days(
+        [
+            ComfortDayRecord(
+                date=day,
+                comfort_temp=comfort_temp,
+                boost_starts=0,
+                counted_hours="",
+                minutes_below=None,
+                computed_at=_at(day + timedelta(days=1), timedelta(0)),
+            )
+        ]
+    )
+
+
+def _seed_stepped_comfort(  # pylint: disable=too-many-arguments
+    client: MariaDBClient,
+    day: date,
+    comfort_temp: float,
+    *,
+    quiet_count: int = 0,
+    raised_at: datetime | None = None,
+    day_kind: str | None = None,
+) -> None:
+    """A comfort_day row for `day`, settled by the stepped rule."""
+    client.write_comfort_days(
+        [
+            ComfortDayRecord(
+                date=day,
+                comfort_temp=comfort_temp,
+                boost_starts=0,
+                counted_hours="",
+                minutes_below=None,
+                computed_at=_at(day + timedelta(days=1), timedelta(0)),
+                raised_at=raised_at,
+                day_kind=day_kind,
+                quiet_count=quiet_count,
+            )
+        ]
+    )
 
 
 def _seed_heating_hour(client: MariaDBClient, hour_start: datetime) -> None:
@@ -71,99 +109,6 @@ def _seed_heating_hour(client: MariaDBClient, hour_start: datetime) -> None:
 def _comfort_days(client: MariaDBClient) -> dict[date, model.comfort_day]:
     with client.session_read_scope() as session:
         return {row.date: row for row in session.query(model.comfort_day)}
-
-
-def test_the_comfort_temperature_is_the_median_room_temperature_at_boost_starts(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given five boosts on earlier days that started at these room temperatures
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-
-    # When the job runs
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    # Then today's comfort temperature is their median
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.comfort_temp == 17.0
-    assert today.boost_starts == 5
-
-
-def test_a_boost_today_is_not_evidence_for_today(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given five earlier boosts, and a much warmer boost earlier today
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
-    _seed_polls(mariadb_client, _at(TODAY), room=25.0, boost=True)
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.comfort_temp == 17.0
-    assert today.boost_starts == 5
-
-
-def test_boost_polls_within_ten_minutes_are_one_boost_and_a_longer_gap_starts_another(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given four earlier one-poll boosts, and yesterday a boost of six polls that
-    # warmed the room from 15.0, a poll 10 minutes after its last, and another
-    # boost 12 minutes after that
-    _seed_boosts_on_earlier_days(
-        mariadb_client, [18.0, 18.0, 18.0, 18.0], before=TODAY - timedelta(days=1)
-    )
-    yesterday = _at(TODAY - timedelta(days=1))
-    for i in range(6):
-        _seed_polls(
-            mariadb_client,
-            yesterday + timedelta(minutes=2 * i),
-            room=15.0 + i,
-            boost=True,
-        )
-    _seed_polls(
-        mariadb_client, yesterday + timedelta(minutes=20), room=21.0, boost=True
-    )
-    _seed_polls(
-        mariadb_client, yesterday + timedelta(minutes=32), room=30.0, boost=True
-    )
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    # Then yesterday gave two boost starts, at 15.0 and 30.0: six in all
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.boost_starts == 6
-    assert today.comfort_temp == 18.0
-
-
-def test_a_boost_from_last_season_is_used_and_one_over_two_years_old_is_not(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given four recent boosts, one 91 days ago, and a cold one 731 days ago
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.5, 20.0])
-    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=91)), room=17.0, boost=True)
-    _seed_polls(mariadb_client, _at(TODAY - timedelta(days=731)), room=5.0, boost=True)
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.boost_starts == 5
-    assert today.comfort_temp == 17.0
-
-
-def test_with_under_five_boosts_and_nothing_learned_before_there_is_no_comfort_temperature(
-    mariadb_client: MariaDBClient,
-) -> None:
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5])
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.comfort_temp is None
-    assert today.boost_starts == 4
-    assert today.minutes_below is None
 
 
 def test_nothing_is_written_when_hive_apps_table_does_not_exist(
@@ -210,7 +155,7 @@ def test_yesterday_is_settled_on_the_first_run_after_midnight(
 def test_a_settled_day_is_never_rewritten_when_its_evidence_changes(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given a day settled with no comfort temperature, two days ago
+    # Given a day settled two days ago
     settled = TODAY - timedelta(days=2)
     for day in (settled, TODAY - timedelta(days=1), TODAY):
         _seed_polls(mariadb_client, _at(day), room=18.0)
@@ -218,59 +163,30 @@ def test_a_settled_day_is_never_rewritten_when_its_evidence_changes(
     job.refresh(NOW - timedelta(days=2))
     job.refresh(NOW - timedelta(days=1))
 
-    # When five boosts from before it turn up and the job runs again
-    _seed_boosts_on_earlier_days(
-        mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0], before=settled
+    # When a boost on that day turns up and the job runs again
+    _seed_polls(
+        mariadb_client, _at(settled, timedelta(hours=19)), room=16.0, boost=True
     )
     job.refresh(NOW)
 
-    # Then the settled day is as it was, while today learns from them
+    # Then the settled day is as it was
     days = _comfort_days(mariadb_client)
-    assert days[settled].comfort_temp is None
     assert days[settled].computed_at == datetime(2026, 11, 11, 20, 0)
-    assert days[TODAY].comfort_temp == 17.0
+    assert days[settled].boost_starts == 0
 
 
-def test_the_first_run_fills_every_day_back_to_the_first_poll_from_its_own_past(
+def test_the_first_run_fills_every_day_back_to_the_first_poll(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given an empty table, and a boost on each of the last ten days: at 20 C ten
-    # days ago, one degree cooler each day, down to 11 C yesterday
-    _seed_boosts_on_earlier_days(mariadb_client, [float(t) for t in range(11, 21)])
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+    # Given an empty table, and polls on each of the last ten days and today
+    for days_ago in range(10, -1, -1):
+        _seed_polls(mariadb_client, _at(TODAY - timedelta(days=days_ago)), room=18.0)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
-    # Then all eleven days have a row, each learned only from the boosts before it
+    # Then all eleven days have a row
     days = _comfort_days(mariadb_client)
     assert sorted(days) == [TODAY - timedelta(days=n) for n in range(10, -1, -1)]
-    assert days[TODAY - timedelta(days=6)].comfort_temp is None  # four boosts
-    assert days[TODAY - timedelta(days=5)].comfort_temp == 18.0  # 20 19 18 17 16
-    assert days[TODAY].comfort_temp == 15.5
-
-
-def test_with_under_five_boosts_the_last_learned_comfort_temperature_carries_on(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given a comfort temperature of 17.0 learned five days ago from boosts that
-    # have since left the two-year window
-    learned_on = TODAY - timedelta(days=5)
-    _seed_boosts_on_earlier_days(
-        mariadb_client,
-        [16.0, 16.5, 17.0, 17.5, 20.0],
-        before=TODAY - timedelta(days=730),
-    )
-    _seed_polls(mariadb_client, _at(learned_on), room=18.0)
-    job = ComfortDayJob(mariadb_client)
-    job.refresh(NOW - timedelta(days=5))
-    assert _comfort_days(mariadb_client)[learned_on].comfort_temp == 17.0
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-
-    job.refresh(NOW)
-
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.boost_starts == 0
-    assert today.comfort_temp == 17.0
 
 
 def test_a_day_with_no_thermostat_polls_gets_no_row(
@@ -287,9 +203,9 @@ def test_a_day_with_no_thermostat_polls_gets_no_row(
 def test_minutes_below_comfort_are_counted_in_the_counted_hours(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given a comfort temperature of 17.0, heating in the 06:00 and 18:00 hours
+    # Given yesterday's stored 17.0, heating in the 06:00 and 18:00 hours
     # last week, and today ten polls at 16.5 C in the 18:00 hour
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     last_week = TODAY - timedelta(days=7)
     _seed_heating_hour(mariadb_client, _at(last_week))
     _seed_heating_hour(mariadb_client, _at(last_week, timedelta(hours=6)))
@@ -305,7 +221,7 @@ def test_minutes_below_comfort_are_counted_in_the_counted_hours(
 def test_a_cold_room_outside_the_counted_hours_adds_no_minutes(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
     _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=3)), room=12.0, count=10)
 
@@ -317,7 +233,7 @@ def test_a_cold_room_outside_the_counted_hours_adds_no_minutes(
 def test_a_room_at_the_comfort_temperature_or_unread_adds_no_minutes(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
     _seed_polls(mariadb_client, _at(TODAY), room=17.0, count=5)
     _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=18, minutes=10)), room=None)
@@ -331,7 +247,7 @@ def test_an_hour_heated_last_season_is_counted_and_one_over_a_year_ago_is_not(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given heating in the 18:00 hour 91 days ago and the 06:00 hour 366 days ago
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     # (91 days ago was in British Summer Time: 17:00 UTC is 18:00 in London)
     _seed_heating_hour(
         mariadb_client, _at(TODAY - timedelta(days=91), timedelta(hours=17))
@@ -354,9 +270,7 @@ def test_counted_hours_follow_london_time_in_summer(
     # Given a summer day, with heating at 17:00 UTC (18:00 in London) last week
     summer_day = date(2026, 7, 15)
     five_pm_utc = timedelta(hours=17)
-    _seed_boosts_on_earlier_days(
-        mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0], before=summer_day
-    )
+    _seed_stored_comfort(mariadb_client, summer_day - timedelta(days=1), 17.0)
     _seed_heating_hour(mariadb_client, _at(summer_day - timedelta(days=7), five_pm_utc))
     _seed_polls(mariadb_client, _at(summer_day, five_pm_utc), room=16.5, count=10)
 
@@ -365,32 +279,6 @@ def test_counted_hours_follow_london_time_in_summer(
     today = _comfort_days(mariadb_client)[summer_day]
     assert today.counted_hours == "18"
     assert today.minutes_below == 20
-
-
-def test_a_boost_running_across_the_start_of_the_window_is_not_a_new_boost(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given four boosts in the window, and one that started two minutes before
-    # the window opened and was still running as it did
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5])
-    window_opens = _at(TODAY - timedelta(days=730), timedelta(0))
-    _seed_polls(
-        mariadb_client,
-        window_opens - timedelta(minutes=2),
-        room=10.0,
-        count=2,
-        boost=True,
-    )
-    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
-    job = ComfortDayJob(mariadb_client)
-    job.refresh(NOW)
-
-    # When a later run reads only today's window
-    job.refresh(NOW + timedelta(hours=1))
-
-    today = _comfort_days(mariadb_client)[TODAY]
-    assert today.boost_starts == 4
-    assert today.comfort_temp is None
 
 
 def test_a_settled_day_stays_settled_while_no_later_day_has_polls(
@@ -403,52 +291,15 @@ def test_a_settled_day_stays_settled_while_no_later_day_has_polls(
     settled_at = datetime(2026, 11, 12, 0, 30, tzinfo=UTC)
     job.refresh(settled_at)
 
-    # When evidence from before yesterday turns up and the job runs again
-    _seed_boosts_on_earlier_days(
-        mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0], before=yesterday
+    # When a boost on yesterday turns up and the job runs again
+    _seed_polls(
+        mariadb_client, _at(yesterday, timedelta(hours=19)), room=16.0, boost=True
     )
     job.refresh(NOW)
 
     row = _comfort_days(mariadb_client)[yesterday]
     assert row.computed_at == settled_at.replace(tzinfo=None)
-    assert row.comfort_temp is None
-
-
-def _seed_old_and_new_boosts(client: MariaDBClient) -> None:
-    """Four boosts at 16.0 C on the days 100 to 97 days ago, and two at 19.0 C
-    on the last two days."""
-    _seed_boosts_on_earlier_days(
-        client, [16.0, 16.0, 16.0, 16.0], before=TODAY - timedelta(days=96)
-    )
-    _seed_boosts_on_earlier_days(client, [19.0, 19.0])
-    _seed_polls(client, _at(TODAY), room=18.0)
-
-
-def test_a_boost_sixty_heating_days_old_counts_half_as_much_as_a_new_one(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given four old boosts at 16.0 C, then 60 days with the heating on, then two
-    # new boosts at 19.0 C
-    _seed_old_and_new_boosts(mariadb_client)
-    for days_ago in range(90, 30, -1):
-        _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=days_ago)))
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    # Then four at half weight balance two at full weight: the midpoint
-    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 17.5
-
-
-def test_days_without_heating_do_not_age_a_boost(
-    mariadb_client: MariaDBClient,
-) -> None:
-    # Given the same boosts with no heating at all in between (a summer)
-    _seed_old_and_new_boosts(mariadb_client)
-
-    ComfortDayJob(mariadb_client).refresh(NOW)
-
-    # Then all six weigh the same, and the plain median is 16.0
-    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0
+    assert row.boost_starts == 0
 
 
 def _seed_presence_period(
@@ -473,7 +324,7 @@ def _seed_presence_period(
 def _seed_cold_evening(client: MariaDBClient, day: date = TODAY) -> None:
     """A comfort temperature of 17.0, the 18:00 hour counted, and on `day` ten
     polls at 16.5 C from 18:00 to 18:18."""
-    _seed_boosts_on_earlier_days(client, [16.0, 16.5, 17.0, 17.5, 20.0], before=day)
+    _seed_stored_comfort(client, day - timedelta(days=1), 17.0)
     _seed_heating_hour(client, _at(day - timedelta(days=7)))
     _seed_polls(client, _at(day), room=16.5, count=10)
 
@@ -594,19 +445,225 @@ def test_a_day_settled_before_presence_rows_existed_is_unchanged(
     assert row.minutes_below == 20
 
 
-def test_a_boost_started_while_no_one_is_home_still_counts_as_evidence(
+def test_with_no_earlier_row_the_first_day_starts_at_the_floor(
     mariadb_client: MariaDBClient,
 ) -> None:
-    # Given five boosts on earlier days, all while no one was home
-    _seed_presence_period(
-        mariadb_client, "no_one_home", _at(TODAY - timedelta(days=6)), _at(TODAY)
-    )
-    _seed_boosts_on_earlier_days(mariadb_client, [16.0, 16.5, 17.0, 17.5, 20.0])
+    # Given no comfort_day row at all, and a poll today
     _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+
+    # When the first day is written
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then it starts at the 16 C floor
+    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0
+
+
+def test_the_first_day_after_the_change_starts_from_the_old_value_rounded_up(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday's row was settled by the old rule at 16.8
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 16.8)
+    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+
+    # When today is written
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then today starts at 17.0 with no Quiet Days counted
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.comfort_temp == 17.0
+    assert today.quiet_count == 0
+
+
+HELD = timedelta(hours=19)  # inside the weekday Comfort Window (07:30 to 23:00)
+
+
+def _seed_held_boost(
+    client: MariaDBClient,
+    day: date,
+    *,
+    comfort: float = 17.0,
+    room: float = 16.7,
+    at: timedelta = HELD,
+) -> None:
+    """Hive holding `comfort` for ten minutes, then a boost started with the room
+    at `room`, `at` into `day`."""
+    _seed_polls(
+        client,
+        _at(day, at - timedelta(minutes=10)),
+        room=comfort,
+        count=5,
+        target=comfort,
+    )
+    _seed_polls(client, _at(day, at), room=room, count=3, boost=True)
+
+
+def test_a_held_boost_raises_the_day_and_the_next_day_starts_raised(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given today holds 17.0, and a boost starts in the window at a room of 16.7
+    # with Hive's target at 17.0 just before it
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY)
+    job = ComfortDayJob(mariadb_client)
+
+    # When the job runs today, and again tomorrow morning
+    job.refresh(NOW)
+    tomorrow = TODAY + timedelta(days=1)
+    _seed_polls(mariadb_client, _at(tomorrow, timedelta(hours=8)), room=18.0)
+    job.refresh(datetime(2026, 11, 13, 9, 0, tzinfo=UTC))
+
+    # Then today was raised at the boost, and tomorrow starts at 17.5
+    days = _comfort_days(mariadb_client)
+    assert days[TODAY].comfort_temp == 17.0
+    assert days[TODAY].raised_at == _at(TODAY, HELD)
+    assert days[TODAY].day_kind == "held_boost"
+    assert days[TODAY].quiet_count == 0
+    assert days[tomorrow].comfort_temp == 17.5
+
+
+def test_a_second_held_boost_the_same_day_does_not_raise_again(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a Held Boost at 19:00 against 17.0, and another at 21:00 once Hive
+    # holds the raised 17.5
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY)
+    _seed_held_boost(
+        mariadb_client, TODAY, comfort=17.5, room=17.2, at=timedelta(hours=21)
+    )
+    job = ComfortDayJob(mariadb_client)
+
+    # When the job runs today, and again tomorrow morning
+    job.refresh(datetime(2026, 11, 12, 22, 0, tzinfo=UTC))
+    tomorrow = TODAY + timedelta(days=1)
+    _seed_polls(mariadb_client, _at(tomorrow, timedelta(hours=8)), room=18.0)
+    job.refresh(datetime(2026, 11, 13, 9, 0, tzinfo=UTC))
+
+    # Then today was raised once, at the first, and tomorrow starts at 17.5
+    days = _comfort_days(mariadb_client)
+    assert days[TODAY].raised_at == _at(TODAY, HELD)
+    assert days[tomorrow].comfort_temp == 17.5
+
+
+def test_a_boost_with_the_room_more_than_half_a_degree_below_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given two Quiet Days counted, and today a boost at a room of 16.4 against
+    # Hive holding 17.0 (a late warm-up)
+    _seed_stepped_comfort(
+        mariadb_client, TODAY - timedelta(days=1), 17.0, quiet_count=2
+    )
+    _seed_held_boost(mariadb_client, TODAY, room=16.4)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
-    # Then their Boost Starts still set today's comfort temperature
+    # Then it is not held, and the count is unchanged
     today = _comfort_days(mariadb_client)[TODAY]
-    assert today.boost_starts == 5
-    assert today.comfort_temp == 17.0
+    assert today.raised_at is None
+    assert today.day_kind is None
+    assert today.quiet_count == 2
+
+
+def test_a_boost_outside_the_comfort_window_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 at 06:00 during a pre-heat, before the 07:30
+    # window opens, and a boost then at a room of 16.8
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=16.8, at=timedelta(hours=6))
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at is None
+
+
+def test_a_boost_while_hive_holds_another_target_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given today's Comfort Temperature is 17.0 but Hive holds 10.0 (the Away
+    # Override, a dry run or a manual change), and a boost at a room of 16.8
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, HELD - timedelta(minutes=10)),
+        room=16.9,
+        count=5,
+        target=10.0,
+    )
+    _seed_polls(mariadb_client, _at(TODAY, HELD), room=16.8, count=3, boost=True)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at is None
+
+
+def test_there_is_no_ceiling_on_a_raise(mariadb_client: MariaDBClient) -> None:
+    # Given today holds 20.0 and a Held Boost at a room of 19.8
+    _seed_stepped_comfort(mariadb_client, TODAY - timedelta(days=1), 20.0)
+    _seed_held_boost(mariadb_client, TODAY, comfort=20.0, room=19.8)
+    job = ComfortDayJob(mariadb_client)
+
+    # When the job runs today, and again tomorrow morning
+    job.refresh(NOW)
+    tomorrow = TODAY + timedelta(days=1)
+    _seed_polls(mariadb_client, _at(tomorrow, timedelta(hours=8)), room=20.0)
+    job.refresh(datetime(2026, 11, 13, 9, 0, tzinfo=UTC))
+
+    # Then tomorrow starts at 20.5
+    assert _comfort_days(mariadb_client)[tomorrow].comfort_temp == 20.5
+
+
+def test_minutes_below_compare_each_reading_with_the_value_in_force(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the 18:00 and 19:00 hours are counted, Hive holds 17.0 with the room at
+    # 17.0 from 18:50, a Held Boost at 19:00 at a room of 16.7 for three polls,
+    # and the room at 17.2 for five polls from 19:10
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    last_week = TODAY - timedelta(days=7)
+    _seed_heating_hour(mariadb_client, _at(last_week))
+    _seed_heating_hour(mariadb_client, _at(last_week, HELD))
+    _seed_held_boost(mariadb_client, TODAY, room=16.7)
+    _seed_polls(
+        mariadb_client, _at(TODAY, HELD + timedelta(minutes=10)), room=17.2, count=5
+    )
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then nothing before 19:00 is below 17.0, and all eight polls from 19:00 are
+    # below 17.5: 16 minutes
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 16
+
+
+def test_boost_starts_count_the_days_own_boosts(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a boost running across midnight into today, and today a boost of six
+    # polls from 18:00, a boost poll 10 minutes after its last (the same boost),
+    # one 12 minutes after that (a new one) and another at 20:00
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, -timedelta(minutes=4)),
+        room=16.0,
+        count=4,
+        boost=True,
+    )
+    _seed_polls(mariadb_client, _at(TODAY), room=16.0, count=6, boost=True)
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, timedelta(hours=18, minutes=20)),
+        room=17.0,
+        boost=True,
+    )
+    _seed_polls(
+        mariadb_client,
+        _at(TODAY, timedelta(hours=18, minutes=32)),
+        room=17.0,
+        boost=True,
+    )
+    _seed_polls(mariadb_client, _at(TODAY, timedelta(hours=20)), room=17.0, boost=True)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then today has three Boost Starts
+    assert _comfort_days(mariadb_client)[TODAY].boost_starts == 3
