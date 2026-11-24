@@ -10,16 +10,16 @@ repos:
       - id: debug-statements
       - id: check-toml
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.33
+    rev: 0.13.9
     hooks:
       - id: uv-lock
       - id: uv-audit
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: '0.26'
+    rev: 'v0.27'
     hooks:
       - id: validate-pyproject
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.1
+    rev: v2.4.1
     hooks:
       - id: mypy
         additional_dependencies: [
@@ -38,17 +38,17 @@ repos:
         # mypy step, which has never type-checked tests either.
         exclude: (^|/)tests/
   - repo: https://github.com/pycqa/isort
-    rev: 8.0.1
+    rev: 9.0.2
     hooks:
       - id: isort
         name: isort (python)
         args: ["--profile", "black"]
   - repo: https://github.com/psf/black
-    rev: 26.5.1
+    rev: 26.10.1
     hooks:
       - id: black
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.0
+    rev: v0.17.6
     hooks:
       - id: ruff
         args: [--fix]
@@ -70,7 +70,7 @@ repos:
       - id: codespell
         exclude: ^uv\.lock$
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.49.1
+    rev: v0.50.1
     hooks:
       - id: markdownlint
   - repo: https://github.com/tcort/markdown-link-check
