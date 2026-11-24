@@ -806,3 +806,16 @@ def test_at_the_floor_three_quiet_days_leave_it_at_sixteen(
     assert days[TODAY - timedelta(days=1)].quiet_count == 3
     assert days[TODAY].comfort_temp == 16.0
     assert days[TODAY].quiet_count == 0
+
+
+def test_an_old_value_below_the_floor_starts_the_next_day_at_sixteen(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday's row was settled by the old rule at 15.2
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 15.2)
+    _seed_polls(mariadb_client, _at(TODAY), room=18.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then today starts at the 16 C floor, not 15.5
+    assert _comfort_days(mariadb_client)[TODAY].comfort_temp == 16.0

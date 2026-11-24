@@ -5,6 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import ceil
+from typing import Literal
 
 from common import local_day
 from octopus_app.data.heating_intervals import POLL_MINUTES
@@ -14,6 +15,7 @@ COUNTED_HOURS_WINDOW_DAYS = 365
 BOOST_GAP = timedelta(minutes=10)
 # Deliberately hardcoded, not configurable (ADR-0040).
 COMFORT_FLOOR = 16.0
+# The gas dashboard's comfort query (query D) repeats this step as 0.5.
 COMFORT_STEP = 0.5
 HELD_MARGIN = 0.5
 QUIET_DAYS_PER_STEP = 3
@@ -21,6 +23,7 @@ QUIET_MINUTES = 120
 
 BoostStart = tuple[datetime, float]
 Period = tuple[datetime, datetime | None]  # (started_at, ended_at); None is open
+DayKind = Literal["held_boost", "quiet"] | None
 
 
 def _holds(target: float | None, comfort_temp: float) -> bool:
@@ -35,6 +38,12 @@ def _within(at: datetime, periods: Iterable[Period]) -> bool:
     )
 
 
+def _starts_boost(previous_boost: datetime | None, polled_at: datetime) -> bool:
+    """Whether a boost poll starts a boost: more than a boost gap after the
+    previous boost poll, or the first one read."""
+    return previous_boost is None or polled_at - previous_boost > BOOST_GAP
+
+
 def boost_starts(
     boost_polls: Iterable[tuple[datetime, float | None]],
 ) -> list[BoostStart]:
@@ -45,7 +54,7 @@ def boost_starts(
     starts: list[BoostStart] = []
     previous: datetime | None = None
     for polled_at, room in boost_polls:
-        if (previous is None or polled_at - previous > BOOST_GAP) and room is not None:
+        if _starts_boost(previous, polled_at) and room is not None:
             starts.append((polled_at, room))
         previous = polled_at
     return starts
@@ -78,9 +87,7 @@ def held_boost_start(
     previous_boost: datetime | None = None
     for poll in polls:
         if poll.boost_active:
-            starts = (
-                previous_boost is None or poll.polled_at - previous_boost > BOOST_GAP
-            )
+            starts = _starts_boost(previous_boost, poll.polled_at)
             previous_boost = poll.polled_at
             if (
                 starts
@@ -125,13 +132,14 @@ def round_up_to_half(temperature: float) -> float:
 def value_in_force_at_end(row: ComfortDayRecord | None) -> float:
     """The comfort temperature in force at the end of a stored day: raised by a
     step if it was raised; a row from before the stepped rule (no quiet count)
-    rounded up to a half degree; the floor with no row."""
+    rounded up to a half degree, but never below the floor; the floor with no
+    row."""
     if row is None or row.comfort_temp is None:
         return COMFORT_FLOOR
     if row.raised_at is not None:
         return row.comfort_temp + COMFORT_STEP
     if row.quiet_count is None:
-        return round_up_to_half(row.comfort_temp)
+        return max(COMFORT_FLOOR, round_up_to_half(row.comfort_temp))
     return row.comfort_temp
 
 
@@ -156,7 +164,7 @@ class DayOutcome:
 
     comfort_temp: float
     raised_at: datetime | None
-    day_kind: str | None
+    day_kind: DayKind
     quiet_count: int
 
 

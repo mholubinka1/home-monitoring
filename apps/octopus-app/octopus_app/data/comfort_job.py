@@ -37,12 +37,12 @@ class ComfortDayJob:
         self._windows = comfort_windows or ComfortWindows()
 
     def refresh(self, now: datetime | None = None) -> None:
-        """Writes the local days from the newest stored one to today, each starting
-        at the value in force at the end of the day before and counting the heated
-        hours of the year before it. So today is rewritten on every run, a finished day one last time on
-        the first run after it ends, and older days never. An empty table is
-        filled from the first thermostat poll's day; a day with no polls gets no
-        row."""
+        """Writes the local days from the newest stored one to today, each
+        starting at the value in force at the end of the day before and counting
+        the heated hours of the year before it. So today is rewritten on every
+        run, a finished day one last time on the first run after it ends, and
+        older days never. An empty table is filled from the first thermostat
+        poll's day; a day with no polls gets no row."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         today = local_day.to_local_date(now)
         first_day = self._first_day_to_write()
