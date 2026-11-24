@@ -290,7 +290,7 @@ def test_the_comfort_line_is_a_step_read_from_the_comfort_days() -> None:
 def test_the_comfort_line_reaches_the_end_of_a_range_that_ends_part_way_through_a_day() -> (
     None
 ):
-    closing_point = _query(TEMPERATURES, "D").split("UNION ALL")[1]
+    closing_point = _query(TEMPERATURES, "D").split("UNION ALL")[-1]
 
     # The newest day that starts within the range is held to its own end, or to
     # the end of the range when that comes first (a range ending "now").
@@ -303,6 +303,21 @@ def test_the_comfort_line_reaches_the_end_of_a_range_that_ends_part_way_through_
         r"LEAST\(\s*CONVERT_TZ\(CAST\(c\.date AS DATETIME\) \+ INTERVAL 1 DAY, "
         r"'\$\{timezone\}', 'UTC'\),\s*\$__timeTo\(\)\s*\) AS time",
         closing_point,
+    )
+
+
+def test_the_comfort_line_steps_up_half_a_degree_at_a_held_boost() -> None:
+    parts = _query(TEMPERATURES, "D").split("UNION ALL")
+    raise_point, closing_point = parts[1], parts[-1]
+
+    # A raise part-way through a day is a point at its own time, half a degree up
+    assert "c.raised_at AS time" in raise_point
+    assert "c.comfort_temp + 0.5 AS comfort" in raise_point
+    assert "c.raised_at IS NOT NULL" in raise_point
+    # and the closing point carries the value in force at the end of the range
+    assert (
+        "c.comfort_temp + IF(c.raised_at IS NULL OR c.raised_at > $__timeTo(), 0, 0.5)"
+        " AS comfort" in closing_point
     )
 
 

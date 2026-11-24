@@ -46,6 +46,7 @@ from octopus_app.data.model import (
     StoredHeatingModel,
     StoredThermalModel,
     ThermalModelRecord,
+    ThermostatPoll,
     as_energy_char,
     energy_from_char,
 )
@@ -123,6 +124,7 @@ heating_status_table = Table(
     Column("boost_ends_at", DateTime),
     Column("schedule", JSON),
     Column("working", Boolean),
+    Column("online", Boolean),
     schema="octopus",
 )
 
@@ -847,35 +849,32 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             for row in rows
         ]
 
-    def read_boost_polls(
+    def read_comfort_polls(
         self, start: datetime, end: datetime
-    ) -> list[tuple[datetime, float | None]]:
-        """The (time, room temperature) of the thermostat polls in [start, end)
-        (naive UTC) with boost active, oldest first."""
+    ) -> list[ThermostatPoll]:
+        """The thermostat polls in [start, end) (naive UTC), oldest first, with
+        the target, state and boost the comfort job judges them by."""
         hs = heating_status_table
         rows = self._read_heating_status(
             hs.c.polled_at,
             hs.c.current_temp,
-            where=(
-                hs.c.polled_at >= start,
-                hs.c.polled_at < end,
-                hs.c.boost_active.is_(True),
-            ),
-        )
-        return [(row.polled_at, row.current_temp) for row in rows]
-
-    def read_room_temperatures(
-        self, start: datetime, end: datetime
-    ) -> list[tuple[datetime, float | None]]:
-        """The (time, room temperature) of the thermostat polls in [start, end)
-        (naive UTC), oldest first."""
-        hs = heating_status_table
-        rows = self._read_heating_status(
-            hs.c.polled_at,
-            hs.c.current_temp,
+            hs.c.target_temp,
+            hs.c.state,
+            hs.c.boost_active,
+            hs.c.online,
             where=(hs.c.polled_at >= start, hs.c.polled_at < end),
         )
-        return [(row.polled_at, row.current_temp) for row in rows]
+        return [
+            ThermostatPoll(
+                row.polled_at,
+                row.current_temp,
+                row.target_temp,
+                row.state,
+                row.boost_active,
+                row.online,
+            )
+            for row in rows
+        ]
 
     def read_no_one_home_periods(
         self, start: datetime, end: datetime
@@ -1163,18 +1162,18 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             )
         return None if row is None else (row[0], row[1])
 
-    def read_latest_comfort_temperature(self, before: date) -> float | None:
-        """The comfort temperature of the newest comfort_day before a date that
-        has one."""
+    def read_previous_comfort_day(self, before: date) -> ComfortDayRecord | None:
+        """The newest stored comfort_day before a date that has a comfort
+        temperature."""
         cd = model.comfort_day
         with self.session_read_scope() as session:
             row = (
-                session.query(cd.comfort_temp)
+                session.query(cd)
                 .filter(cd.date < before, cd.comfort_temp.isnot(None))
                 .order_by(cd.date.desc())
                 .first()
             )
-        return None if row is None or row[0] is None else float(row[0])
+            return None if row is None else _record_of(ComfortDayRecord, row)
 
     def write_comfort_days(self, rows: list[ComfortDayRecord]) -> None:
         """Writes each comfort_day row over any stored row for its date."""

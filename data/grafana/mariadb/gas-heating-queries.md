@@ -56,8 +56,10 @@ thermal_model             (octopus) id, fitted_at, usable, unusable_reason, loss
                                     backtest_worst_error, step_minutes (10; NULL when fitted hourly),
                                     warm_up_delay_minutes, warm_up_delay_source ('learned', 'carried' or 'none'),
                                     heating_starts, ...
-comfort_day               (octopus) date (London day, key), comfort_temp (C, NULL until learned), boost_starts,
-                                    counted_hours ('0,1,6,18'), minutes_below (NULL without a comfort_temp), computed_at
+comfort_day               (octopus) date (London day, key), comfort_temp (C at the start of the day), boost_starts (the day's own),
+                                    counted_hours ('0,1,6,18'), minutes_below (NULL without a comfort_temp), computed_at,
+                                    raised_at (UTC, NULL without a Held Boost), day_kind ('quiet', 'held_boost' or NULL),
+                                    quiet_count (NULL on days settled before ADR-0040)
 ```
 
 `heating_status.polled_at` and `weather_observation.observed_at` are UTC. `weather_observation.source` is `open-meteo` for live readings and `open-meteo-archive` for backfilled history; an hour can hold both, and the live one is preferred ([ADR-0029](../../../.agent-docs/adr/0029-weather-history-backfilled-hourly-deduplicated-and-labelled-by-source.md)). A `location` is the coordinates rounded to two decimals; the current location is the one on the newest stored observation (ties on the same hour go to the newest row id), so a changed postcode never mixes two places.
@@ -79,7 +81,7 @@ Rows carried in them (the few hourly day-ahead days of `room_forecast_hour`) are
 
 ### Indoor, Target and Outdoor Temperature (time series)
 
-Four lines and a forecast: **comfort** (purple, a step: the learned comfort temperature, see query D), **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather, then a dashed **outdoor forecast** (green) that continues the outdoor line to the right with the forecast daily mean temperature. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
+Four lines and a forecast: **comfort** (purple, a step: the Comfort Temperature the comfort plan holds, see query D), **indoor** (orange) and **target** (blue, drawn as a step because a target holds until changed) from the thermostat, and **outdoor** (green) from the weather, then a dashed **outdoor forecast** (green) that continues the outdoor line to the right with the forecast daily mean temperature. The gap between indoor and target is the demand for heat. There is no heating-on strip or shading. The minimum interval is 2 minutes, the poll interval, so the thermostat series shows every reading until the range is long enough that Grafana groups them (Grafana picks the interval from the panel width and the range).
 
 Query A, thermostat (indoor is the average of the readings in each of Grafana's interval buckets; the target is the last non-NULL reading in the bucket, so a step is not blurred into an in-between value; each row is stamped at the start of its bucket, so on a long range a step can appear up to one interval early, and at the 2-minute minimum it is exact). On a long range a change that lasts less than one interval can disappear: at the default 21 days Grafana groups the readings into buckets of about 16 minutes, and the 6 October boost (23 C from 19:14 to 19:18, back to 7 C at 19:20) falls inside one bucket whose last reading is 7 C. Zoom in to see short steps; the Heating Cost per Half-Hour panel counts every half-hour the heating was on, at any range. A bucket with no reading has no row, and every line is joined across missing points (the two series have different spacing, so a gap threshold would hide one of them on a long range); a thermostat outage therefore shows as a straight line, so read it with the hive-app health in mind. `GROUP_CONCAT` is not truncated on MariaDB (its limit is 1 MB); on a MySQL server with the 1,024-byte default a very wide bucket would return a stale target:
 
@@ -166,7 +168,7 @@ ORDER BY time;
 
 **Checked read-only against the Pi on 20 October 2026 at 20:07 UTC.** The newest outdoor reading was 20:00 UTC at 11.5 C, and the query returned that point followed by the forecast days 21 to 26 October: 21 October 9.8 C stamped 11:00 UTC (midday BST), 25 October 11.5 C stamped 12:00 UTC (midday GMT, the clocks having changed on the night of 24 October), and so on. 20 October's own forecast (11.9 C, stamped 11:00 UTC) is absent because readings already cover it.
 
-Query D, comfort (the learned **Comfort Temperature** of each London day from the small `comfort_day` table that octopus-app's hourly job writes ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)): the weighted median room temperature at the boost starts of the two years before the day, a boost counting half as much for every 60 heating days since it. One point per day at London midnight, drawn as a step, plus one closing point so the line reaches the right-hand edge: the value of the newest day that starts within the range, repeated at the end of that day or at the end of the range, whichever is sooner (so a range ending now, or part-way through a past day, still draws that day). A day with no comfort temperature yet has no point. The range starts a day early so the step covers the left edge of the chart):
+Query D, comfort (the **Comfort Temperature** from the small `comfort_day` table that octopus-app's hourly job writes ([ADR-0040](../../../.agent-docs/adr/0040-comfort-temperature-steps-half-a-degree-on-held-boosts-and-quiet-days.md)): it starts each London day at the value in force at the end of the day before, rises 0.5 C after a Held Boost and falls 0.5 C after 3 Quiet Days, never below 16 C. Days settled before ADR-0040 hold the old learned median ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)). One point per day at London midnight with the day's starting value, one at `raised_at` half a degree higher when the day had a Held Boost, drawn as a step, plus one closing point so the line reaches the right-hand edge: the value in force at the end of the newest day that starts within the range (raised only if the raise came before the end of the range), repeated at the end of that day or at the end of the range, whichever is sooner (so a range ending now, or part-way through a past day, still draws that day). A day with no comfort temperature has no point. The range starts a day early so the step covers the left edge of the chart):
 
 ```sql
 SELECT time, comfort
@@ -180,11 +182,20 @@ FROM (
   UNION ALL
 
   SELECT
+    c.raised_at AS time,
+    c.comfort_temp + 0.5 AS comfort
+  FROM comfort_day c
+  WHERE c.raised_at IS NOT NULL
+    AND c.comfort_temp IS NOT NULL
+
+  UNION ALL
+
+  SELECT
     LEAST(
       CONVERT_TZ(CAST(c.date AS DATETIME) + INTERVAL 1 DAY, '${timezone}', 'UTC'),
       $__timeTo()
     ) AS time,
-    c.comfort_temp AS comfort
+    c.comfort_temp + IF(c.raised_at IS NULL OR c.raised_at > $__timeTo(), 0, 0.5) AS comfort
   FROM comfort_day c
   WHERE c.date = (
     SELECT MAX(l.date) FROM comfort_day l
@@ -435,7 +446,7 @@ ORDER BY time;
 
 ### Minutes Below Comfort (time series)
 
-Bars of minutes per London day in which the room was below the day's learned **Comfort Temperature** during a **Counted Hour** (a London clock hour in which the heating was on at least once in the 365 days before the day), leaving out the readings inside a **No One Is Home** **Presence Period** (days settled before presence was recorded keep every minute). octopus-app's hourly job works the figure out from the 2-minute thermostat readings and stores it in `comfort_day` ([ADR-0034](../../../.agent-docs/adr/0034-comfort-temperature-is-learned-from-the-room-temperature-at-boost-starts.md)), so the panel reads one small row per day. Today's bar grows through the day; a finished day is settled once and never changes. A day with no comfort temperature yet (fewer than 5 boosts seen) or with no thermostat readings is a gap, not a zero. There are no settings: the old **Comfort target** and **Margin below target** text boxes are gone. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, octopus-app's `POLL_MINUTES` and `MIN_POLLS_PER_INTERVAL` must change too.
+Bars of minutes per London day in which the room was below the **Comfort Temperature** in force at each reading (half a degree higher from a Held Boost on) during a **Counted Hour** (a London clock hour in which the heating was on at least once in the 365 days before the day), leaving out the readings inside a **No One Is Home** **Presence Period** (days settled before presence was recorded keep every minute). octopus-app's hourly job works the figure out from the 2-minute thermostat readings and stores it in `comfort_day` ([ADR-0040](../../../.agent-docs/adr/0040-comfort-temperature-steps-half-a-degree-on-held-boosts-and-quiet-days.md)), so the panel reads one small row per day. Today's bar grows through the day; a finished day is settled once and never changes. A day with no comfort temperature (only possible for days settled before ADR-0040) or with no thermostat readings is a gap, not a zero. There are no settings: the old **Comfort target** and **Margin below target** text boxes are gone. Minutes assume the 2-minute poll interval hive-app uses (`HEATING_REFRESH_INTERVAL_SECONDS = 120`); if that changes, octopus-app's `POLL_MINUTES` and `MIN_POLLS_PER_INTERVAL` must change too.
 
 ```sql
 SELECT time, minutes_below_comfort

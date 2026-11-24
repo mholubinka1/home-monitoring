@@ -267,7 +267,15 @@ def seed_heating_forecast_inputs(client: MariaDBClient) -> None:
     )
 
 
-def seed_comfort(client: MariaDBClient, day: date, comfort_temp: float | None) -> None:
+def seed_comfort(
+    client: MariaDBClient,
+    day: date,
+    comfort_temp: float | None,
+    *,
+    raised_at: datetime | None = None,
+    quiet_count: int | None = None,
+) -> None:
+    """A comfort_day row; quiet_count None is a row settled by the old rule."""
     client.write_comfort_days(
         [
             ComfortDayRecord(
@@ -277,6 +285,8 @@ def seed_comfort(client: MariaDBClient, day: date, comfort_temp: float | None) -
                 counted_hours="",
                 minutes_below=None,
                 computed_at=NOW.replace(tzinfo=None),
+                raised_at=raised_at,
+                quiet_count=quiet_count,
             )
         ]
     )

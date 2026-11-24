@@ -34,6 +34,7 @@ def _panel(title: str) -> dict:
     [
         (HEATING_COST, "A"),
         (COST_COMPARISON, "A"),
+        (TEMPERATURES, "D"),
         (TEMPERATURES, "E"),
         (PLAN_PANEL, "A"),
         (PLAN_PANEL, "D"),

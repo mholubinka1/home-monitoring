@@ -249,13 +249,20 @@ class comfort_day(SQLBase):
     __table_args__: ClassVar[dict[str, str]] = {"schema": "octopus"}
 
     # One row per local day; a finished day is settled once and never rewritten
-    # (ADR-0034).
+    # (ADR-0034, ADR-0040). comfort_temp is the value at the start of the day;
+    # boost_starts counts the day's own Boost Starts; raised_at is when a Held
+    # Boost raised the day (the next day starts half a degree higher), with
+    # day_kind 'held_boost'; quiet_count is the Quiet Days counted at the end of
+    # the day. A NULL quiet_count marks a row settled by the old rule.
     date = Column(Date, primary_key=True)
     comfort_temp = Column(_DOUBLE)
     boost_starts = Column(Integer, nullable=False)
     counted_hours = Column(String(100), nullable=False)  # e.g. "0,1,6,7,12"
     minutes_below = Column(Integer)
     computed_at = Column(DateTime, nullable=False)
+    raised_at = Column(DateTime)
+    day_kind = Column(String(20))
+    quiet_count = Column(Integer)
 
 
 class room_forecast_interval(SQLBase):

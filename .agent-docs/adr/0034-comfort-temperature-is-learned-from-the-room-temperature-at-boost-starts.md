@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0040
 ---
 
 # Comfort temperature is learned from the room temperature at boost starts

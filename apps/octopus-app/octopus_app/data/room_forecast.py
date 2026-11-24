@@ -300,12 +300,6 @@ def hold_forecast(
     return _simulate(model, start, hours, target_of)[0]
 
 
-def round_up_to_half(temperature: float) -> float:
-    """The temperature rounded up to the next 0.5 C (Hive's step); a tiny guard
-    keeps float noise from lifting an exact half degree."""
-    return math.ceil(temperature * 2 - 1e-9) / 2
-
-
 def comfort_window(windows: ComfortWindows, day: date) -> tuple[datetime, datetime]:
     """The local start and end of the day's comfort window; weekends are Saturday
     and Sunday. An end at or before the start is the next day (00:00 is midnight at
