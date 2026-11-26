@@ -624,7 +624,8 @@ def test_minutes_below_follow_the_value_in_force_after_a_raise(
 ) -> None:
     # Given the 18:00 and 19:00 hours are counted, Hive holds 17.0 with the room at
     # 17.0 from 18:50, a Held Boost at 19:00 at a room of 16.7 for three polls,
-    # then the room at 16.9 for five polls from 19:10 and 17.2 for five from 19:20
+    # then the room at 16.9 for five polls from 19:10, 17.2 for five from 19:20
+    # and exactly 17.0 at 19:30
     _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     last_week = TODAY - timedelta(days=7)
     _seed_heating_hour(mariadb_client, _at(last_week))
@@ -636,12 +637,13 @@ def test_minutes_below_follow_the_value_in_force_after_a_raise(
     _seed_polls(
         mariadb_client, _at(TODAY, HELD + timedelta(minutes=20)), room=17.2, count=5
     )
+    _seed_polls(mariadb_client, _at(TODAY, HELD + timedelta(minutes=30)), room=17.0)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
     # Then nothing before 19:00 is below 16.5; from the raise to 17.5 the threshold
     # is 17.0, so the three boost polls and the five at 16.9 count, the five at
-    # 17.2 do not: 16 minutes
+    # 17.2 and the one at exactly 17.0 do not: 16 minutes
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 16
 
 
@@ -954,10 +956,11 @@ def test_a_boost_with_the_room_at_the_comfort_temperature_is_not_held(
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
-    # Then it is not held: a warm-enough room is no evidence it is too cold
+    # Then it is not held (a warm-enough room is no evidence it is too cold), and
+    # as a boost in the window the day counts for nothing
     today = _comfort_days(mariadb_client)[TODAY]
     assert today.raised_at is None
-    assert today.day_kind != "held_boost"
+    assert today.day_kind is None
 
 
 def test_a_boost_just_below_the_comfort_temperature_is_held(
