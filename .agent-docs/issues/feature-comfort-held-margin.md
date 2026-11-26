@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-comfort-held-margin
 
 ## A Held Boost needs the room below the comfort temperature
