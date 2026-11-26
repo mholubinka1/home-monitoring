@@ -35,9 +35,9 @@ Minutes below comfort count a reading only when the room is more than `HELD_MARG
 
 ### Acceptance criteria
 
-- [ ] Given 17.0 and readings at 16.6 in a counted hour, when the job runs, then they add no minutes below.
-- [ ] Given 17.0 and readings at 16.4 in a counted hour, when the job runs, then each adds 2 minutes below.
-- [ ] Given a raise to 17.5, when the job runs, then a later reading at 16.9 counts and one at 17.2 does not.
-- [ ] Given the panel description, the queries document and the explainer, when read, then they describe minutes below as more than half a degree below the comfort temperature in force.
+- [x] Given 17.0 and readings at 16.6 in a counted hour, when the job runs, then they add no minutes below.
+- [x] Given 17.0 and readings at 16.4 in a counted hour, when the job runs, then each adds 2 minutes below.
+- [x] Given a raise to 17.5, when the job runs, then a later reading at 16.9 counts and one at 17.2 does not.
+- [x] Given the panel description, the queries document and the explainer, when read, then they describe minutes below as more than half a degree below the comfort temperature in force.
 
 ---

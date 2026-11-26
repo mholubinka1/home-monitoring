@@ -215,16 +215,18 @@ def minutes_below(
     no_one_home: list[Period],
     raised_at: datetime | None = None,
 ) -> int:
-    """The minutes of the day's polls in which the room was below the value in
-    force (the comfort temperature, a step more from raised_at on) during a
-    counted hour, leaving out offline polls and polls inside a no_one_home
-    period."""
+    """The minutes of the day's polls in which the room was more than the margin
+    below the value in force (the comfort temperature, a step more from raised_at
+    on) during a counted hour, leaving out offline polls and polls inside a
+    no_one_home period. The margin keeps the thermostat's normal swing around its
+    target from counting as discomfort."""
     counted = set(hours)
     return POLL_MINUTES * sum(
         _reachable(poll)
         and poll.current_temp is not None
         and poll.current_temp
         < comfort_temp
+        - HELD_MARGIN
         + (COMFORT_STEP if raised_at is not None and poll.polled_at >= raised_at else 0)
         and local_day.to_local_hour(poll.polled_at) in counted
         and not _within(poll.polled_at, no_one_home)
