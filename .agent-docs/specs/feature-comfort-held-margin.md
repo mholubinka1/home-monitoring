@@ -47,7 +47,7 @@ One seam: `ComfortDayJob.refresh(now)` against the SQLite `mariadb_client` fixtu
 - A boost at 16.9 against 17.0 is held, and so is one at exactly 16.5.
 - A reading at 16.6 against 17.0 adds no minutes below; one at 16.4 does.
 - After a raise to 17.5, a reading at 16.9 counts and one at 17.2 doesn't.
-- Existing scenarios built on the old thresholds (minutes-below polls at 16.5 against 17.0, the no-ceiling raise seeded at 19.8 against 20.0, and others) are moved to values that keep testing what they were written for.
+- Existing minutes-below scenarios that used a cold reading of 16.5 against 17.0 move to 16.4, so they keep testing what they were written for; held-boost scenarios already sit inside the new 16.5-to-16.9 band and stay as they are.
 
 ## Out of Scope
 

@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from datetime import UTC, date, datetime, timedelta
 
 from octopus_app.data.comfort_job import ComfortDayJob
@@ -994,4 +995,18 @@ def test_a_reading_within_half_a_degree_adds_no_minutes_below(
     ComfortDayJob(mariadb_client).refresh(NOW)
 
     # Then the thermostat's normal swing is not discomfort
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0
+
+
+def test_a_reading_exactly_half_a_degree_below_adds_no_minutes_below(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 17.0, the 18:00 hour counted, and ten polls at exactly 16.5 in it
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
+    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then only readings more than half a degree below count
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0

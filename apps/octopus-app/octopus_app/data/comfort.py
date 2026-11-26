@@ -91,7 +91,7 @@ def held_boost_start(
     first, from one boost gap before midnight) and its Comfort Window (naive UTC).
     A Held Boost is a Boost Start (as in boost_starts) inside the window, whose
     poll just before it, at most a boost gap earlier, held the comfort temperature
-    (in half degrees), with the room within the margin of it."""
+    (in half degrees), with the room below it by no more than the margin."""
     opens, closes = window
     previous: ThermostatPoll | None = None
     previous_boost: datetime | None = None
@@ -221,13 +221,15 @@ def minutes_below(
     no_one_home period. The margin keeps the thermostat's normal swing around its
     target from counting as discomfort."""
     counted = set(hours)
+
+    def in_force(at: datetime) -> float:
+        raised = raised_at is not None and at >= raised_at
+        return comfort_temp + (COMFORT_STEP if raised else 0)
+
     return POLL_MINUTES * sum(
         _reachable(poll)
         and poll.current_temp is not None
-        and poll.current_temp
-        < comfort_temp
-        - HELD_MARGIN
-        + (COMFORT_STEP if raised_at is not None and poll.polled_at >= raised_at else 0)
+        and poll.current_temp < in_force(poll.polled_at) - HELD_MARGIN
         and local_day.to_local_hour(poll.polled_at) in counted
         and not _within(poll.polled_at, no_one_home)
         for poll in polls
