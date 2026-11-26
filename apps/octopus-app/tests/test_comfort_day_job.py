@@ -938,3 +938,42 @@ def test_a_day_with_a_boost_that_was_not_held_is_not_quiet(
     today = _comfort_days(mariadb_client)[TODAY]
     assert today.day_kind is None
     assert today.quiet_count == 2
+
+
+def test_a_boost_with_the_room_at_the_comfort_temperature_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room already at 17.0
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=17.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then it is not held: a warm-enough room is no evidence it is too cold
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.raised_at is None
+    assert today.day_kind != "held_boost"
+
+
+def test_a_boost_just_below_the_comfort_temperature_is_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room at 16.9
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=16.9)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at == _at(TODAY, HELD)
+
+
+def test_a_boost_exactly_half_a_degree_below_is_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room at 16.5
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=16.5)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at == _at(TODAY, HELD)

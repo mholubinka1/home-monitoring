@@ -17,6 +17,8 @@ BOOST_GAP = timedelta(minutes=10)
 COMFORT_FLOOR = 16.0
 # The gas dashboard's comfort query (query D) repeats this step as 0.5.
 COMFORT_STEP = 0.5
+# How far below the comfort temperature a Held Boost's room may be, and how far
+# below it a reading must be to count as minutes below comfort.
 HELD_MARGIN = 0.5
 QUIET_DAYS_PER_STEP = 3
 QUIET_MINUTES = 120
@@ -71,11 +73,12 @@ def _held_before(
     previous: ThermostatPoll, boost: ThermostatPoll, comfort_temp: float
 ) -> bool:
     """Whether the poll before a boost held the comfort temperature (in half
-    degrees) and the boost started with the room within the margin of it."""
+    degrees) and the boost started with the room below it, by no more than the
+    margin: a room already at temperature is no evidence it is too cold."""
     return (
         _holds(previous, comfort_temp)
         and boost.current_temp is not None
-        and boost.current_temp >= comfort_temp - HELD_MARGIN
+        and comfort_temp - HELD_MARGIN <= boost.current_temp < comfort_temp
     )
 
 
