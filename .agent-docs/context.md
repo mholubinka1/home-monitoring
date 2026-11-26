@@ -239,7 +239,7 @@ _Avoid_: comfort target, target temperature (the thermostat's setting)
 The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading.
 
 **Held Boost**:
-A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was no more than 0.5 °C below it. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
+A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was below it by no more than 0.5 °C. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
 
 **Quiet Day**:
 A Local Day on which the Comfort Schedule was in force, someone was home for at least 2 hours of the Comfort Window, the heating ran in the window, and no boost was started in the window; readings while the thermostat was offline count for neither. It is the evidence that the Comfort Temperature is warm enough; a day that is neither counts for nothing.
@@ -251,7 +251,7 @@ A Local Day on which the heating was on at least once, by schedule or boost.
 A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort.
 
 **Comfort Day**:
-One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was below comfort in them, outside No One Is Home. A finished day is settled once and never restated.
+One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was more than 0.5 °C below comfort in them, outside No One Is Home. A finished day is settled once and never restated.
 
 **Thermal Model**:
 The five learned numbers describing how the room warms and cools, fitted on 10-minute changes: loss per degree above outdoors, gain per hour of heating, the gain carried into the next 10 minutes, sunshine gain and a constant gain, plus the Warm-Up Delay ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)).

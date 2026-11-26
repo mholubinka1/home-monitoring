@@ -26,3 +26,7 @@ This is an up-down staircase (one up, three down), which settles where a day pas
 - A raise reaches Hive within about an hour: the comfort job and the plan run hourly, then hive-app picks up the plan on its next poll.
 - With nothing for the household to set, the comfort level is found by probing: about every fourth day with heating and someone home, the house is held 0.5 °C cooler unless a Held Boost has pushed it back up.
 - Summer, holidays, outages and dry runs never move it. They are not Quiet Days and cannot give a Held Boost.
+
+## Note (2026-11-26): one margin for both rules
+
+A Held Boost now also needs the room strictly below the Comfort Temperature (16.5 to 16.9 at 17.0): a boost in a room already at temperature is not evidence that it is too cold. Minutes below comfort count only readings more than the same 0.5 °C below the value in force, so the thermostat's normal swing of about 0.2 °C around its target is not reported as discomfort ([feature-comfort-held-margin](../specs/feature-comfort-held-margin.md)).

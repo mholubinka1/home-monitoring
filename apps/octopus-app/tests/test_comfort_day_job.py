@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from datetime import UTC, date, datetime, timedelta
 
 from octopus_app.data.comfort_job import ComfortDayJob
@@ -209,12 +210,12 @@ def test_minutes_below_comfort_are_counted_in_the_counted_hours(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given yesterday's stored 17.0, heating in the 06:00 and 18:00 hours
-    # last week, and today ten polls at 16.5 C in the 18:00 hour
+    # last week, and today ten polls at 16.4 C in the 18:00 hour
     _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     last_week = TODAY - timedelta(days=7)
     _seed_heating_hour(mariadb_client, _at(last_week))
     _seed_heating_hour(mariadb_client, _at(last_week, timedelta(hours=6)))
-    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10)
+    _seed_polls(mariadb_client, _at(TODAY), room=16.4, count=10)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
@@ -260,7 +261,7 @@ def test_an_hour_heated_last_season_is_counted_and_one_over_a_year_ago_is_not(
     _seed_heating_hour(
         mariadb_client, _at(TODAY - timedelta(days=366), timedelta(hours=6))
     )
-    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10)
+    _seed_polls(mariadb_client, _at(TODAY), room=16.4, count=10)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
@@ -277,7 +278,7 @@ def test_counted_hours_follow_london_time_in_summer(
     five_pm_utc = timedelta(hours=17)
     _seed_stored_comfort(mariadb_client, summer_day - timedelta(days=1), 17.0)
     _seed_heating_hour(mariadb_client, _at(summer_day - timedelta(days=7), five_pm_utc))
-    _seed_polls(mariadb_client, _at(summer_day, five_pm_utc), room=16.5, count=10)
+    _seed_polls(mariadb_client, _at(summer_day, five_pm_utc), room=16.4, count=10)
 
     ComfortDayJob(mariadb_client).refresh(datetime(2026, 7, 15, 20, 0, tzinfo=UTC))
 
@@ -328,10 +329,10 @@ def _seed_presence_period(
 
 def _seed_cold_evening(client: MariaDBClient, day: date = TODAY) -> None:
     """A comfort temperature of 17.0, the 18:00 hour counted, and on `day` ten
-    polls at 16.5 C from 18:00 to 18:18."""
+    polls at 16.4 C from 18:00 to 18:18."""
     _seed_stored_comfort(client, day - timedelta(days=1), 17.0)
     _seed_heating_hour(client, _at(day - timedelta(days=7)))
-    _seed_polls(client, _at(day), room=16.5, count=10)
+    _seed_polls(client, _at(day), room=16.4, count=10)
 
 
 def test_minutes_while_no_one_is_home_are_left_out_of_minutes_below(
@@ -618,25 +619,31 @@ def test_there_is_no_ceiling_on_a_raise(mariadb_client: MariaDBClient) -> None:
     assert _comfort_days(mariadb_client)[tomorrow].comfort_temp == 20.5
 
 
-def test_minutes_below_compare_each_reading_with_the_value_in_force(
+def test_minutes_below_follow_the_value_in_force_after_a_raise(
     mariadb_client: MariaDBClient,
 ) -> None:
     # Given the 18:00 and 19:00 hours are counted, Hive holds 17.0 with the room at
     # 17.0 from 18:50, a Held Boost at 19:00 at a room of 16.7 for three polls,
-    # and the room at 17.2 for five polls from 19:10
+    # then the room at 16.9 for five polls from 19:10, 17.2 for five from 19:20
+    # and exactly 17.0 at 19:30
     _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     last_week = TODAY - timedelta(days=7)
     _seed_heating_hour(mariadb_client, _at(last_week))
     _seed_heating_hour(mariadb_client, _at(last_week, HELD))
     _seed_held_boost(mariadb_client, TODAY, room=16.7)
     _seed_polls(
-        mariadb_client, _at(TODAY, HELD + timedelta(minutes=10)), room=17.2, count=5
+        mariadb_client, _at(TODAY, HELD + timedelta(minutes=10)), room=16.9, count=5
     )
+    _seed_polls(
+        mariadb_client, _at(TODAY, HELD + timedelta(minutes=20)), room=17.2, count=5
+    )
+    _seed_polls(mariadb_client, _at(TODAY, HELD + timedelta(minutes=30)), room=17.0)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
-    # Then nothing before 19:00 is below 17.0, and all eight polls from 19:00 are
-    # below 17.5: 16 minutes
+    # Then nothing before 19:00 is below 16.5; from the raise to 17.5 the threshold
+    # is 17.0, so the three boost polls and the five at 16.9 count, the five at
+    # 17.2 and the one at exactly 17.0 do not: 16 minutes
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 16
 
 
@@ -910,11 +917,11 @@ def test_heating_on_only_while_offline_does_not_make_a_quiet_day(
 
 
 def test_offline_readings_add_no_minutes_below(mariadb_client: MariaDBClient) -> None:
-    # Given a cold evening (ten polls at 16.5 against 17.0 in a counted hour) read
+    # Given a cold evening (ten polls at 16.4 against 17.0 in a counted hour) read
     # while the thermostat was offline, so the reading is stale
     _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
     _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
-    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10, online=False)
+    _seed_polls(mariadb_client, _at(TODAY), room=16.4, count=10, online=False)
 
     ComfortDayJob(mariadb_client).refresh(NOW)
 
@@ -938,3 +945,71 @@ def test_a_day_with_a_boost_that_was_not_held_is_not_quiet(
     today = _comfort_days(mariadb_client)[TODAY]
     assert today.day_kind is None
     assert today.quiet_count == 2
+
+
+def test_a_boost_with_the_room_at_the_comfort_temperature_is_not_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room already at 17.0
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=17.0)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then it is not held (a warm-enough room is no evidence it is too cold), and
+    # as a boost in the window the day counts for nothing
+    today = _comfort_days(mariadb_client)[TODAY]
+    assert today.raised_at is None
+    assert today.day_kind is None
+
+
+def test_a_boost_just_below_the_comfort_temperature_is_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room at 16.9
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=16.9)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at == _at(TODAY, HELD)
+
+
+def test_a_boost_exactly_half_a_degree_below_is_held(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Hive holding 17.0 and a boost with the room at 16.5
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_held_boost(mariadb_client, TODAY, room=16.5)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    assert _comfort_days(mariadb_client)[TODAY].raised_at == _at(TODAY, HELD)
+
+
+def test_a_reading_within_half_a_degree_adds_no_minutes_below(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 17.0, the 18:00 hour counted, and ten polls at 16.6 in it
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
+    _seed_polls(mariadb_client, _at(TODAY), room=16.6, count=10)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then the thermostat's normal swing is not discomfort
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0
+
+
+def test_a_reading_exactly_half_a_degree_below_adds_no_minutes_below(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given 17.0, the 18:00 hour counted, and ten polls at exactly 16.5 in it
+    _seed_stored_comfort(mariadb_client, TODAY - timedelta(days=1), 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7)))
+    _seed_polls(mariadb_client, _at(TODAY), room=16.5, count=10)
+
+    ComfortDayJob(mariadb_client).refresh(NOW)
+
+    # Then only readings more than half a degree below count
+    assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0

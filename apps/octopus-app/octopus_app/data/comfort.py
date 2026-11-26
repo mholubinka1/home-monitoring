@@ -17,6 +17,8 @@ BOOST_GAP = timedelta(minutes=10)
 COMFORT_FLOOR = 16.0
 # The gas dashboard's comfort query (query D) repeats this step as 0.5.
 COMFORT_STEP = 0.5
+# How far below the comfort temperature a Held Boost's room may be, and how far
+# below it a reading must be to count as minutes below comfort.
 HELD_MARGIN = 0.5
 QUIET_DAYS_PER_STEP = 3
 QUIET_MINUTES = 120
@@ -71,11 +73,12 @@ def _held_before(
     previous: ThermostatPoll, boost: ThermostatPoll, comfort_temp: float
 ) -> bool:
     """Whether the poll before a boost held the comfort temperature (in half
-    degrees) and the boost started with the room within the margin of it."""
+    degrees) and the boost started with the room below it, by no more than the
+    margin: a room already at temperature is no evidence it is too cold."""
     return (
         _holds(previous, comfort_temp)
         and boost.current_temp is not None
-        and boost.current_temp >= comfort_temp - HELD_MARGIN
+        and comfort_temp - HELD_MARGIN <= boost.current_temp < comfort_temp
     )
 
 
@@ -88,7 +91,7 @@ def held_boost_start(
     first, from one boost gap before midnight) and its Comfort Window (naive UTC).
     A Held Boost is a Boost Start (as in boost_starts) inside the window, whose
     poll just before it, at most a boost gap earlier, held the comfort temperature
-    (in half degrees), with the room within the margin of it."""
+    (in half degrees), with the room below it by no more than the margin."""
     opens, closes = window
     previous: ThermostatPoll | None = None
     previous_boost: datetime | None = None
@@ -212,17 +215,21 @@ def minutes_below(
     no_one_home: list[Period],
     raised_at: datetime | None = None,
 ) -> int:
-    """The minutes of the day's polls in which the room was below the value in
-    force (the comfort temperature, a step more from raised_at on) during a
-    counted hour, leaving out offline polls and polls inside a no_one_home
-    period."""
+    """The minutes of the day's polls in which the room was more than the margin
+    below the value in force (the comfort temperature, a step more from raised_at
+    on) during a counted hour, leaving out offline polls and polls inside a
+    no_one_home period. The margin keeps the thermostat's normal swing around its
+    target from counting as discomfort."""
     counted = set(hours)
+
+    def in_force(at: datetime) -> float:
+        raised = raised_at is not None and at >= raised_at
+        return comfort_temp + (COMFORT_STEP if raised else 0)
+
     return POLL_MINUTES * sum(
         _reachable(poll)
         and poll.current_temp is not None
-        and poll.current_temp
-        < comfort_temp
-        + (COMFORT_STEP if raised_at is not None and poll.polled_at >= raised_at else 0)
+        and poll.current_temp < in_force(poll.polled_at) - HELD_MARGIN
         and local_day.to_local_hour(poll.polled_at) in counted
         and not _within(poll.polled_at, no_one_home)
         for poll in polls
