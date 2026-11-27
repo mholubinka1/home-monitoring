@@ -47,12 +47,13 @@ The Comfort Windows are configured per weekday, and a window may end the next mo
   - **The slot's own day:** the target at the start minute. Then the Away Temperature at the end minute when the slot ends on its day, or at 23:59 when it ends at or after the next midnight.
   - **The next day, for a slot ending after the next midnight:** the target at minute 0 and the Away Temperature at the end minute, before the next day's own slots.
 - A slot that does not start on its day is still refused, with its reason. A slot ending past the next midnight is no longer refused.
+- A day with no plan slot of its own keeps Hive's entries, even when yesterday's slot runs into it: writing the tail alone would hold the Away Temperature for the rest of that day (for example after a missed plan run).
 - `validate_week` is unchanged (an entry at minute 0 is already allowed).
 
 **Comfort job (octopus-app `data/comfort_job` and `data/comfort`).**
 
 - **Polls:** each day's polls are read from `BOOST_GAP` before its start to the later of its end and its window's close.
-- **Staircase evidence:** the Held Boost and Quiet Day tests use the whole window, including the tail.
+- **Staircase evidence:** the Held Boost and Quiet Day tests use the whole window, including the tail, and the No One Is Home periods up to the window's close, so leaving after midnight stops the tail counting as held at home.
 - **Calendar-day figures:** minutes below comfort and the day's `boost_starts` count only polls inside the calendar day.
 - **Settling:** a day is settled once written at or after the later of its next midnight and its window's close. Each run starts from the oldest day not yet settled, so Friday is rewritten, and settles, before Saturday.
 
