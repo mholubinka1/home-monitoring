@@ -11,7 +11,6 @@ from typing import Any
 from octopus_app.common.config import ComfortWindows
 from octopus_app.data.thermal import MINUTES_PER_HOUR, ONE_HOUR, ThermalNumbers
 
-SATURDAY = 5
 STEP_MINUTES = 2  # the thermostat's reading interval (ADR-0036)
 STEP = timedelta(minutes=STEP_MINUTES)
 STEPS_PER_HOUR = MINUTES_PER_HOUR // STEP_MINUTES
@@ -301,10 +300,9 @@ def hold_forecast(
 
 
 def comfort_window(windows: ComfortWindows, day: date) -> tuple[datetime, datetime]:
-    """The local start and end of the day's comfort window; weekends are Saturday
-    and Sunday. An end at or before the start is the next day (00:00 is midnight at
-    the end of the day)."""
-    window = windows.weekend if day.weekday() >= SATURDAY else windows.weekday
+    """The local start and end of the day's comfort window. An end at or before the
+    start is the next day (00:00 is midnight at the end of the day)."""
+    window = getattr(windows, DAY_NAMES[day.weekday()])
     start = datetime.combine(day, window.start)
     end = datetime.combine(day, window.end)
     return start, end if end > start else end + timedelta(days=1)

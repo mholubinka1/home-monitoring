@@ -670,11 +670,11 @@ def test_the_weekend_plan_starts_at_0744(client: MariaDBClient) -> None:
 
 
 def test_a_comfort_window_from_the_config_moves_the_plan(client: MariaDBClient) -> None:
-    # Given a configured weekday window that starts at 09:00 on the hour
+    # Given a configured Wednesday (tomorrow) window that starts at 09:00 on the hour
     seed_plan_inputs(client)
     seed_comfort(client, NOW.date(), 19.0)
     windows = ComfortWindows.model_validate(
-        {"weekday": {"start": "09:00", "end": "00:00"}}
+        {"wednesday": {"start": "09:00", "end": "00:00"}}
     )
 
     # When the job runs with it

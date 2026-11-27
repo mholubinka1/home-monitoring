@@ -38,8 +38,8 @@ class RefreshSettings(BaseModel):
 
 
 class ComfortWindow(BaseModel):
-    """When the room should be comfortable, in local time. An end of 00:00 is the
-    midnight at the end of the day."""
+    """When the room should be comfortable, in local time. An end at or before the
+    start is the next morning (00:00 is the midnight at the end of the day)."""
 
     start: time
     end: time
@@ -86,8 +86,18 @@ def _earlier_even_minute(clock_time: time) -> time:
 
 
 class ComfortWindows(BaseModel):
-    weekday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
-    weekend: ComfortWindow = ComfortWindow(start=time(8, 30), end=time(0, 0))
+    """One comfort window per weekday; an unknown key (such as the old weekday or
+    weekend) is refused at startup."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    monday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
+    tuesday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
+    wednesday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
+    thursday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(23, 0))
+    friday: ComfortWindow = ComfortWindow(start=time(7, 30), end=time(0, 30))
+    saturday: ComfortWindow = ComfortWindow(start=time(8, 30), end=time(0, 30))
+    sunday: ComfortWindow = ComfortWindow(start=time(8, 30), end=time(23, 0))
 
 
 class ApplicationSettings(BaseModel):

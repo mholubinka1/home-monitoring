@@ -72,10 +72,12 @@ providing:
   one). This is separate from the `daily_consumption_summary` backfill, which
   fetches everything the Octopus API still serves (about 2 years) at any startup where
   the summary's counted days reach back less than 6 months, and needs no configuration.
-- Optional `comfort_windows` (`weekday` and `weekend`, each with a `start` and an `end`
+- Optional `comfort_windows` (`monday` to `sunday`, each with a `start` and an `end`
   local time): when the room forecast's comfort plan holds the comfort temperature.
-  Defaults are 07:30 to 23:00 on weekdays and 08:30 to 00:00 at weekends (Saturday and
-  Sunday); an end of `00:00` is midnight at the end of the day. The forecast steps in
+  An end at or before the start is the next morning (`00:00` is midnight at the end of
+  the day). Defaults are 07:30 to 23:00 Monday to Thursday, 07:30 to 00:30 on Friday,
+  08:30 to 00:30 on Saturday and 08:30 to 23:00 on Sunday. The old `weekday` and
+  `weekend` keys are refused at startup. The forecast steps in
   2 minutes, so a time on an odd minute is rounded earlier to an even one (`07:45`
   becomes `07:44`) and the log says so; a window whose different start and end round to
   the same mark is refused at startup. Quote the times
