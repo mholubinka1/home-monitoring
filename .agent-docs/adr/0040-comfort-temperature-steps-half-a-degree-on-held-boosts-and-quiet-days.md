@@ -30,3 +30,7 @@ This is an up-down staircase (one up, three down), which settles where a day pas
 ## Note (2026-11-26): one margin for both rules
 
 A Held Boost now also needs the room strictly below the Comfort Temperature (16.5 to 16.9 at 17.0): a boost in a room already at temperature is not evidence that it is too cold. Minutes below comfort count only readings more than the same 0.5 °C below the value in force, so the thermostat's normal swing of about 0.2 °C around its target is not reported as discomfort ([feature-comfort-held-margin](../specs/feature-comfort-held-margin.md)).
+
+## Note (2026-11-27): a lower limit only
+
+The upper limit added on 2026-11-26 is removed: a boost while the house holds the Comfort Temperature means it is too cold however warm the room reads, so a Held Boost needs only a room no more than 0.5 °C below it. The minutes-below margin stands ([feature-held-boost-no-upper-limit](../specs/feature-held-boost-no-upper-limit.md)).

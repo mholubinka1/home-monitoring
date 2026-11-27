@@ -239,7 +239,7 @@ _Avoid_: comfort target, target temperature (the thermostat's setting)
 The first thermostat reading of a boost, more than 10 minutes after any earlier boost reading.
 
 **Held Boost**:
-A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was below it by no more than 0.5 °C. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
+A Boost Start inside the Comfort Window while the room was being held at the Comfort Temperature and was no more than 0.5 °C below it, however warm. It is the evidence that the Comfort Temperature is too low; a Local Day gives at most one.
 
 **Quiet Day**:
 A Local Day on which the Comfort Schedule was in force, someone was home for at least 2 hours of the Comfort Window, the heating ran in the window, and no boost was started in the window; readings while the thermostat was offline count for neither. It is the evidence that the Comfort Temperature is warm enough; a day that is neither counts for nothing.
