@@ -116,9 +116,9 @@ class ComfortDayJob:
         # taken for a new one, to the window's close if that is after midnight, so
         # the evening's evidence is whole; only the calendar day's own polls count
         # for minutes below and boost starts.
+        evidence_end = max(day_end, local_day.naive_utc_of(closes))
         thermostat_polls = self._mariadb.read_comfort_polls(
-            day_start - comfort.BOOST_GAP,
-            max(day_end, local_day.naive_utc_of(closes)),
+            day_start - comfort.BOOST_GAP, evidence_end
         )
         days_polls = [
             poll for poll in thermostat_polls if day_start <= poll.polled_at < day_end
@@ -130,7 +130,7 @@ class ComfortDayJob:
         no_one_home_today = [
             (started, ended)
             for started, ended in evidence.no_one_home
-            if started < day_end and (ended is None or ended > day_start)
+            if started < evidence_end and (ended is None or ended > day_start)
         ]
         hours = comfort.counted_hours(
             hour

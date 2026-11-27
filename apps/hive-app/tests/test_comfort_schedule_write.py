@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """The Comfort Schedule: HeatingRetriever writes the Comfort Plan into Hive's weekly
 schedule (spec: feature-presence-autonomous-heating, issue #808).
 
@@ -498,6 +499,36 @@ def test_yesterdays_slot_past_midnight_starts_todays_entries(
         {"start": 340, "value": {"target": 19.0}},
         {"start": 385, "value": {"target": AWAY}},
     ]
+
+
+def test_a_day_with_only_yesterdays_tail_keeps_hives_entries(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given today's plan slot runs from 23:00 to 01:00 tomorrow, and tomorrow has no
+    # plan slot of its own (a missed plan run)
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TODAY,
+                "plan",
+                0,
+                datetime(2026, 11, 18, 23, 0),
+                datetime(2026, 11, 19, 1, 0),
+                19.0,
+            )
+        ],
+    )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then Wednesday is written, but Thursday keeps Hive's entries rather than
+    # being written as a tail followed by the Away Temperature all day
+    written = _only(source.schedule_writes)
+    assert written["wednesday"][-1] == {"start": 1439, "value": {"target": AWAY}}
+    assert written["thursday"] == _hives_week()["thursday"]
 
 
 def test_a_day_with_no_plan_slot_keeps_hives_entries(

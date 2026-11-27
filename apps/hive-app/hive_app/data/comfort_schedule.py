@@ -21,7 +21,7 @@ WEEKDAYS = (
 MINUTES_IN_DAY = 1440
 # Why a day kept Hive's entries.
 REASON_NO_SLOT = "no plan slot"
-REASON_OUTSIDE_DAY = "its plan slot does not lie within the day"
+REASON_OUTSIDE_DAY = "its plan slot does not start on the day"
 
 
 def _entry(start: int, target: float) -> dict[str, Any]:
@@ -63,8 +63,10 @@ def build_week(
 ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
     """A copy of Hive's week with today and tomorrow replaced by their plan
     slots, and the (weekday, reason) of those that kept Hive's entries: a day
-    with no plan slot, or any slot not within the day, keeps them. A replaced day
-    holds only its slots' starts and closes, with no entry invented at midnight."""
+    with no plan slot of its own, or any slot that does not start on the day,
+    keeps them. A replaced day holds its slots' starts and closes, a slot running
+    past midnight closing at 23:59 and opening the next day with its tail (the
+    target at 00:00 until its close); no other entry is invented at midnight."""
     week = copy.deepcopy(hive_week)
     kept: list[tuple[str, str]] = []
     for day in (today, today + timedelta(days=1)):
@@ -77,7 +79,9 @@ def build_week(
             and _starts_on(s[0], s[1])
             and _ends_after_next_midnight(s[0], s[2])
         )
-        if not slots and not tails:
+        # A day with only yesterday's tail keeps Hive's entries: writing the tail
+        # alone would hold the Away Temperature for the rest of that day.
+        if not slots:
             kept.append((WEEKDAYS[day.weekday()], REASON_NO_SLOT))
             continue
         if not all(_starts_on(day, s[1]) for s in slots):

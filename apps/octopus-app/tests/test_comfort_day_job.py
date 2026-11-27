@@ -1115,3 +1115,87 @@ def test_minutes_below_after_midnight_still_count_for_the_calendar_day(
     days = _comfort_days(mariadb_client)
     assert days[SATURDAY].minutes_below == 20
     assert days[FRIDAY].minutes_below == 0
+
+
+def test_leaving_after_midnight_stops_the_tail_counting_as_held_at_home(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Friday held with the heating on from 22:30 to 23:58 and from 00:00 to
+    # 00:28, but no one home from 00:10 on Saturday
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(FRIDAY, timedelta(hours=22, minutes=30)),
+        room=17.0,
+        count=45,
+        target=17.0,
+        on=True,
+    )
+    _seed_polls(
+        mariadb_client,
+        _at(SATURDAY, timedelta(0)),
+        room=17.0,
+        count=15,
+        target=17.0,
+        on=True,
+    )
+    _seed_presence_period(
+        mariadb_client, "no_one_home", _at(SATURDAY, timedelta(minutes=10))
+    )
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then only 100 minutes were held at home: Friday is not quiet
+    assert _comfort_days(mariadb_client)[FRIDAY].day_kind is None
+
+
+def test_a_boost_after_midnight_counts_in_the_calendar_days_boost_starts(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a boost at 00:15 on Saturday, inside Friday's window
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(SATURDAY, timedelta(minutes=15)),
+        room=16.0,
+        count=3,
+        boost=True,
+    )
+
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then it is one of Saturday's Boost Starts, not Friday's
+    days = _comfort_days(mariadb_client)
+    assert days[SATURDAY].boost_starts == 1
+    assert days[FRIDAY].boost_starts == 0
+
+
+def test_an_unsettled_day_with_no_polls_still_leads_the_next_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Thursday stored at 17.0, Friday stored at 17.5 but written at 00:04 on
+    # Saturday (unsettled, its window runs to 00:30) with no polls to rewrite it
+    # from, and a poll on Saturday
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    mariadb_client.write_comfort_days(
+        [
+            ComfortDayRecord(
+                date=FRIDAY,
+                comfort_temp=17.5,
+                boost_starts=0,
+                counted_hours="",
+                minutes_below=0,
+                computed_at=datetime(2026, 11, 14, 0, 4),
+                quiet_count=0,
+            )
+        ]
+    )
+    _seed_polls(mariadb_client, _at(SATURDAY, timedelta(hours=8)), room=17.0)
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Saturday starts from Friday's stored 17.5, not Thursday's 17.0
+    assert _comfort_days(mariadb_client)[SATURDAY].comfort_temp == 17.5
