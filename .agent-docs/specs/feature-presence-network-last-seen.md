@@ -45,4 +45,5 @@ Use the existing seams:
 ## Further Notes
 
 - A live check after deploy confirms that Last Seen stops for a Phone that leaves: turn the phone's Wi-Fi off for 15 minutes and watch for No One Is Home within about 10 minutes. If Last Seen stays fresh, roll back or tighten the rule.
+- The same live check confirms the opposite case: a Phone left idle on Wi-Fi with its screen off for 20 minutes must stay Someone Is Home, because Last Seen keeps refreshing. If it goes stale and No One Is Home begins, widen `last_seen_minutes` in the config before trusting the rule.
 - The Pi's hive-app config sets none of the three keys.
