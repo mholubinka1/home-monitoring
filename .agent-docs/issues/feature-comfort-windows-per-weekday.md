@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-comfort-windows-per-weekday
 
 ## Comfort Windows per weekday
