@@ -1,5 +1,7 @@
 # Minutes below comfort and Held Boosts share the 0.5 °C held margin
 
+> **Superseded in part (2026-11-27):** the Held Boost's upper limit (the room strictly below the Comfort Temperature) was removed by [feature-held-boost-no-upper-limit](feature-held-boost-no-upper-limit.md); a Held Boost now needs only the room no more than 0.5 °C below it. Statements below about that upper limit (the Problem Statement's second bullet, user story 3, the held-boost implementation decision and its 16.5-to-16.9 tests) are history. The minutes-below margin stands.
+
 ## Problem Statement
 
 Since the Comfort Schedule began holding the room, two comfort rules disagree with how a held room behaves.
@@ -12,7 +14,7 @@ Since the Comfort Schedule began holding the room, two comfort rules disagree wi
 Both rules use the same margin, `HELD_MARGIN` (0.5 °C), so they never drift apart:
 
 - **Minutes below comfort** count a reading only when the room is more than 0.5 °C below the Comfort Temperature in force at that reading. At 17.0 that is below 16.5. After a raise to 17.5 it is below 17.0.
-- **A Held Boost** needs the room no more than 0.5 °C below the Comfort Temperature, and strictly below it: at 17.0, a room of 16.5 to 16.9. A boost at 17.0 or warmer no longer raises it. A boost below 16.5 during a late warm-up still doesn't either.
+- **A Held Boost** needs the room no more than 0.5 °C below the Comfort Temperature. (This spec also added an upper limit, strictly below it, since removed; see the note at the top.) A boost below 16.5 at 17.0, during a late warm-up, doesn't raise it.
 
 Days already settled keep their stored figures. The new rules apply from the next row the hourly job writes (today's row, which is rewritten every hour).
 
