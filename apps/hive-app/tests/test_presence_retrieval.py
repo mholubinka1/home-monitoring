@@ -306,3 +306,19 @@ def test_a_transition_is_logged_with_the_phone_count_and_no_hostname_at_info(
 
     assert "someone_home (1 phone(s) active)" in caplog.text
     assert "Alex-s-Phone" not in caplog.text
+
+
+def test_last_seen_exactly_at_the_window_counts_but_one_second_later_does_not(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given an old lookup, so only last seen can make the phone home
+    _refresh(
+        mariadb_client, [_device("Alex-s-Phone", minutes_ago=60, seen_minutes_ago=2)]
+    )
+    assert _open_state(mariadb_client) == "someone_home"
+
+    _refresh(
+        mariadb_client,
+        [_device("Alex-s-Phone", minutes_ago=60, seen_minutes_ago=2 + 1 / 60)],
+    )
+    assert _open_state(mariadb_client) == "no_one_home"

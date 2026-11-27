@@ -45,7 +45,8 @@ class PiholeSource(Protocol):
 
 class _Address(BaseModel):
     name: StrictStr | None = None
-    lastSeen: StrictInt | StrictFloat = 0
+    # 0 or null: never seen. A null must not fail the whole device list.
+    lastSeen: StrictInt | StrictFloat | None = 0
 
 
 class _Device(BaseModel):
@@ -67,7 +68,7 @@ class _Device(BaseModel):
 
     def _last_seen(self) -> datetime | None:
         """The newest lastSeen across the addresses; 0 is never seen."""
-        newest = max((address.lastSeen for address in self.ips), default=0)
+        newest = max((address.lastSeen or 0 for address in self.ips), default=0)
         return datetime.fromtimestamp(newest, UTC) if newest else None
 
 

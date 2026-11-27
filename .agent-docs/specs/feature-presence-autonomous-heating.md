@@ -1,5 +1,7 @@
 # Presence-Based Heating Control and the Comfort Schedule
 
+> **Superseded in part (2026-11-27):** presence now comes first from a phone being last seen on the network within 2 minutes, with a DNS lookup within 10 minutes as the fallback, replacing the 30-minute Away Delay and `away_delay_minutes` described below ([ADR-0042](../adr/0042-presence-comes-first-from-a-phone-being-seen-on-the-network.md), [feature-presence-network-last-seen](feature-presence-network-last-seen.md)).
+
 ## Problem Statement
 
 The heating follows a hand-set Hive schedule whether or not anyone is in. When the household goes out for the day or away for a weekend, the boiler still heats an empty house to the full schedule, and the only way to stop it is to remember to change the thermostat. The Comfort Plan already works out the least heating that keeps the room comfortable, but it is advice only: someone has to copy it into the Hive app by hand, and nobody does.

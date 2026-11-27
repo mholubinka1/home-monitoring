@@ -303,3 +303,25 @@ def test_last_seen_is_the_newest_address_last_seen_and_none_when_never() -> None
 
     assert devices[0].last_seen == datetime.fromtimestamp(1794916900, UTC)
     assert devices[1].last_seen is None
+
+
+@responses.activate
+def test_a_null_last_seen_reads_as_never_seen() -> None:
+    # Given an address whose lastSeen is null
+    _login_ok()
+    responses.add(
+        responses.GET,
+        DEVICES_URL,
+        json={
+            "devices": [
+                {
+                    "hwaddr": "c2:00:00:00:00:01",
+                    "lastQuery": 1794916800,
+                    "ips": [{"name": "Alex-s-Phone", "lastSeen": None}],
+                }
+            ]
+        },
+    )
+
+    # Then the device is still read, never seen on the network
+    assert _source().read_devices()[0].last_seen is None
