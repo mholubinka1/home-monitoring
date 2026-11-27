@@ -6,7 +6,7 @@ Since `feature-comfort-held-margin`, a Held Boost needs the room strictly below 
 
 ## Solution
 
-A Held Boost needs the room at least `HELD_MARGIN` (0.5 °C) below the Comfort Temperature, with no upper limit. At 17.0, a boost with the room at 16.5, 17.0, 17.2 or 18.0 raises it; one at 16.4 (a late warm-up) does not. Every other Held Boost condition is unchanged, and minutes below comfort keep their 0.5 °C margin.
+A Held Boost needs the room no more than `HELD_MARGIN` (0.5 °C) below the Comfort Temperature, with no upper limit. At 17.0, a boost with the room at 16.5, 17.0, 17.2 or 18.0 raises it; one at 16.4 (a late warm-up) does not. Every other Held Boost condition is unchanged, and minutes below comfort keep their 0.5 °C margin.
 
 A day not yet settled is rewritten on the next hourly run, so a boost earlier that day that is held under this rule raises it from that boost.
 
