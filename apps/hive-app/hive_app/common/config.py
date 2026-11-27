@@ -98,7 +98,10 @@ class PresenceSettings(BaseModel):
 
     control: Literal["off", "dry_run", "on"] = "off"
     pihole: PiholeSettings
-    away_delay_minutes: int = Field(default=30, gt=0)
+    # A Phone is home when last seen on the network within last_seen_minutes, or
+    # when it made a DNS lookup within dns_minutes (ADR-0042).
+    last_seen_minutes: int = Field(default=2, gt=0)
+    dns_minutes: int = Field(default=10, gt=0)
     phone_hostnames: list[str] = []
     ignored_hostnames: list[str] = []
 

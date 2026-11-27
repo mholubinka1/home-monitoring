@@ -270,3 +270,36 @@ def test_logout_releases_the_session_and_tolerates_failure() -> None:
     source.logout()
 
     assert responses.calls[-1].request.method == "DELETE"
+
+
+@responses.activate
+def test_last_seen_is_the_newest_address_last_seen_and_none_when_never() -> None:
+    # Given one device with two addresses last seen at different times, and one
+    # whose only address shows 0 (never seen)
+    _login_ok()
+    responses.add(
+        responses.GET,
+        DEVICES_URL,
+        json={
+            "devices": [
+                {
+                    "hwaddr": "c2:00:00:00:00:01",
+                    "lastQuery": 1794916800,
+                    "ips": [
+                        {"name": "Alex-s-Phone", "lastSeen": 1794916000},
+                        {"name": None, "lastSeen": 1794916900},
+                    ],
+                },
+                {
+                    "hwaddr": "c2:00:00:00:00:02",
+                    "lastQuery": 0,
+                    "ips": [{"name": "Old-Phone", "lastSeen": 0}],
+                },
+            ]
+        },
+    )
+
+    devices = _source().read_devices()
+
+    assert devices[0].last_seen == datetime.fromtimestamp(1794916900, UTC)
+    assert devices[1].last_seen is None

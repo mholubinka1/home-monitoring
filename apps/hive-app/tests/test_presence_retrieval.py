@@ -34,12 +34,22 @@ def _settings(**overrides: list[str]) -> PresenceSettings:
 
 
 def _device(
-    hostname: str, hwaddr: str = RANDOMISED_MAC, minutes_ago: float = 1
+    hostname: str,
+    hwaddr: str = RANDOMISED_MAC,
+    minutes_ago: float = 1,
+    seen_minutes_ago: float | None = None,
 ) -> PiholeDevice:
+    """A device whose last DNS lookup was `minutes_ago`, last seen on the network
+    `seen_minutes_ago` (never, when None)."""
     return PiholeDevice(
         hwaddr=hwaddr,
         hostnames=[hostname],
         last_query=NOW - timedelta(minutes=minutes_ago),
+        last_seen=(
+            None
+            if seen_minutes_ago is None
+            else NOW - timedelta(minutes=seen_minutes_ago)
+        ),
     )
 
 
@@ -104,10 +114,10 @@ def test_an_active_tablet_does_not_make_someone_home(
     assert _open_state(mariadb_client) == "no_one_home"
 
 
-def test_a_lookup_exactly_at_the_away_delay_still_counts_but_one_second_later_does_not(
+def test_a_lookup_exactly_at_the_dns_window_still_counts_but_one_second_later_does_not(
     mariadb_client: MariaDBClient,
 ) -> None:
-    _refresh(mariadb_client, [_device("Alex-s-Phone", minutes_ago=30)])
+    _refresh(mariadb_client, [_device("Alex-s-Phone", minutes_ago=10)])
     assert _open_state(mariadb_client) == "someone_home"
 
     _refresh(
@@ -116,10 +126,54 @@ def test_a_lookup_exactly_at_the_away_delay_still_counts_but_one_second_later_do
             PiholeDevice(
                 RANDOMISED_MAC,
                 ["Alex-s-Phone"],
-                NOW - timedelta(minutes=30, seconds=1),
+                NOW - timedelta(minutes=10, seconds=1),
             )
         ],
     )
+    assert _open_state(mariadb_client) == "no_one_home"
+
+
+def test_a_phone_seen_on_the_network_is_home_without_dns_lookups(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a phone last seen on the network 1 minute ago, with no DNS lookup for an
+    # hour (its data going over mobile while it stays on Wi-Fi)
+    _refresh(
+        mariadb_client, [_device("Alex-s-Phone", minutes_ago=60, seen_minutes_ago=1)]
+    )
+
+    assert _open_state(mariadb_client) == "someone_home"
+
+
+def test_a_recent_dns_lookup_keeps_a_phone_home_when_last_seen_is_older(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _refresh(
+        mariadb_client, [_device("Alex-s-Phone", minutes_ago=5, seen_minutes_ago=3)]
+    )
+
+    assert _open_state(mariadb_client) == "someone_home"
+
+
+def test_a_phone_failing_both_windows_is_not_home(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a phone last seen 3 minutes ago (over 2) and a lookup 11 minutes ago
+    # (over 10)
+    _refresh(
+        mariadb_client, [_device("Alex-s-Phone", minutes_ago=11, seen_minutes_ago=3)]
+    )
+
+    assert _open_state(mariadb_client) == "no_one_home"
+
+
+def test_a_device_that_is_not_a_phone_does_not_count_when_seen(
+    mariadb_client: MariaDBClient,
+) -> None:
+    _refresh(
+        mariadb_client, [_device("Galaxy-Tab-S9", minutes_ago=60, seen_minutes_ago=0)]
+    )
+
     assert _open_state(mariadb_client) == "no_one_home"
 
 

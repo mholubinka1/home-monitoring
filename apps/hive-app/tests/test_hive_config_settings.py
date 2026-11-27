@@ -207,7 +207,7 @@ def test_no_presence_section_means_no_presence_settings() -> None:
     assert HiveApplicationSettings.model_validate(VALID_CONFIG).presence is None
 
 
-def test_a_presence_section_defaults_to_control_off_a_30_minute_delay_and_no_hostnames() -> (
+def test_a_presence_section_defaults_to_control_off_2_and_10_minute_windows_and_no_hostnames() -> (
     None
 ):
     settings = HiveApplicationSettings.model_validate(
@@ -216,7 +216,8 @@ def test_a_presence_section_defaults_to_control_off_a_30_minute_delay_and_no_hos
 
     assert settings.presence is not None
     assert settings.presence.control == "off"
-    assert settings.presence.away_delay_minutes == 30
+    assert settings.presence.last_seen_minutes == 2
+    assert settings.presence.dns_minutes == 10
     assert settings.presence.phone_hostnames == []
     assert settings.presence.ignored_hostnames == []
 
@@ -228,7 +229,8 @@ def test_presence_values_set_in_config_are_kept() -> None:
             "presence": {
                 **PRESENCE_CONFIG,
                 "control": "dry_run",
-                "away_delay_minutes": 45,
+                "last_seen_minutes": 3,
+                "dns_minutes": 15,
                 "phone_hostnames": ["Alex-s-Phone"],
                 "ignored_hostnames": ["Spare-Pixel-8"],
             },
@@ -237,7 +239,8 @@ def test_presence_values_set_in_config_are_kept() -> None:
 
     assert settings.presence is not None
     assert settings.presence.control == "dry_run"
-    assert settings.presence.away_delay_minutes == 45
+    assert settings.presence.last_seen_minutes == 3
+    assert settings.presence.dns_minutes == 15
     assert settings.presence.phone_hostnames == ["Alex-s-Phone"]
     assert settings.presence.ignored_hostnames == ["Spare-Pixel-8"]
 
@@ -331,13 +334,24 @@ def test_a_pihole_url_with_stray_spaces_is_stored_trimmed() -> None:
     assert settings.presence.pihole.url == "http://pihole.example.lan"
 
 
-@pytest.mark.parametrize("delay", [0, -5])
-def test_a_non_positive_away_delay_is_refused(delay: int) -> None:
+@pytest.mark.parametrize("field", ["last_seen_minutes", "dns_minutes"])
+@pytest.mark.parametrize("minutes", [0, -5])
+def test_a_non_positive_presence_window_is_refused(field: str, minutes: int) -> None:
+    with pytest.raises(ValidationError, match=field):
+        HiveApplicationSettings.model_validate(
+            {
+                **VALID_CONFIG,
+                "presence": {**PRESENCE_CONFIG, field: minutes},
+            }
+        )
+
+
+def test_the_old_away_delay_key_is_refused_naming_it() -> None:
     with pytest.raises(ValidationError, match="away_delay_minutes"):
         HiveApplicationSettings.model_validate(
             {
                 **VALID_CONFIG,
-                "presence": {**PRESENCE_CONFIG, "away_delay_minutes": delay},
+                "presence": {**PRESENCE_CONFIG, "away_delay_minutes": 30},
             }
         )
 

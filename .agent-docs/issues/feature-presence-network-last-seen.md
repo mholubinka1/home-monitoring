@@ -14,12 +14,12 @@ hive-app parses each Pi-hole address's `lastSeen` into `PiholeDevice.last_seen`,
 
 ### Acceptance criteria
 
-- [ ] Given a Phone last seen 1 minute ago with no DNS lookup for an hour, when presence refreshes, then Someone Is Home.
-- [ ] Given a Phone last seen 3 minutes ago with a DNS lookup 5 minutes ago, when presence refreshes, then Someone Is Home.
-- [ ] Given a Phone last seen 3 minutes ago with a DNS lookup 11 minutes ago, when presence refreshes, then No One Is Home.
-- [ ] Given a device that is not a Phone, last seen just now, when presence refreshes, then it does not count.
-- [ ] Given Pi-hole addresses with lastSeen times, when devices are read, then `last_seen` is the newest of them, and None when every address shows 0.
-- [ ] Given a config with no presence windows, when settings load, then they are 2 and 10 minutes; given `away_delay_minutes`, startup is refused naming it.
-- [ ] Given the README and config template, when read, then they describe Last Seen first and DNS as the fallback.
+- [x] Given a Phone last seen 1 minute ago with no DNS lookup for an hour, when presence refreshes, then Someone Is Home.
+- [x] Given a Phone last seen 3 minutes ago with a DNS lookup 5 minutes ago, when presence refreshes, then Someone Is Home.
+- [x] Given a Phone last seen 3 minutes ago with a DNS lookup 11 minutes ago, when presence refreshes, then No One Is Home.
+- [x] Given a device that is not a Phone, last seen just now, when presence refreshes, then it does not count.
+- [x] Given Pi-hole addresses with lastSeen times, when devices are read, then `last_seen` is the newest of them, and None when every address shows 0.
+- [x] Given a config with no presence windows, when settings load, then they are 2 and 10 minutes; given `away_delay_minutes`, startup is refused naming it.
+- [x] Given the README and config template, when read, then they describe Last Seen first and DNS as the fallback.
 
 ---

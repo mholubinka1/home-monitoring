@@ -34,6 +34,9 @@ class PiholeDevice:
     hwaddr: str
     hostnames: list[str]
     last_query: datetime | None
+    # When the device's address last appeared in Pi-hole's neighbour table,
+    # whatever route its own traffic takes (ADR-0042); None when never.
+    last_seen: datetime | None = None
 
 
 class PiholeSource(Protocol):
@@ -42,6 +45,7 @@ class PiholeSource(Protocol):
 
 class _Address(BaseModel):
     name: StrictStr | None = None
+    lastSeen: StrictInt | StrictFloat = 0
 
 
 class _Device(BaseModel):
@@ -58,7 +62,13 @@ class _Device(BaseModel):
                 if self.lastQuery != NEVER_QUERIED
                 else None
             ),
+            last_seen=self._last_seen(),
         )
+
+    def _last_seen(self) -> datetime | None:
+        """The newest lastSeen across the addresses; 0 is never seen."""
+        newest = max((address.lastSeen for address in self.ips), default=0)
+        return datetime.fromtimestamp(newest, UTC) if newest else None
 
 
 class _Session(BaseModel):
