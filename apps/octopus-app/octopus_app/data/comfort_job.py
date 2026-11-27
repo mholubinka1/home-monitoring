@@ -67,6 +67,11 @@ class ComfortDayJob:
             if row is not None:
                 rows.append(row)
                 previous = row
+            elif day == first_day:
+                # No polls to rewrite it from: its stored row still leads on.
+                previous = self._mariadb.read_previous_comfort_day(
+                    day + timedelta(days=1)
+                )
             day += timedelta(days=1)
         self._mariadb.write_comfort_days(rows)
         logger.info(
@@ -77,11 +82,25 @@ class ComfortDayJob:
         latest = self._mariadb.read_latest_comfort_day()
         if latest is not None:
             day, computed_at = latest
-            next_day = day + timedelta(days=1)
+            # A window that closes after midnight leaves the day before unsettled.
+            before = day - timedelta(days=1)
+            before_at = self._mariadb.read_comfort_day_computed_at(before)
+            if before_at is not None and before_at < self._settled_from(before):
+                return before
             # Written after it ended, so it is settled: never write it again.
-            return next_day if computed_at >= _day_start(next_day) else day
+            return (
+                day + timedelta(days=1)
+                if computed_at >= self._settled_from(day)
+                else day
+            )
         first_poll = self._mariadb.read_first_heating_poll()
         return None if first_poll is None else local_day.to_local_date(first_poll)
+
+    def _settled_from(self, day: date) -> datetime:
+        """When a day is over for good: its next midnight, or its window's close
+        if that is later (naive UTC)."""
+        _, closes = room_forecast.comfort_window(self._windows, day)
+        return max(_day_start(day + timedelta(days=1)), local_day.naive_utc_of(closes))
 
     def _comfort_day(
         self,
@@ -92,12 +111,18 @@ class ComfortDayJob:
     ) -> ComfortDayRecord | None:
         day_start = _day_start(day)
         day_end = _day_start(day + timedelta(days=1))
+        opens, closes = room_forecast.comfort_window(self._windows, day)
         # From one boost gap earlier, so a boost running across midnight is not
-        # taken for a new one; only the day's own polls are used for the rest.
+        # taken for a new one, to the window's close if that is after midnight, so
+        # the evening's evidence is whole; only the calendar day's own polls count
+        # for minutes below and boost starts.
         thermostat_polls = self._mariadb.read_comfort_polls(
-            day_start - comfort.BOOST_GAP, day_end
+            day_start - comfort.BOOST_GAP,
+            max(day_end, local_day.naive_utc_of(closes)),
         )
-        days_polls = [poll for poll in thermostat_polls if poll.polled_at >= day_start]
+        days_polls = [
+            poll for poll in thermostat_polls if day_start <= poll.polled_at < day_end
+        ]
         if not days_polls:
             return None
         # Only the day's own periods, so a long backfill checks each poll against
@@ -112,7 +137,6 @@ class ComfortDayJob:
             for hour in evidence.heating_on_hours
             if day_start - COUNTED_HOURS_WINDOW <= hour < day_start
         )
-        opens, closes = room_forecast.comfort_window(self._windows, day)
         outcome = comfort.settle_day(
             previous,
             thermostat_polls,
@@ -128,7 +152,7 @@ class ComfortDayJob:
                     for start in comfort.boost_starts(
                         poll.polled_at for poll in thermostat_polls if poll.boost_active
                     )
-                    if start >= day_start
+                    if day_start <= start < day_end
                 ]
             ),
             counted_hours=",".join(str(hour) for hour in hours),

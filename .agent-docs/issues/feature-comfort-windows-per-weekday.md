@@ -57,10 +57,10 @@ The comfort job reads each day's polls up to the later of midnight and its windo
 
 ### Acceptance criteria
 
-- [ ] Given Friday held at 17.0 and a boost at 00:15 on Saturday with the room at 16.8, when the job runs after 00:30, then Friday is raised at 00:15 and Saturday starts at 17.5.
-- [ ] Given Friday's row was written at 00:04 on Saturday, when the first run after 00:30 happens, then Friday is rewritten and settled, and later runs do not rewrite it.
-- [ ] Given Friday held at home with the heating on for 90 minutes before midnight and 30 minutes after, and no boost, when the job runs after 00:30, then Friday is a Quiet Day.
-- [ ] Given polls at 16.0 between 00:00 and 00:30 on Saturday in a counted hour, when the job runs, then they count towards Saturday's minutes below, not Friday's.
-- [ ] Given the explainer, when read, then it describes the per-weekday windows and the after-midnight tail.
+- [x] Given Friday held at 17.0 and a boost at 00:15 on Saturday with the room at 16.8, when the job runs after 00:30, then Friday is raised at 00:15 and Saturday starts at 17.5.
+- [x] Given Friday's row was written at 00:04 on Saturday, when the first run after 00:30 happens, then Friday is rewritten and settled, and later runs do not rewrite it.
+- [x] Given Friday held at home with the heating on for 90 minutes before midnight and 30 minutes after, and no boost, when the job runs after 00:30, then Friday is a Quiet Day.
+- [x] Given polls at 16.0 between 00:00 and 00:30 on Saturday in a counted hour, when the job runs, then they count towards Saturday's minutes below, not Friday's.
+- [x] Given the explainer, when read, then it describes the per-weekday windows and the after-midnight tail.
 
 ---
