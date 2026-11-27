@@ -189,16 +189,18 @@ household no longer maintains one by hand. At each heating poll, hive-app builds
 week from the schedule it just read: today's and tomorrow's weekdays are replaced from
 the newest plan slots (the Comfort Temperature from the slot's start, then the Away
 Temperature from its end), and the other five weekdays keep whatever was last written.
-Like Hive's own days, a written day has no entry at 00:00: before a day's first entry,
-Hive holds the previous day's last setting. A start rounds earlier and an end later to a
-whole minute, so the Comfort Window is never shortened, except that a slot ending at
-midnight closes with the Away Temperature at 23:59, so its Comfort Temperature never
-runs on through the night into the next day. A day with no plan slot keeps its
-entries, and so does a day whose slot does not lie within it (a comfort window opening
-just after midnight with pre-heat from the evening before, or running past midnight):
-that case is logged as a WARNING on a poll that writes or records the week (so if
-nothing else changes the day stays quietly on Hive's entries), and splitting such a slot
-across two days is not done. Hive is written only when the built week differs from the
+Like Hive's own days, a written day has no entry at 00:00 of its own: before a day's
+first entry, Hive holds the previous day's last setting. A start rounds earlier and an
+end later to a whole minute, so the Comfort Window is never shortened, except that a
+slot ending at or after midnight closes its own day with the Away Temperature at 23:59.
+A slot running past midnight (the default Friday and Saturday windows end at 00:30) is
+split across the two days: the next day opens with the Comfort Temperature at 00:00 and
+the Away Temperature at the slot's close, before that day's own slot (ADR-0041). A day
+with no plan slot of its own keeps its entries, even when yesterday's slot runs into
+it, and so does a day whose slot does not start on it (a comfort window opening just
+after midnight with pre-heat from the evening before): that case is logged as a
+WARNING on a poll that writes or records the week (so if nothing else changes the day
+stays quietly on Hive's entries). Hive is written only when the built week differs from the
 one it holds, so in practice that is after each hourly plan run that moves a slot.
 **Edits made in the Hive app are overwritten at the next difference**; that is the
 point of it.
