@@ -189,8 +189,9 @@ household no longer maintains one by hand. At each heating poll, hive-app builds
 week from the schedule it just read: today's and tomorrow's weekdays are replaced from
 the newest plan slots (the Comfort Temperature from the slot's start, then the Away
 Temperature from its end), and the other five weekdays keep whatever was last written.
-Like Hive's own days, a written day has no entry at 00:00 of its own: before a day's
-first entry, Hive holds the previous day's last setting. A start rounds earlier and an
+Like Hive's own days, a written day has no entry at 00:00 unless it opens with
+yesterday's tail (below): before a day's first entry, Hive holds the previous day's
+last setting. A start rounds earlier and an
 end later to a whole minute, so the Comfort Window is never shortened, except that a
 slot ending at or after midnight closes its own day with the Away Temperature at 23:59.
 A slot running past midnight (the default Friday and Saturday windows end at 00:30) is

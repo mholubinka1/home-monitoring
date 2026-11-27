@@ -280,11 +280,11 @@ The least heating that keeps the room at the Comfort Temperature throughout the 
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Schedule**:
-The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at midnight), then the Away Temperature. Like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
+The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at or after midnight), then the Away Temperature; a window running past midnight opens the next day with the Comfort Temperature at 00:00 until its close ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Otherwise, like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
 _Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
-The configured hours the Comfort Plan keeps comfortable: it starts by the day's own kind (07:30 on weekdays, 08:30 at weekends by default) and ends by the next day's kind (23:00 before a weekday, 00:30 the next morning before a weekend day), so Friday and Saturday windows run past midnight. Its whole span, including the part after midnight, is the evidence of the day it opened on ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Distinct from Counted Hours, which are learned.
+The configured hours the Comfort Plan keeps comfortable, set per weekday; an end at or before the start is the next morning. By default 07:30 to 23:00 Monday to Thursday, 07:30 to 00:30 on Friday, 08:30 to 00:30 on Saturday and 08:30 to 23:00 on Sunday. Its whole span, including the part after midnight, is the evidence of the day it opened on ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Distinct from Counted Hours, which are learned.
 
 ### Hive and Weather
 
