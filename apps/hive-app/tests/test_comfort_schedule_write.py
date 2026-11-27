@@ -413,11 +413,11 @@ def test_a_slot_that_does_not_lie_within_its_day_is_not_written_and_is_warned_of
     )
 
 
-def test_a_slot_running_past_the_next_midnight_is_not_written_either(
-    mariadb_client: MariaDBClient, caplog: pytest.LogCaptureFixture
+def test_a_slot_running_past_the_next_midnight_is_split_across_the_two_days(
+    mariadb_client: MariaDBClient,
 ) -> None:
-    # Given today's plan slot runs from 23:00 to 01:00 the next day (a window past
-    # midnight), while tomorrow's slot is the ordinary 05:40 to 06:25
+    # Given today's plan slot runs from 23:00 to 01:00 tomorrow (a window past
+    # midnight), and tomorrow's own slot is the ordinary 05:40 to 06:25
     _seed_plan_slots(
         mariadb_client,
         [
@@ -442,17 +442,62 @@ def test_a_slot_running_past_the_next_midnight_is_not_written_either(
     source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
 
     # When the heating poll runs
-    with caplog.at_level(logging.WARNING, logger=APP_LOGGER_NAME):
-        _retriever(mariadb_client, source).refresh(NOW)
+    _retriever(mariadb_client, source).refresh(NOW)
 
-    # Then Wednesday keeps Hive's entries (01:00 would land on the wrong weekday) and
-    # a WARNING names it
+    # Then Wednesday is 19 C from 23:00 and the Away Temperature from 23:59, and
+    # Thursday is 19 C from 00:00 to 01:00, then its own slot
     written = _only(source.schedule_writes)
-    assert written["wednesday"] == _hives_week()["wednesday"]
-    assert any(
-        record.levelno == logging.WARNING and "wednesday" in record.getMessage().lower()
-        for record in caplog.records
+    assert written["wednesday"] == [
+        {"start": 1380, "value": {"target": 19.0}},
+        {"start": 1439, "value": {"target": AWAY}},
+    ]
+    assert written["thursday"] == [
+        {"start": 0, "value": {"target": 19.0}},
+        {"start": 60, "value": {"target": AWAY}},
+        {"start": 340, "value": {"target": 19.0}},
+        {"start": 385, "value": {"target": AWAY}},
+    ]
+
+
+def test_yesterdays_slot_past_midnight_starts_todays_entries(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given yesterday's plan slot ran from 23:00 to 01:00 today, and today's own
+    # slot is 05:40 to 06:25
+    _seed_plan_slots(
+        mariadb_client,
+        [
+            (
+                TODAY - timedelta(days=1),
+                "plan",
+                0,
+                datetime(2026, 11, 17, 23, 0),
+                datetime(2026, 11, 18, 1, 0),
+                19.0,
+            ),
+            (
+                TODAY,
+                "plan",
+                0,
+                datetime(2026, 11, 18, 5, 40),
+                datetime(2026, 11, 18, 6, 25),
+                19.0,
+            ),
+        ],
     )
+    source = _FakeHiveSource(mariadb_client, _status(_hives_week()))
+
+    # When the heating poll runs
+    _retriever(mariadb_client, source).refresh(NOW)
+
+    # Then Wednesday still starts with yesterday's tail, 19 C from 00:00 to 01:00
+    written = _only(source.schedule_writes)
+    assert written["wednesday"] == [
+        {"start": 0, "value": {"target": 19.0}},
+        {"start": 60, "value": {"target": AWAY}},
+        {"start": 340, "value": {"target": 19.0}},
+        {"start": 385, "value": {"target": AWAY}},
+    ]
 
 
 def test_a_day_with_no_plan_slot_keeps_hives_entries(

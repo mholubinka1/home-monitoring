@@ -36,10 +36,10 @@ hive-app reads the plan slots for yesterday, today and tomorrow, and writes each
 
 ### Acceptance criteria
 
-- [ ] Given Friday's plan slot from 06:50 to 00:30 and Saturday's own slot, when hive-app writes on Friday, then Friday has the target at 06:50 and the Away Temperature at 23:59, and Saturday has the target at 00:00, the Away Temperature at 00:30, then its own slot.
-- [ ] Given it is Sunday and Saturday's slot ended at 00:30 on Sunday, when hive-app writes, then Sunday starts with the target at 00:00 and the Away Temperature at 00:30.
-- [ ] Given Friday's window has closed, when the room forecast runs on Saturday, then Friday's plan slot is still stored.
-- [ ] Given a slot that starts before its day, when hive-app writes, then that day keeps Hive's entries and the reason is logged.
+- [x] Given Friday's plan slot from 06:50 to 00:30 and Saturday's own slot, when hive-app writes on Friday, then Friday has the target at 06:50 and the Away Temperature at 23:59, and Saturday has the target at 00:00, the Away Temperature at 00:30, then its own slot.
+- [x] Given it is Sunday and Saturday's slot ended at 00:30 on Sunday, when hive-app writes, then Sunday starts with the target at 00:00 and the Away Temperature at 00:30.
+- [x] Given Friday's window has closed, when the room forecast runs on Saturday, then Friday's plan slot is still stored.
+- [x] Given a slot that starts before its day, when hive-app writes, then that day keeps Hive's entries and the reason is logged.
 
 ---
 

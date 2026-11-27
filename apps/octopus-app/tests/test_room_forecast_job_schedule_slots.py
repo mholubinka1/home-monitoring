@@ -450,3 +450,30 @@ def test_sundays_plan_slot_ends_at_2300_with_the_default_windows(
 
     # Then Sunday's slot ends at 23:00, before a weekday
     assert _plan_slot_ends(client)[22] == datetime(2026, 11, 22, 23, 0)
+
+
+def test_yesterdays_plan_slot_stays_stored_for_the_whole_of_today(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday's stored plan slot ran to 00:30 on Saturday, and it is now
+    # Saturday afternoon, long after that window closed
+    client.replace_room_forecast_slots(
+        "plan",
+        [
+            RoomForecastSlotRecord(
+                datetime(2026, 11, 20).date(),
+                "plan",
+                0,
+                datetime(2026, 11, 20, 6, 50),
+                datetime(2026, 11, 21, 0, 30),
+                17.0,
+                datetime(2026, 11, 21, 0, 4),
+            )
+        ],
+    )
+
+    # When the room forecast runs
+    _run_default_windows_on(client, datetime(2026, 11, 21, 14, 10, tzinfo=UTC))
+
+    # Then Friday's slot is still stored, so hive-app can still write its tail
+    assert _plan_slot_ends(client)[20] == datetime(2026, 11, 21, 0, 30)

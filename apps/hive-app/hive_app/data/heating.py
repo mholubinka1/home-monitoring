@@ -324,7 +324,9 @@ class ComfortScheduleControl:
         self, now: datetime, hive_week: dict[str, Any]
     ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
         today = to_local_date(now)
-        slots = self._mariadb.read_plan_slots([today, today + timedelta(days=1)])
+        slots = self._mariadb.read_plan_slots(
+            [today - timedelta(days=1), today, today + timedelta(days=1)]
+        )
         return build_week(hive_week, slots, today, self._away_temperature)
 
     @staticmethod

@@ -235,7 +235,7 @@ class RoomForecastJob:
         # the stored one stays until the local day rolls over.
         today = local_day.to_local_date(inputs.now)
         computed = {row.day for row in rows}
-        for day in (today, today + ONE_DAY):
+        for day in (today - ONE_DAY, today, today + ONE_DAY):
             if day not in computed:
                 rows.extend(self._mariadb.read_room_forecast_slots(PLAN, day)[:1])
         self._mariadb.replace_room_forecast_slots(PLAN, rows)
