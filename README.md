@@ -203,6 +203,8 @@ after midnight with pre-heat from the evening before): that case is logged as a
 WARNING on a poll that writes or records the week (so if nothing else changes the day
 stays quietly on Hive's entries). Hive is written only when the built week differs from the
 one it holds, so in practice that is after each hourly plan run that moves a slot.
+hive-app reads yesterday's plan slot for a tail, which octopus-app keeps stored for
+the whole of today, so deploy octopus-app with or before hive-app.
 **Edits made in the Hive app are overwritten at the next difference**; that is the
 point of it.
 

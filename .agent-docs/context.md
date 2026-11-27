@@ -251,7 +251,7 @@ A Local Day on which the heating was on at least once, by schedule or boost.
 A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort.
 
 **Comfort Day**:
-One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was more than 0.5 °C below comfort in them, outside No One Is Home. A finished day is settled once and never restated.
+One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was more than 0.5 °C below comfort in them, outside No One Is Home. A finished day is settled once, after its Comfort Window has closed, and never restated.
 
 **Thermal Model**:
 The five learned numbers describing how the room warms and cools, fitted on 10-minute changes: loss per degree above outdoors, gain per hour of heating, the gain carried into the next 10 minutes, sunshine gain and a constant gain, plus the Warm-Up Delay ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)).

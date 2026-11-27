@@ -97,11 +97,13 @@ def build_week(
             entries.append(_entry(_london_minutes(starts_at), target))
             # A start must be 0-1439, so a slot ending at or past the next
             # midnight closes at 23:59 (its tail opens the next day).
-            if _local(ends_at).date() == day:
-                close = _london_minutes(ends_at, round_up=True) % MINUTES_IN_DAY
-            else:
-                close = 0
-            entries.append(_entry(close or MINUTES_IN_DAY - 1, away_temperature))
+            ends_today = _local(ends_at).date() == day
+            close = (
+                min(_london_minutes(ends_at, round_up=True), MINUTES_IN_DAY - 1)
+                if ends_today
+                else MINUTES_IN_DAY - 1
+            )
+            entries.append(_entry(close, away_temperature))
         week[WEEKDAYS[day.weekday()]] = entries
     return week, kept
 
