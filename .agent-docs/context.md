@@ -284,7 +284,7 @@ The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow
 _Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
-The configured hours the Comfort Plan keeps comfortable: 07:30 to 23:00 on weekdays and 08:30 to midnight at weekends by default, each time rounded earlier to a 2-minute mark (a window whose different start and end round to the same mark is refused at startup). Distinct from Counted Hours, which are learned.
+The configured hours the Comfort Plan keeps comfortable: it starts by the day's own kind (07:30 on weekdays, 08:30 at weekends by default) and ends by the next day's kind (23:00 before a weekday, 00:30 the next morning before a weekend day), so Friday and Saturday windows run past midnight. Its whole span, including the part after midnight, is the evidence of the day it opened on ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Distinct from Counted Hours, which are learned.
 
 ### Hive and Weather
 
