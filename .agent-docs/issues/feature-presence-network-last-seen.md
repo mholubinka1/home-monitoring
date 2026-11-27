@@ -1,3 +1,5 @@
+> Work complete — PR ready to merge.
+
 # Issues: feature-presence-network-last-seen
 
 ## Presence comes first from a phone being seen on the network
