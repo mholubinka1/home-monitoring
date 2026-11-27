@@ -38,7 +38,7 @@ The Comfort Windows are configured per weekday, and a window may end the next mo
 
 **Plan (octopus-app `data/room_forecast`).** `comfort_window(windows, day)` returns the named weekday's window, with an end at or before the start on the next day, as now. `_held_spans` already includes yesterday's window while it is still open, so the plan needs no other change.
 
-**Plan slots (`RoomForecastJob._store_plan_slots`).** Each slot keeps the day its window opened on and its true `ends_at` (Saturday 00:30 for Friday). Today the job keeps a passed slot of today or tomorrow until the day rolls over. It now also keeps yesterday's stored slot for the whole of today, so hive-app can still read Friday's slot all through Saturday.
+**Plan slots (`RoomForecastJob._store_plan_slots`).** Each slot keeps the day its window opened on and its true `ends_at` (Saturday 00:30 for Friday). Today the job keeps a passed slot of today or tomorrow until the day rolls over. It now also keeps yesterday's stored slot for the whole of today, so hive-app can still read Friday's slot all through Saturday. A window still open after midnight keeps its opening day's value: the plan holds Friday's tail (and stores Friday's slot) at the value in force at the end of Friday's row, not at Saturday's starting value, so a step down that starts Saturday never lowers Friday's tail.
 
 **hive-app (`data/heating` and `data/comfort_schedule`).**
 
@@ -54,7 +54,7 @@ The Comfort Windows are configured per weekday, and a window may end the next mo
 
 - **Polls:** each day's polls are read from `BOOST_GAP` before its start to the later of its end and its window's close.
 - **Staircase evidence:** the Held Boost and Quiet Day tests use the whole window, including the tail, and the No One Is Home periods up to the window's close, so leaving after midnight stops the tail counting as held at home.
-- **Calendar-day figures:** minutes below comfort and the day's `boost_starts` count only polls inside the calendar day.
+- **Calendar-day figures:** minutes below comfort and the day's `boost_starts` count only polls inside the calendar day. A reading in the tail of yesterday's window (before its close) is compared with yesterday's value in force at that moment (raised from yesterday's `raised_at`), since that is what the house was holding.
 - **Settling:** a day is settled once written at or after the later of its next midnight and its window's close. Each run starts from the oldest day not yet settled, so Friday is rewritten, and settles, before Saturday.
 
 **Docs.** Update the README's `comfort_windows` paragraph, `deployments/octopus-app/config.yml.template`, and the comfort-window sentences in `docs/heating-model.md`. The glossary's Comfort Window entry and ADR-0041 are already written.

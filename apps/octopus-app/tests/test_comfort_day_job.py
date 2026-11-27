@@ -1199,3 +1199,28 @@ def test_an_unsettled_day_with_no_polls_still_leads_the_next_day(
 
     # Then Saturday starts from Friday's stored 17.5, not Thursday's 17.0
     assert _comfort_days(mariadb_client)[SATURDAY].comfort_temp == 17.5
+
+
+def test_readings_in_yesterdays_tail_compare_with_yesterdays_value_in_force(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the 00:00 hour is counted, Friday at 17.0, a reading of 16.8 at 00:01 on
+    # Saturday, then Hive holding 17.0 and a Held Boost at 00:15 with the room at
+    # 16.8 for three polls (Friday rises to 17.5 from 00:15)
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7), timedelta(0)))
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_polls(
+        mariadb_client, _at(SATURDAY, timedelta(minutes=1)), room=16.8, target=17.0
+    )
+    _seed_held_boost(mariadb_client, SATURDAY, room=16.8, at=timedelta(minutes=15))
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Saturday starts at 17.5, but the 00:01 reading is compared with Friday's
+    # 17.0 then in force (not below 16.5), and only the three boost polls after
+    # the raise are below 17.0: 6 minutes
+    saturday = _comfort_days(mariadb_client)[SATURDAY]
+    assert saturday.comfort_temp == 17.5
+    assert saturday.minutes_below == 6

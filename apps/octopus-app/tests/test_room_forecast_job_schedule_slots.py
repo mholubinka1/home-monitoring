@@ -477,3 +477,48 @@ def test_yesterdays_plan_slot_stays_stored_for_the_whole_of_today(
 
     # Then Friday's slot is still stored, so hive-app can still write its tail
     assert _plan_slot_ends(client)[20] == datetime(2026, 11, 21, 0, 30)
+
+
+def test_an_open_window_keeps_its_opening_days_value_after_a_step_down(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday ended at 17.0 with its third Quiet Day, so Saturday starts at
+    # 16.5, and it is 00:10 on Saturday with Friday's window open until 00:30
+    now = datetime(2026, 11, 21, 0, 10, tzinfo=UTC)
+    seed_reading(client, now - timedelta(minutes=5), room=16.7)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 21, 0), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, datetime(2026, 11, 20).date(), 17.0, quiet_count=3)
+    seed_comfort(client, datetime(2026, 11, 21).date(), 16.5, quiet_count=0)
+
+    # When the room forecast runs
+    RoomForecastJob(client, REGION, ComfortWindows()).refresh(now)
+
+    # Then Friday's still-open slot holds Friday's 17.0 and Saturday's holds 16.5
+    targets = {row.day.day: row.target for row in slot_rows(client, "plan")}
+    assert targets[20] == 17.0
+    assert targets[21] == 16.5
+    # and the plan heats the 16.7 C room in Friday's tail, as it would not at 16.5
+    assert live_rows(client, "plan")[0].on_minutes > 0
+
+
+def test_with_no_row_before_today_an_open_window_keeps_todays_value(
+    client: MariaDBClient,
+) -> None:
+    # Given only Saturday's row (16.5), as on a new install, and it is 00:10 on
+    # Saturday with Friday's window open until 00:30
+    now = datetime(2026, 11, 21, 0, 10, tzinfo=UTC)
+    seed_reading(client, now - timedelta(minutes=5), room=17.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 21, 0), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, datetime(2026, 11, 21).date(), 16.5, quiet_count=0)
+
+    RoomForecastJob(client, REGION, ComfortWindows()).refresh(now)
+
+    # Then Friday's slot holds Saturday's 16.5, not the 16 C floor
+    targets = {row.day.day: row.target for row in slot_rows(client, "plan")}
+    assert targets[20] == 16.5

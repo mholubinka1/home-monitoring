@@ -102,6 +102,16 @@ class ComfortDayJob:
         _, closes = room_forecast.comfort_window(self._windows, day)
         return max(_day_start(day + timedelta(days=1)), local_day.naive_utc_of(closes))
 
+    def _tail_of(self, previous: ComfortDayRecord | None) -> comfort.Tail | None:
+        """The day before's window close (naive UTC), comfort temperature and
+        raised_at: what a reading in its tail is compared with."""
+        if previous is None or previous.comfort_temp is None:
+            return None
+        _, closes = room_forecast.comfort_window(self._windows, previous.date)
+        return comfort.Tail(
+            local_day.naive_utc_of(closes), previous.comfort_temp, previous.raised_at
+        )
+
     def _comfort_day(
         self,
         day: date,
@@ -162,6 +172,7 @@ class ComfortDayJob:
                 hours,
                 no_one_home_today,
                 outcome.raised_at,
+                self._tail_of(previous),
             ),
             computed_at=now.replace(tzinfo=None),
             raised_at=outcome.raised_at,
