@@ -83,12 +83,12 @@ def _held_before(
     previous: ThermostatPoll, boost: ThermostatPoll, comfort_temp: float
 ) -> bool:
     """Whether the poll before a boost held the comfort temperature (in half
-    degrees) and the boost started with the room below it, by no more than the
-    margin: a room already at temperature is no evidence it is too cold."""
+    degrees) and the boost started with the room no more than the margin below
+    it, however warm: a boost at the comfort temperature says it is too cold."""
     return (
         _holds(previous, comfort_temp)
         and boost.current_temp is not None
-        and comfort_temp - HELD_MARGIN <= boost.current_temp < comfort_temp
+        and boost.current_temp >= comfort_temp - HELD_MARGIN
     )
 
 
@@ -101,7 +101,7 @@ def held_boost_start(
     first, from one boost gap before midnight) and its Comfort Window (naive UTC).
     A Held Boost is a Boost Start (as in boost_starts) inside the window, whose
     poll just before it, at most a boost gap earlier, held the comfort temperature
-    (in half degrees), with the room below it by no more than the margin."""
+    (in half degrees), with the room no more than the margin below it."""
     opens, closes = window
     previous: ThermostatPoll | None = None
     previous_boost: datetime | None = None
