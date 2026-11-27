@@ -198,14 +198,24 @@ class RoomForecastJob:
             self._mariadb.replace_room_forecast(LIVE, PLAN, [])
             self._mariadb.replace_room_forecast_slots(PLAN, [])
             return
-        target = comfort.value_in_force_at_end(previous)
+        current = comfort.value_in_force_at_end(previous)
+        # On a new install with no row before today, today's row stands in.
+        yesterday = self._mariadb.read_previous_comfort_day(today) or previous
+
+        def target(opening_day: date) -> float:
+            # A window still open after midnight keeps the value of the day it
+            # opened on.
+            if opening_day < today:
+                return comfort.value_in_force_at_end(yesterday)
+            return current
+
         self._store_plan_slots(inputs, target)
         planned = room_forecast.comfort_plan(
             inputs.model, inputs.start, inputs.weather, target, self._windows
         )
         self._store(PLAN, inputs, planned)
 
-    def _store_plan_slots(self, inputs: _Inputs, target: float) -> None:
+    def _store_plan_slots(self, inputs: _Inputs, target: room_forecast.Target) -> None:
         """The plan's slot of each local day, its start kept once it has passed."""
         naive_now = inputs.now.replace(tzinfo=None)
         rows: list[RoomForecastSlotRecord] = []
@@ -235,7 +245,7 @@ class RoomForecastJob:
         # the stored one stays until the local day rolls over.
         today = local_day.to_local_date(inputs.now)
         computed = {row.day for row in rows}
-        for day in (today, today + ONE_DAY):
+        for day in (today - ONE_DAY, today, today + ONE_DAY):
             if day not in computed:
                 rows.extend(self._mariadb.read_room_forecast_slots(PLAN, day)[:1])
         self._mariadb.replace_room_forecast_slots(PLAN, rows)

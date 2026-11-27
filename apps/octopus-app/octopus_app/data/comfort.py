@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from common import local_day
 from octopus_app.data.heating_intervals import POLL_MINUTES
@@ -25,6 +25,16 @@ QUIET_MINUTES = 120
 
 Period = tuple[datetime, datetime | None]  # (started_at, ended_at); None is open
 DayKind = Literal["held_boost", "quiet"] | None
+
+
+class Tail(NamedTuple):
+    """The previous day's window still open after midnight: when it closes (naive
+    UTC) and that day's comfort temperature and raise, which a reading in it is
+    compared with."""
+
+    closes: datetime
+    comfort_temp: float
+    raised_at: datetime | None
 
 
 def _reachable(poll: ThermostatPoll) -> bool:
@@ -208,23 +218,28 @@ def counted_hours(heating_on_hours: Iterable[datetime]) -> list[int]:
     return sorted({local_day.to_local_hour(hour) for hour in heating_on_hours})
 
 
-def minutes_below(
+def minutes_below(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     polls: Iterable[ThermostatPoll],
     comfort_temp: float,
     hours: Iterable[int],
     no_one_home: list[Period],
     raised_at: datetime | None = None,
+    tail: Tail | None = None,
 ) -> int:
     """The minutes of the day's polls in which the room was more than the margin
     below the value in force (the comfort temperature, a step more from raised_at
     on) during a counted hour, leaving out offline polls and polls inside a
     no_one_home period. The margin keeps the thermostat's normal swing around its
-    target from counting as discomfort."""
+    target from counting as discomfort. A poll before the tail's close (the
+    previous day's window, still open) is compared with that day's value in
+    force."""
     counted = set(hours)
 
     def in_force(at: datetime) -> float:
-        raised = raised_at is not None and at >= raised_at
-        return comfort_temp + (COMFORT_STEP if raised else 0)
+        value, raised_from = comfort_temp, raised_at
+        if tail is not None and at < tail.closes:
+            value, raised_from = tail.comfort_temp, tail.raised_at
+        return value + (COMFORT_STEP if raised_from and at >= raised_from else 0)
 
     return POLL_MINUTES * sum(
         _reachable(poll)

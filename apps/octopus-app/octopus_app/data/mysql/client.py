@@ -1162,6 +1162,13 @@ class MariaDBClient(MariaDBClientBase):  # pylint: disable=too-many-public-metho
             )
         return None if row is None else (row[0], row[1])
 
+    def read_comfort_day_computed_at(self, day: date) -> datetime | None:
+        """When a day's comfort_day was written (naive UTC), if it is stored."""
+        cd = model.comfort_day
+        with self.session_read_scope() as session:
+            row = session.query(cd.computed_at).filter(cd.date == day).first()
+        return None if row is None else row[0]
+
     def read_previous_comfort_day(self, before: date) -> ComfortDayRecord | None:
         """The newest stored comfort_day before a date that has a comfort
         temperature."""

@@ -24,10 +24,12 @@ from octopus_app.data.room_forecast import (
 )
 from octopus_app.data.thermal import ThermalNumbers
 
+from .room_forecast_fixtures import weekly_windows
+
 # Pinned, so that changing the household's default windows leaves these times alone.
-PINNED_WINDOWS = ComfortWindows(
-    weekday=ComfortWindow(start=time(6, 30), end=time(0, 0)),
-    weekend=ComfortWindow(start=time(7, 44), end=time(0, 0)),
+PINNED_WINDOWS = weekly_windows(
+    ComfortWindow(start=time(6, 30), end=time(0, 0)),
+    ComfortWindow(start=time(7, 44), end=time(0, 0)),
 )
 
 NUMBERS = ThermalNumbers(
@@ -162,18 +164,28 @@ def test_weekdays_start_at_0630_and_weekends_at_0744_both_ending_at_midnight() -
     assert comfort_window(windows, date(2026, 11, 23))[0].time() == time(6, 30)
 
 
-def test_the_default_windows_are_0730_to_2300_on_weekdays_and_0830_to_midnight_at_weekends() -> (
-    None
-):
+def test_the_default_windows_end_by_the_next_days_kind() -> None:
     windows = ComfortWindows()
 
+    # Tuesday, before a weekday: 07:30 to 23:00
     assert comfort_window(windows, TUESDAY) == (
         datetime(2026, 11, 17, 7, 30),
         datetime(2026, 11, 17, 23, 0),
     )
+    # Friday, before a weekend day: 07:30 to 00:30 on Saturday
+    assert comfort_window(windows, date(2026, 11, 20)) == (
+        datetime(2026, 11, 20, 7, 30),
+        datetime(2026, 11, 21, 0, 30),
+    )
+    # Saturday, before a weekend day: 08:30 to 00:30 on Sunday
     assert comfort_window(windows, SATURDAY) == (
         datetime(2026, 11, 21, 8, 30),
-        datetime(2026, 11, 22, 0, 0),
+        datetime(2026, 11, 22, 0, 30),
+    )
+    # Sunday, before a weekday: 08:30 to 23:00
+    assert comfort_window(windows, date(2026, 11, 22)) == (
+        datetime(2026, 11, 22, 8, 30),
+        datetime(2026, 11, 22, 23, 0),
     )
 
 
@@ -495,7 +507,7 @@ def test_an_overnight_window_is_still_held_when_the_forecast_starts_after_midnig
         Start(18.0, datetime(2026, 11, 17, 2, 0)),
         _hours(datetime(2026, 11, 17, 2), 6),
         19.0,
-        ComfortWindows(weekday=overnight, weekend=overnight),
+        weekly_windows(overnight, overnight),
     )
 
     # Then 02:00 holds 19 C from 18 C at once, and the room is never below the
@@ -516,7 +528,7 @@ def test_the_target_is_held_to_the_closing_minute_and_nothing_after() -> None:
         Start(19.0, datetime(2026, 11, 17, 21, 0)),
         _hours(datetime(2026, 11, 17, 21), 4, outdoor=-10.0),
         19.0,
-        ComfortWindows(weekday=ending_early, weekend=ending_early),
+        weekly_windows(ending_early, ending_early),
     )
 
     # Then heat is demanded up to the close, and not after it

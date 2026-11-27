@@ -25,10 +25,6 @@ LOCATION = "51.50,-0.10"
 REGION = "A"
 # The comfort windows these tests were written against, pinned so that changing
 # the household's defaults does not move their expected times.
-PINNED_WINDOWS = ComfortWindows(
-    weekday=ComfortWindow(start=time(6, 30), end=time(0, 0)),
-    weekend=ComfortWindow(start=time(7, 44), end=time(0, 0)),
-)
 DAYS = (
     "monday",
     "tuesday",
@@ -37,6 +33,20 @@ DAYS = (
     "friday",
     "saturday",
     "sunday",
+)
+
+
+def weekly_windows(weekday: ComfortWindow, weekend: ComfortWindow) -> ComfortWindows:
+    """Comfort Windows with one window Monday to Friday and another at weekends,
+    each keyed by the day it opens on."""
+    return ComfortWindows(
+        **{day: weekday for day in DAYS[:5]}, **{day: weekend for day in DAYS[5:]}
+    )
+
+
+PINNED_WINDOWS = weekly_windows(
+    ComfortWindow(start=time(6, 30), end=time(0, 0)),
+    ComfortWindow(start=time(7, 44), end=time(0, 0)),
 )
 
 

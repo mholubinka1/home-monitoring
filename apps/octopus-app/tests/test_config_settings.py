@@ -132,23 +132,24 @@ def test_an_unknown_timezone_fails_at_load_naming_the_timezone_field(
     assert "invalid or missing field(s): timezone" in " ".join(logged_messages)
 
 
-def test_a_configured_quoted_comfort_window_overrides_the_default(
+def test_a_configured_day_overrides_its_default_and_the_others_keep_theirs(
     tmp_path: Path,
 ) -> None:
-    # Given a config file that quotes the weekend start
+    # Given a config file that sets only Friday's window
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekend:\n    start: "8:16"\n    end: "23:00"\n',
+        + 'comfort_windows:\n  friday:\n    start: "8:16"\n    end: "01:00"\n',
         encoding="utf-8",
     )
 
     # When the settings load
     windows = get_settings(str(config_file)).comfort_windows
 
-    # Then the weekend uses it and the weekday keeps its default
-    assert (windows.weekend.start, windows.weekend.end) == (time(8, 16), time(23, 0))
-    assert windows.weekday.start == time(7, 30)
+    # Then Friday uses it and every other day keeps its default
+    assert (windows.friday.start, windows.friday.end) == (time(8, 16), time(1, 0))
+    assert (windows.thursday.start, windows.thursday.end) == (time(7, 30), time(23, 0))
+    assert (windows.saturday.start, windows.saturday.end) == (time(8, 30), time(0, 30))
 
 
 def test_an_unquoted_comfort_time_stops_startup_telling_the_user_to_quote_it(
@@ -158,7 +159,7 @@ def test_an_unquoted_comfort_time_stops_startup_telling_the_user_to_quote_it(
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + "comfort_windows:\n  weekend:\n    start: 7:45\n    end: '00:00'\n",
+        + "comfort_windows:\n  saturday:\n    start: 7:45\n    end: '00:00'\n",
         encoding="utf-8",
     )
     logged_messages: list[str] = []
@@ -172,7 +173,7 @@ def test_an_unquoted_comfort_time_stops_startup_telling_the_user_to_quote_it(
 
     # Then startup stops naming the field
     assert exit_info.value.code == 1
-    assert "comfort_windows.weekend.start" in " ".join(logged_messages)
+    assert "comfort_windows.saturday.start" in " ".join(logged_messages)
 
 
 def test_comfort_windows_default_to_the_household_hours() -> None:
@@ -180,20 +181,27 @@ def test_comfort_windows_default_to_the_household_hours() -> None:
     # When the settings load
     settings = ApplicationSettings.model_validate(VALID_CONFIG)
 
-    # Then weekdays are 07:30 to 23:00 and weekends 08:30 to midnight
+    # Then each window ends by the next day's kind: 23:00 before a weekday and
+    # 00:30 the next morning before a weekend day
     windows = settings.comfort_windows
-    assert (windows.weekday.start, windows.weekday.end) == (time(7, 30), time(23, 0))
-    assert (windows.weekend.start, windows.weekend.end) == (time(8, 30), time(0, 0))
+    for day in ("monday", "tuesday", "wednesday", "thursday"):
+        assert (getattr(windows, day).start, getattr(windows, day).end) == (
+            time(7, 30),
+            time(23, 0),
+        )
+    assert (windows.friday.start, windows.friday.end) == (time(7, 30), time(0, 30))
+    assert (windows.saturday.start, windows.saturday.end) == (time(8, 30), time(0, 30))
+    assert (windows.sunday.start, windows.sunday.end) == (time(8, 30), time(23, 0))
 
 
 def test_a_comfort_time_on_an_odd_minute_is_rounded_earlier_and_logged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Given a weekend window configured at 07:45, an odd minute
+    # Given a Saturday window configured at 07:45, an odd minute
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekend:\n    start: "07:45"\n    end: "23:59"\n',
+        + 'comfort_windows:\n  saturday:\n    start: "07:45"\n    end: "23:59"\n',
         encoding="utf-8",
     )
     logged_messages: list[str] = []
@@ -205,7 +213,7 @@ def test_a_comfort_time_on_an_odd_minute_is_rounded_earlier_and_logged(
     windows = get_settings(str(config_file)).comfort_windows
 
     # Then the window opens at 07:44 and closes at 23:58, and the log says so
-    assert (windows.weekend.start, windows.weekend.end) == (time(7, 44), time(23, 58))
+    assert (windows.saturday.start, windows.saturday.end) == (time(7, 44), time(23, 58))
     assert any("07:45" in message and "07:44" in message for message in logged_messages)
     assert any("23:59" in message and "23:58" in message for message in logged_messages)
 
@@ -216,7 +224,7 @@ def test_a_comfort_time_on_an_even_minute_is_kept_and_not_logged(
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekend:\n    start: "08:16"\n    end: "23:00"\n',
+        + 'comfort_windows:\n  saturday:\n    start: "08:16"\n    end: "23:00"\n',
         encoding="utf-8",
     )
     logged_messages: list[str] = []
@@ -226,7 +234,7 @@ def test_a_comfort_time_on_an_even_minute_is_kept_and_not_logged(
 
     windows = get_settings(str(config_file)).comfort_windows
 
-    assert windows.weekend.start == time(8, 16)
+    assert windows.saturday.start == time(8, 16)
     assert not logged_messages
 
 
@@ -248,11 +256,11 @@ def test_a_window_ending_at_midnight_is_not_a_collapsed_window() -> None:
 def test_a_collapsing_comfort_window_stops_startup_and_says_why(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Given a weekday window of 07:44 to 07:45, which rounds to nothing
+    # Given a Monday window of 07:44 to 07:45, which rounds to nothing
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         yaml.safe_dump(VALID_CONFIG)
-        + 'comfort_windows:\n  weekday:\n    start: "07:44"\n    end: "07:45"\n',
+        + 'comfort_windows:\n  monday:\n    start: "07:44"\n    end: "07:45"\n',
         encoding="utf-8",
     )
     logged_messages: list[str] = []
@@ -267,7 +275,7 @@ def test_a_collapsing_comfort_window_stops_startup_and_says_why(
     # Then startup stops naming the field and the reason
     assert exit_info.value.code == 1
     logged = " ".join(logged_messages)
-    assert "comfort_windows.weekday" in logged
+    assert "comfort_windows.monday" in logged
     assert "where it starts" in logged
 
 
@@ -275,3 +283,27 @@ def test_a_window_whose_start_equals_its_end_is_accepted_and_still_rounded() -> 
     window = ComfortWindow.model_validate({"start": "07:45", "end": "07:45"})
 
     assert (window.start, window.end) == (time(7, 44), time(7, 44))
+
+
+def test_the_old_weekday_and_weekend_keys_stop_startup_naming_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a config written for the old shape
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(VALID_CONFIG)
+        + 'comfort_windows:\n  weekday:\n    start: "07:30"\n    end: "23:00"\n',
+        encoding="utf-8",
+    )
+    logged_messages: list[str] = []
+    monkeypatch.setattr(
+        "octopus_app.common.config.logger.critical", logged_messages.append
+    )
+
+    # When the settings load
+    with pytest.raises(SystemExit) as exit_info:
+        get_settings(str(config_file))
+
+    # Then startup stops naming the old key, not silently using the defaults
+    assert exit_info.value.code == 1
+    assert "comfort_windows.weekday" in " ".join(logged_messages)

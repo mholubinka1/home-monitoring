@@ -251,7 +251,7 @@ A Local Day on which the heating was on at least once, by schedule or boost.
 A London clock hour in which the heating was on at least once in the 365 days before a Local Day. Only minutes in counted hours can count as below comfort.
 
 **Comfort Day**:
-One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was more than 0.5 °C below comfort in them, outside No One Is Home. A finished day is settled once and never restated.
+One Local Day's stored comfort figures: its Comfort Temperature, its Counted Hours and the minutes the room was more than 0.5 °C below comfort in them, outside No One Is Home. A finished day is settled once, after its Comfort Window has closed, and never restated.
 
 **Thermal Model**:
 The five learned numbers describing how the room warms and cools, fitted on 10-minute changes: loss per degree above outdoors, gain per hour of heating, the gain carried into the next 10 minutes, sunshine gain and a constant gain, plus the Warm-Up Delay ([ADR-0035](adr/0035-room-forecast-and-comfort-plan-come-from-a-small-learned-thermal-model.md), [ADR-0036](adr/0036-room-model-times-at-two-minutes-learns-at-ten-and-has-a-warm-up-delay.md)).
@@ -280,11 +280,11 @@ The least heating that keeps the room at the Comfort Temperature throughout the 
 _Avoid_: recommended schedule, optimised schedule
 
 **Comfort Schedule**:
-The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at midnight), then the Away Temperature. Like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
+The Hive schedule hive-app writes from the Comfort Plan for today's and tomorrow's weekdays: the Comfort Temperature from the pre-heat start to the Comfort Window's close (23:59 for a close at or after midnight), then the Away Temperature; a window running past midnight opens the next day with the Comfort Temperature at 00:00 until its close ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Otherwise, like Hive's own days, a written day has no entry at 00:00, so before its first entry Hive holds the previous day's last setting. It replaces the household's hand-set schedule.
 _Avoid_: autonomous schedule, smart schedule
 
 **Comfort Window**:
-The configured hours the Comfort Plan keeps comfortable: 07:30 to 23:00 on weekdays and 08:30 to midnight at weekends by default, each time rounded earlier to a 2-minute mark (a window whose different start and end round to the same mark is refused at startup). Distinct from Counted Hours, which are learned.
+The configured hours the Comfort Plan keeps comfortable, set per weekday; an end at or before the start is the next morning. By default 07:30 to 23:00 Monday to Thursday, 07:30 to 00:30 on Friday, 08:30 to 00:30 on Saturday and 08:30 to 23:00 on Sunday. Its whole span, including the part after midnight, is the evidence of the day it opened on ([ADR-0041](adr/0041-comfort-windows-are-set-per-weekday-and-may-run-past-midnight.md)). Distinct from Counted Hours, which are learned.
 
 ### Hive and Weather
 

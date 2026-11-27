@@ -1013,3 +1013,214 @@ def test_a_reading_exactly_half_a_degree_below_adds_no_minutes_below(
 
     # Then only readings more than half a degree below count
     assert _comfort_days(mariadb_client)[TODAY].minutes_below == 0
+
+
+FRIDAY = TODAY + timedelta(days=1)  # its default window runs to 00:30 Saturday
+SATURDAY = TODAY + timedelta(days=2)
+
+
+def _saturday(hour: int, minute: int) -> datetime:
+    return datetime(2026, 11, 14, hour, minute, tzinfo=UTC)
+
+
+def test_a_held_boost_after_midnight_raises_the_evening_before(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Thursday's stored 17.0, a poll on Friday, Hive holding 17.0 just after
+    # midnight, a boost at 00:15 on Saturday with the room at 16.8, and a poll on
+    # Saturday morning
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_held_boost(mariadb_client, SATURDAY, room=16.8, at=timedelta(minutes=15))
+    _seed_polls(mariadb_client, _at(SATURDAY, timedelta(hours=8)), room=17.0)
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Friday is raised at the boost, and Saturday starts at 17.5
+    days = _comfort_days(mariadb_client)
+    assert days[FRIDAY].raised_at == _at(SATURDAY, timedelta(minutes=15))
+    assert days[FRIDAY].day_kind == "held_boost"
+    assert days[SATURDAY].comfort_temp == 17.5
+
+
+def test_the_evening_before_settles_only_after_its_window_closes(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Friday's row was written at 00:04 on Saturday, before its window
+    # closed at 00:30
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    job = ComfortDayJob(mariadb_client)
+    job.refresh(_saturday(0, 4))
+
+    # When a Held Boost at 00:15 turns up and the run after 00:30 happens, and then
+    # another run an hour later
+    _seed_held_boost(mariadb_client, SATURDAY, room=16.8, at=timedelta(minutes=15))
+    job.refresh(_saturday(1, 5))
+    job.refresh(_saturday(2, 5))
+
+    # Then Friday was rewritten and settled by the 01:05 run, not after it
+    friday = _comfort_days(mariadb_client)[FRIDAY]
+    assert friday.raised_at == _at(SATURDAY, timedelta(minutes=15))
+    assert friday.computed_at == datetime(2026, 11, 14, 1, 5)
+
+
+def test_held_time_after_midnight_counts_towards_the_evenings_quiet_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Friday held at home with the heating on for 90 minutes before midnight
+    # (22:30 to 23:58) and 30 minutes after it (00:00 to 00:28), and no boost
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(FRIDAY, timedelta(hours=22, minutes=30)),
+        room=17.0,
+        count=45,
+        target=17.0,
+        on=True,
+    )
+    _seed_polls(
+        mariadb_client,
+        _at(SATURDAY, timedelta(0)),
+        room=17.0,
+        count=15,
+        target=17.0,
+        on=True,
+    )
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Friday is a Quiet Day: two hours held across midnight
+    friday = _comfort_days(mariadb_client)[FRIDAY]
+    assert friday.day_kind == "quiet"
+    assert friday.quiet_count == 1
+
+
+def test_minutes_below_after_midnight_still_count_for_the_calendar_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the 00:00 hour is counted, and polls at 16.0 from 00:00 to 00:18 on
+    # Saturday, inside Friday's window
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7), timedelta(0)))
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_polls(mariadb_client, _at(SATURDAY, timedelta(0)), room=16.0, count=10)
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then they are Saturday's minutes below, not Friday's
+    days = _comfort_days(mariadb_client)
+    assert days[SATURDAY].minutes_below == 20
+    assert days[FRIDAY].minutes_below == 0
+
+
+def test_leaving_after_midnight_stops_the_tail_counting_as_held_at_home(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Friday held with the heating on from 22:30 to 23:58 and from 00:00 to
+    # 00:28, but no one home from 00:10 on Saturday
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(FRIDAY, timedelta(hours=22, minutes=30)),
+        room=17.0,
+        count=45,
+        target=17.0,
+        on=True,
+    )
+    _seed_polls(
+        mariadb_client,
+        _at(SATURDAY, timedelta(0)),
+        room=17.0,
+        count=15,
+        target=17.0,
+        on=True,
+    )
+    _seed_presence_period(
+        mariadb_client, "no_one_home", _at(SATURDAY, timedelta(minutes=10))
+    )
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then only 100 minutes were held at home: Friday is not quiet
+    assert _comfort_days(mariadb_client)[FRIDAY].day_kind is None
+
+
+def test_a_boost_after_midnight_counts_in_the_calendar_days_boost_starts(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given a boost at 00:15 on Saturday, inside Friday's window
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_polls(
+        mariadb_client,
+        _at(SATURDAY, timedelta(minutes=15)),
+        room=16.0,
+        count=3,
+        boost=True,
+    )
+
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then it is one of Saturday's Boost Starts, not Friday's
+    days = _comfort_days(mariadb_client)
+    assert days[SATURDAY].boost_starts == 1
+    assert days[FRIDAY].boost_starts == 0
+
+
+def test_an_unsettled_day_with_no_polls_still_leads_the_next_day(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given Thursday stored at 17.0, Friday stored at 17.5 but written at 00:04 on
+    # Saturday (unsettled, its window runs to 00:30) with no polls to rewrite it
+    # from, and a poll on Saturday
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    mariadb_client.write_comfort_days(
+        [
+            ComfortDayRecord(
+                date=FRIDAY,
+                comfort_temp=17.5,
+                boost_starts=0,
+                counted_hours="",
+                minutes_below=0,
+                computed_at=datetime(2026, 11, 14, 0, 4),
+                quiet_count=0,
+            )
+        ]
+    )
+    _seed_polls(mariadb_client, _at(SATURDAY, timedelta(hours=8)), room=17.0)
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Saturday starts from Friday's stored 17.5, not Thursday's 17.0
+    assert _comfort_days(mariadb_client)[SATURDAY].comfort_temp == 17.5
+
+
+def test_readings_in_yesterdays_tail_compare_with_yesterdays_value_in_force(
+    mariadb_client: MariaDBClient,
+) -> None:
+    # Given the 00:00 hour is counted, Friday at 17.0, a reading of 16.8 at 00:01 on
+    # Saturday, then Hive holding 17.0 and a Held Boost at 00:15 with the room at
+    # 16.8 for three polls (Friday rises to 17.5 from 00:15)
+    _seed_stepped_comfort(mariadb_client, TODAY, 17.0)
+    _seed_heating_hour(mariadb_client, _at(TODAY - timedelta(days=7), timedelta(0)))
+    _seed_polls(mariadb_client, _at(FRIDAY), room=17.0)
+    _seed_polls(
+        mariadb_client, _at(SATURDAY, timedelta(minutes=1)), room=16.8, target=17.0
+    )
+    _seed_held_boost(mariadb_client, SATURDAY, room=16.8, at=timedelta(minutes=15))
+
+    # When the job runs after 00:30
+    ComfortDayJob(mariadb_client).refresh(_saturday(1, 5))
+
+    # Then Saturday starts at 17.5, but the 00:01 reading is compared with Friday's
+    # 17.0 then in force (not below 16.5), and only the three boost polls after
+    # the raise are below 17.0: 6 minutes
+    saturday = _comfort_days(mariadb_client)[SATURDAY]
+    assert saturday.comfort_temp == 17.5
+    assert saturday.minutes_below == 6

@@ -29,6 +29,7 @@ from .room_forecast_fixtures import (  # noqa: F401  # pylint: disable=unused-im
     thermal_model_client,
     tuesday_slot_schedule,
     weekly_schedule,
+    weekly_windows,
 )
 
 # A Tuesday, ten minutes into the 05:00 hour.
@@ -335,9 +336,9 @@ def test_each_plan_slot_is_stored_under_the_day_its_window_opens(
     # Given Friday's window runs 06:00 to 03:00 (Saturday) and Saturday's 01:00 to
     # 22:00, so both close on Saturday
     now = datetime(2026, 11, 20, 14, 10, tzinfo=UTC)
-    windows = ComfortWindows(
-        weekday=ComfortWindow(start=time(6, 0), end=time(3, 0)),
-        weekend=ComfortWindow(start=time(1, 0), end=time(22, 0)),
+    windows = weekly_windows(
+        ComfortWindow(start=time(6, 0), end=time(3, 0)),
+        ComfortWindow(start=time(1, 0), end=time(22, 0)),
     )
     seed_reading(client, now - timedelta(minutes=5), room=14.0)
     seed_schedule(client, weekly_schedule())
@@ -363,9 +364,9 @@ def test_two_windows_closing_at_the_same_instant_each_get_a_plan_slot(
     # Given Friday's window runs 22:00 to 06:00 (Saturday) and Saturday's 00:00 to
     # 06:00, so both close Saturday 06:00
     now = datetime(2026, 11, 20, 20, 10, tzinfo=UTC)
-    windows = ComfortWindows(
-        weekday=ComfortWindow(start=time(22, 0), end=time(6, 0)),
-        weekend=ComfortWindow(start=time(0, 0), end=time(6, 0)),
+    windows = weekly_windows(
+        ComfortWindow(start=time(22, 0), end=time(6, 0)),
+        ComfortWindow(start=time(0, 0), end=time(6, 0)),
     )
     seed_reading(client, now - timedelta(minutes=5), room=14.0)
     seed_schedule(client, weekly_schedule())
@@ -389,9 +390,9 @@ def test_a_plan_slot_is_kept_after_its_window_has_closed_until_the_day_ends(
 ) -> None:
     # Given today's stored plan slot ends 22:00 and the window is 06:30 to 22:00
     now = datetime(2026, 11, 17, 22, 30, tzinfo=UTC)
-    windows = ComfortWindows(
-        weekday=ComfortWindow(start=time(6, 30), end=time(22, 0)),
-        weekend=ComfortWindow(start=time(6, 30), end=time(22, 0)),
+    windows = weekly_windows(
+        ComfortWindow(start=time(6, 30), end=time(22, 0)),
+        ComfortWindow(start=time(6, 30), end=time(22, 0)),
     )
     seed_reading(client, now - timedelta(minutes=5), room=14.0)
     seed_schedule(client, weekly_schedule())
@@ -409,3 +410,115 @@ def test_a_plan_slot_is_kept_after_its_window_has_closed_until_the_day_ends(
     assert [(row.starts_at, row.ends_at) for row in today] == [
         (datetime(2026, 11, 17, 5, 50), datetime(2026, 11, 17, 22, 0))
     ]
+
+
+def _plan_slot_ends(client: MariaDBClient) -> dict[int, datetime]:
+    """The stored plan slots' ends (naive UTC), by the day of the month each
+    slot's window opened on."""
+    return {row.day.day: row.ends_at for row in slot_rows(client, "plan")}
+
+
+def _run_default_windows_on(client: MariaDBClient, now: datetime) -> None:
+    seed_reading(client, now - timedelta(minutes=5), room=18.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client,
+        first=now.replace(tzinfo=None, minute=0),
+        last=now.replace(tzinfo=None, hour=0, minute=0) + timedelta(days=2),
+    )
+    seed_comfort(client, now.date(), 17.0)
+    RoomForecastJob(client, REGION, ComfortWindows()).refresh(now)
+
+
+def test_fridays_plan_slot_runs_to_0030_on_saturday_with_the_default_windows(
+    client: MariaDBClient,
+) -> None:
+    # Given it is Friday afternoon and the default windows (London is on GMT)
+    _run_default_windows_on(client, datetime(2026, 11, 20, 14, 10, tzinfo=UTC))
+
+    # Then Friday's slot ends at 00:30 on Saturday, and Saturday's at 00:30 on Sunday
+    ends = _plan_slot_ends(client)
+    assert ends[20] == datetime(2026, 11, 21, 0, 30)
+    assert ends[21] == datetime(2026, 11, 22, 0, 30)
+
+
+def test_sundays_plan_slot_ends_at_2300_with_the_default_windows(
+    client: MariaDBClient,
+) -> None:
+    # Given it is Sunday afternoon and the default windows
+    _run_default_windows_on(client, datetime(2026, 11, 22, 14, 10, tzinfo=UTC))
+
+    # Then Sunday's slot ends at 23:00, before a weekday
+    assert _plan_slot_ends(client)[22] == datetime(2026, 11, 22, 23, 0)
+
+
+def test_yesterdays_plan_slot_stays_stored_for_the_whole_of_today(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday's stored plan slot ran to 00:30 on Saturday, and it is now
+    # Saturday afternoon, long after that window closed
+    client.replace_room_forecast_slots(
+        "plan",
+        [
+            RoomForecastSlotRecord(
+                datetime(2026, 11, 20).date(),
+                "plan",
+                0,
+                datetime(2026, 11, 20, 6, 50),
+                datetime(2026, 11, 21, 0, 30),
+                17.0,
+                datetime(2026, 11, 21, 0, 4),
+            )
+        ],
+    )
+
+    # When the room forecast runs
+    _run_default_windows_on(client, datetime(2026, 11, 21, 14, 10, tzinfo=UTC))
+
+    # Then Friday's slot is still stored, so hive-app can still write its tail
+    assert _plan_slot_ends(client)[20] == datetime(2026, 11, 21, 0, 30)
+
+
+def test_an_open_window_keeps_its_opening_days_value_after_a_step_down(
+    client: MariaDBClient,
+) -> None:
+    # Given Friday ended at 17.0 with its third Quiet Day, so Saturday starts at
+    # 16.5, and it is 00:10 on Saturday with Friday's window open until 00:30
+    now = datetime(2026, 11, 21, 0, 10, tzinfo=UTC)
+    seed_reading(client, now - timedelta(minutes=5), room=16.7)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 21, 0), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, datetime(2026, 11, 20).date(), 17.0, quiet_count=3)
+    seed_comfort(client, datetime(2026, 11, 21).date(), 16.5, quiet_count=0)
+
+    # When the room forecast runs
+    RoomForecastJob(client, REGION, ComfortWindows()).refresh(now)
+
+    # Then Friday's still-open slot holds Friday's 17.0 and Saturday's holds 16.5
+    targets = {row.day.day: row.target for row in slot_rows(client, "plan")}
+    assert targets[20] == 17.0
+    assert targets[21] == 16.5
+    # and the plan heats the 16.7 C room in Friday's tail, as it would not at 16.5
+    assert live_rows(client, "plan")[0].on_minutes > 0
+
+
+def test_with_no_row_before_today_an_open_window_keeps_todays_value(
+    client: MariaDBClient,
+) -> None:
+    # Given only Saturday's row (16.5), as on a new install, and it is 00:10 on
+    # Saturday with Friday's window open until 00:30
+    now = datetime(2026, 11, 21, 0, 10, tzinfo=UTC)
+    seed_reading(client, now - timedelta(minutes=5), room=17.0)
+    seed_schedule(client, weekly_schedule())
+    seed_weather_forecast(
+        client, first=datetime(2026, 11, 21, 0), last=datetime(2026, 11, 23, 0)
+    )
+    seed_comfort(client, datetime(2026, 11, 21).date(), 16.5, quiet_count=0)
+
+    RoomForecastJob(client, REGION, ComfortWindows()).refresh(now)
+
+    # Then Friday's slot holds Saturday's 16.5, not the 16 C floor
+    targets = {row.day.day: row.target for row in slot_rows(client, "plan")}
+    assert targets[20] == 16.5

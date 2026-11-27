@@ -21,7 +21,7 @@ WEEKDAYS = (
 MINUTES_IN_DAY = 1440
 # Why a day kept Hive's entries.
 REASON_NO_SLOT = "no plan slot"
-REASON_OUTSIDE_DAY = "its plan slot does not lie within the day"
+REASON_OUTSIDE_DAY = "its plan slot does not start on the day"
 
 
 def _entry(start: int, target: float) -> dict[str, Any]:
@@ -33,14 +33,16 @@ def _local(instant: datetime) -> datetime:
     return instant.replace(tzinfo=UTC).astimezone(get_local_timezone())
 
 
-def _lies_within(day: date, starts_at: datetime, ends_at: datetime) -> bool:
-    """Whether a slot starts on the local day and ends on it or at the next
-    local midnight exactly."""
-    start, end = _local(starts_at), _local(ends_at)
-    if start.date() != day:
-        return False
-    next_midnight = end.date() == day + timedelta(days=1) and end.time() == time(0)
-    return end.date() == day or next_midnight
+def _starts_on(day: date, starts_at: datetime) -> bool:
+    """Whether a slot starts on the local day."""
+    return _local(starts_at).date() == day
+
+
+def _ends_after_next_midnight(day: date, ends_at: datetime) -> bool:
+    """Whether a slot that started on the local day ends past the next midnight."""
+    return _local(ends_at).replace(tzinfo=None) > datetime.combine(
+        day + timedelta(days=1), time(0)
+    )
 
 
 def _london_minutes(instant: datetime, round_up: bool = False) -> int:
@@ -61,24 +63,46 @@ def build_week(
 ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
     """A copy of Hive's week with today and tomorrow replaced by their plan
     slots, and the (weekday, reason) of those that kept Hive's entries: a day
-    with no plan slot, or any slot not within the day, keeps them. A replaced day
-    holds only its slots' starts and closes, with no entry invented at midnight."""
+    with no plan slot of its own, or any slot that does not start on the day,
+    keeps them. A replaced day holds its slots' starts and closes, a slot running
+    past midnight closing at 23:59 and opening the next day with its tail (the
+    target at 00:00 until its close); no other entry is invented at midnight."""
     week = copy.deepcopy(hive_week)
     kept: list[tuple[str, str]] = []
     for day in (today, today + timedelta(days=1)):
         slots = sorted(s for s in plan_slots if s[0] == day)
+        # The tail of yesterday's slot that ran past midnight opens the day.
+        tails = sorted(
+            s
+            for s in plan_slots
+            if s[0] == day - timedelta(days=1)
+            and _starts_on(s[0], s[1])
+            and _ends_after_next_midnight(s[0], s[2])
+        )
+        # A day with only yesterday's tail keeps Hive's entries: writing the tail
+        # alone would hold the Away Temperature for the rest of that day.
         if not slots:
             kept.append((WEEKDAYS[day.weekday()], REASON_NO_SLOT))
             continue
-        if not all(_lies_within(day, s[1], s[2]) for s in slots):
+        if not all(_starts_on(day, s[1]) for s in slots):
             kept.append((WEEKDAYS[day.weekday()], REASON_OUTSIDE_DAY))
             continue
         entries: list[dict[str, Any]] = []
+        for _, _, ends_at, target in tails:
+            entries.append(_entry(0, target))
+            entries.append(
+                _entry(_london_minutes(ends_at, round_up=True), away_temperature)
+            )
         for _, starts_at, ends_at, target in slots:
             entries.append(_entry(_london_minutes(starts_at), target))
-            end = _london_minutes(ends_at, round_up=True)
-            # A start must be 0-1439, so a slot ending at midnight closes at 23:59.
-            close = end % MINUTES_IN_DAY or MINUTES_IN_DAY - 1
+            # A start must be 0-1439, so a slot ending at or past the next
+            # midnight closes at 23:59 (its tail opens the next day).
+            ends_today = _local(ends_at).date() == day
+            close = (
+                min(_london_minutes(ends_at, round_up=True), MINUTES_IN_DAY - 1)
+                if ends_today
+                else MINUTES_IN_DAY - 1
+            )
             entries.append(_entry(close, away_temperature))
         week[WEEKDAYS[day.weekday()]] = entries
     return week, kept

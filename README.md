@@ -72,10 +72,12 @@ providing:
   one). This is separate from the `daily_consumption_summary` backfill, which
   fetches everything the Octopus API still serves (about 2 years) at any startup where
   the summary's counted days reach back less than 6 months, and needs no configuration.
-- Optional `comfort_windows` (`weekday` and `weekend`, each with a `start` and an `end`
+- Optional `comfort_windows` (`monday` to `sunday`, each with a `start` and an `end`
   local time): when the room forecast's comfort plan holds the comfort temperature.
-  Defaults are 07:30 to 23:00 on weekdays and 08:30 to 00:00 at weekends (Saturday and
-  Sunday); an end of `00:00` is midnight at the end of the day. The forecast steps in
+  An end at or before the start is the next morning (`00:00` is midnight at the end of
+  the day). Defaults are 07:30 to 23:00 Monday to Thursday, 07:30 to 00:30 on Friday,
+  08:30 to 00:30 on Saturday and 08:30 to 23:00 on Sunday. The old `weekday` and
+  `weekend` keys are refused at startup. The forecast steps in
   2 minutes, so a time on an odd minute is rounded earlier to an even one (`07:45`
   becomes `07:44`) and the log says so; a window whose different start and end round to
   the same mark is refused at startup. Quote the times
@@ -187,17 +189,22 @@ household no longer maintains one by hand. At each heating poll, hive-app builds
 week from the schedule it just read: today's and tomorrow's weekdays are replaced from
 the newest plan slots (the Comfort Temperature from the slot's start, then the Away
 Temperature from its end), and the other five weekdays keep whatever was last written.
-Like Hive's own days, a written day has no entry at 00:00: before a day's first entry,
-Hive holds the previous day's last setting. A start rounds earlier and an end later to a
-whole minute, so the Comfort Window is never shortened, except that a slot ending at
-midnight closes with the Away Temperature at 23:59, so its Comfort Temperature never
-runs on through the night into the next day. A day with no plan slot keeps its
-entries, and so does a day whose slot does not lie within it (a comfort window opening
-just after midnight with pre-heat from the evening before, or running past midnight):
-that case is logged as a WARNING on a poll that writes or records the week (so if
-nothing else changes the day stays quietly on Hive's entries), and splitting such a slot
-across two days is not done. Hive is written only when the built week differs from the
+Like Hive's own days, a written day has no entry at 00:00 unless it opens with
+yesterday's tail (below): before a day's first entry, Hive holds the previous day's
+last setting. A start rounds earlier and an
+end later to a whole minute, so the Comfort Window is never shortened, except that a
+slot ending at or after midnight closes its own day with the Away Temperature at 23:59.
+A slot running past midnight (the default Friday and Saturday windows end at 00:30) is
+split across the two days: the next day opens with the Comfort Temperature at 00:00 and
+the Away Temperature at the slot's close, before that day's own slot (ADR-0041). A day
+with no plan slot of its own keeps its entries, even when yesterday's slot runs into
+it, and so does a day whose slot does not start on it (a comfort window opening just
+after midnight with pre-heat from the evening before): that case is logged as a
+WARNING on a poll that writes or records the week (so if nothing else changes the day
+stays quietly on Hive's entries). Hive is written only when the built week differs from the
 one it holds, so in practice that is after each hourly plan run that moves a slot.
+hive-app reads yesterday's plan slot for a tail, which octopus-app keeps stored for
+the whole of today, so deploy octopus-app with or before hive-app.
 **Edits made in the Hive app are overwritten at the next difference**; that is the
 point of it.
 

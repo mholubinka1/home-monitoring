@@ -11,7 +11,6 @@ from typing import Any
 from octopus_app.common.config import ComfortWindows
 from octopus_app.data.thermal import MINUTES_PER_HOUR, ONE_HOUR, ThermalNumbers
 
-SATURDAY = 5
 STEP_MINUTES = 2  # the thermostat's reading interval (ADR-0036)
 STEP = timedelta(minutes=STEP_MINUTES)
 STEPS_PER_HOUR = MINUTES_PER_HOUR // STEP_MINUTES
@@ -301,10 +300,9 @@ def hold_forecast(
 
 
 def comfort_window(windows: ComfortWindows, day: date) -> tuple[datetime, datetime]:
-    """The local start and end of the day's comfort window; weekends are Saturday
-    and Sunday. An end at or before the start is the next day (00:00 is midnight at
-    the end of the day)."""
-    window = windows.weekend if day.weekday() >= SATURDAY else windows.weekday
+    """The local start and end of the day's comfort window. An end at or before the
+    start is the next day (00:00 is midnight at the end of the day)."""
+    window = getattr(windows, DAY_NAMES[day.weekday()])
     start = datetime.combine(day, window.start)
     end = datetime.combine(day, window.end)
     return start, end if end > start else end + timedelta(days=1)
@@ -323,14 +321,21 @@ def _steps_before(start: Start, hours: list[ForecastHour], moment: datetime) -> 
     return count
 
 
-def _target_in(
-    held: list[tuple[datetime, datetime]], target: float
-) -> Callable[[datetime], float]:
-    """The target inside a held interval and none outside."""
+# A held span: opening, closing, and the target held in it.
+Held = tuple[datetime, datetime, float]
+
+# One target for every window, or the target by the day a window opens on.
+Target = float | Callable[[date], float]
+
+
+def _target_in(held: list[Held]) -> Callable[[datetime], float]:
+    """The target of the held interval a moment is inside, and none outside."""
 
     def target_of(local: datetime) -> float:
-        inside = any(opens <= local < closes for opens, closes in held)
-        return target if inside else NO_TARGET
+        return max(
+            (target for opens, closes, target in held if opens <= local < closes),
+            default=NO_TARGET,
+        )
 
     return target_of
 
@@ -339,7 +344,7 @@ def _lead(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     model: RoomModel,
     start: Start,
     hours: list[ForecastHour],
-    held: list[tuple[datetime, datetime]],
+    held: list[Held],
     target: float,
     window: tuple[datetime, datetime],
 ) -> timedelta:
@@ -359,10 +364,8 @@ def _lead(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     cap = (opening - first) // STEP
 
     def room_at_opening(lead_steps: int) -> float:
-        interval = [*held, (opening - lead_steps * STEP, closing)]
-        return _simulate(
-            model, start, hours, _target_in(interval, target), elapsed_steps
-        )[1]
+        interval = [*held, (opening - lead_steps * STEP, closing, target)]
+        return _simulate(model, start, hours, _target_in(interval), elapsed_steps)[1]
 
     if room_at_opening(0) >= target:
         return ZERO
@@ -382,22 +385,23 @@ def _held_spans(
     model: RoomModel,
     start: Start,
     hours: list[ForecastHour],
-    target: float,
+    target: Target,
     windows: ComfortWindows,
-) -> tuple[list[tuple[datetime, datetime]], list[date]]:
+) -> tuple[list[Held], list[date]]:
     """Per comfort window still open at the forecast's start, the span held:
     (opening minus its lead, closing); and the day each held span's window opens
     on, aligned with the spans. The window that began the day before is included:
     an overnight window can still be open when the forecast starts."""
     days = list(dict.fromkeys(hour.start.date() for hour in hours))
     window_days = [days[0] - ONE_DAY, *days]
-    held: list[tuple[datetime, datetime]] = []
+    held: list[Held] = []
     opening_days: list[date] = []
     for day in window_days:
         window = comfort_window(windows, day)
         if window[1] > hours[0].start:
-            lead = _lead(model, start, hours, held, target, window)
-            held.append((window[0] - lead, window[1]))
+            day_target = target(day) if callable(target) else target
+            lead = _lead(model, start, hours, held, day_target, window)
+            held.append((window[0] - lead, window[1], day_target))
             opening_days.append(day)
     return held, opening_days
 
@@ -406,7 +410,7 @@ def comfort_plan(
     model: RoomModel,
     start: Start,
     hours: list[ForecastHour],
-    target: float,
+    target: Target,
     windows: ComfortWindows,
 ) -> list[PlannedStep]:
     """The forecast under heating that holds the target from each comfort window's
@@ -415,14 +419,14 @@ def comfort_plan(
     if not hours:
         return []
     held, _ = _held_spans(model, start, hours, target, windows)
-    return hold_forecast(model, start, hours, _target_in(held, target))
+    return hold_forecast(model, start, hours, _target_in(held))
 
 
 def plan_slots(
     model: RoomModel,
     start: Start,
     hours: list[ForecastHour],
-    target: float,
+    target: Target,
     windows: ComfortWindows,
 ) -> list[tuple[date, Slot]]:
     """The comfort plan's held span (pre-heat start to window close) of each window
@@ -433,7 +437,7 @@ def plan_slots(
     held, opening_days = _held_spans(model, start, hours, target, windows)
     first = datetime.combine(hours[0].start.date(), datetime.min.time())
     return [
-        (day, Slot(opens, closes, target))
-        for day, (opens, closes) in zip(opening_days, held)
+        (day, Slot(opens, closes, held_target))
+        for day, (opens, closes, held_target) in zip(opening_days, held)
         if first < closes and opens < first + 2 * ONE_DAY
     ]
