@@ -177,10 +177,14 @@ unless `comfort_schedule.control` is also `on`. If a real override is still in f
 is switched to `dry_run` or `off` (or the `presence` section is removed), the next
 poll restores SCHEDULE once.
 
-Accepted limit: the Away Delay is 30 minutes, so a phone that makes no DNS lookup for
-that long overnight reads as away. If it is the only phone home, the thermostat is held
-at the Away Temperature until the phone's next lookup, and the morning pre-heat can be
-late. Lengthen `away_delay_minutes` if that bites.
+A phone counts as home while Pi-hole has last seen it on the network within
+`last_seen_minutes` (default 2), or seen it make a DNS lookup within `dns_minutes`
+(default 10), so a phone that stays on Wi-Fi while its data goes over mobile still
+counts ([ADR-0042](.agent-docs/adr/0042-presence-comes-first-from-a-phone-being-seen-on-the-network.md)).
+Last seen comes from Pi-hole's neighbour table, refreshed about every minute. Accepted
+limit: a phone with Wi-Fi switched off or out of range reads as away after about 10
+minutes. The old `away_delay_minutes` is refused
+at startup.
 
 ### Comfort Schedule (hive-app)
 

@@ -43,8 +43,8 @@ location:
 
 # Optional. Presence from the phones on your network, read from Pi-hole (v6).
 # Delete this whole section (blanks are refused at startup) and no presence job
-# runs. A phone counts as home while
-# Pi-hole has seen it make a DNS lookup within away_delay_minutes.
+# runs. A phone counts as home while Pi-hole has last seen it on the network
+# within last_seen_minutes, or seen it make a DNS lookup within dns_minutes.
 presence:
   # off | dry_run | on. `on` is refused at startup unless
   # comfort_schedule.control is also on; use off or dry_run until then.
@@ -56,8 +56,11 @@ presence:
     # A Pi-hole app password, not the web login password. Keep the real value
     # only in the Pi's config.yml.
     password:
-  # How long a phone may stay silent before the house counts as empty.
-  # away_delay_minutes: 30
+  # How recently a phone must have been seen on the network (Pi-hole's
+  # neighbour table) to count as home, and how recently it must have made a DNS
+  # lookup if not seen. The house is empty only when every phone fails both.
+  # last_seen_minutes: 2
+  # dns_minutes: 10
   # Hostnames (the part before the first dot, case-insensitive) always counted
   # as a phone, e.g. a phone whose name the rule does not recognise.
   # A person's name can also trip the rule (Mac-s-iPhone contains "mac", a

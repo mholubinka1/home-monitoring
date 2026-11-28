@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: partly superseded by ADR-0042 (presence now comes first from network last-seen, DNS as the fallback)
 ---
 
 # Presence comes from phones' DNS activity in Pi-hole and fails safe to home

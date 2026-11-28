@@ -31,7 +31,8 @@ class PresenceRetriever:
         self._phone_rule = PhoneRule(
             settings.phone_hostnames, settings.ignored_hostnames
         )
-        self._away_delay = timedelta(minutes=settings.away_delay_minutes)
+        self._last_seen_window = timedelta(minutes=settings.last_seen_minutes)
+        self._dns_window = timedelta(minutes=settings.dns_minutes)
 
     def refresh(self, now: datetime) -> None:
         open_state = self._mariadb.read_open_presence_state()
@@ -58,8 +59,14 @@ class PresenceRetriever:
         return (SOMEONE_HOME if active_phones else NO_ONE_HOME), len(active_phones)
 
     def _is_active_phone(self, device: PiholeDevice, now: datetime) -> bool:
-        return (
-            device.last_query is not None
-            and device.last_query >= now - self._away_delay
-            and self._phone_rule.is_phone(device.hwaddr, device.hostnames)
+        """A Phone last seen on the network within the last-seen window, or that
+        made a DNS lookup within the DNS window (ADR-0042)."""
+        seen = device.last_seen is not None and (
+            device.last_seen >= now - self._last_seen_window
+        )
+        queried = device.last_query is not None and (
+            device.last_query >= now - self._dns_window
+        )
+        return (seen or queried) and self._phone_rule.is_phone(
+            device.hwaddr, device.hostnames
         )

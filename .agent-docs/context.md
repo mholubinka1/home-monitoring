@@ -336,11 +336,12 @@ _Avoid_: household device, client (Pi-hole's word for any device)
 The fixed, ordered test that calls a device a phone from Pi-hole's record of it: a randomised MAC address, then words in its hostname (exclusions such as tablet or watch first, then phone words and brands). The same MAC and hostname always give the same answer.
 
 **No One Is Home**:
-The state once no Phone has made a DNS lookup for the configured Away Delay (30 minutes by default). Its opposite, **Someone Is Home**, begins at the first lookup by any Phone. Boosts never change it, since a boost can be started from outside the house.
+The state once no Phone has been Last Seen on the network within 2 minutes or made a DNS lookup within 10 minutes (both configurable). Its opposite, **Someone Is Home**, holds while any Phone passes either test ([ADR-0042](adr/0042-presence-comes-first-from-a-phone-being-seen-on-the-network.md)). Boosts never change it, since a boost can be started from outside the house.
 _Avoid_: away, empty house, unoccupied
 
-**Away Delay**:
-How long no Phone may make a DNS lookup before No One Is Home begins: 30 minutes by default, configurable.
+**Last Seen**:
+When a device's address last appeared on the home network, from Pi-hole's neighbour table, whatever route the device's own traffic takes. It is the primary presence signal; a Phone's last DNS lookup is the fallback.
+_Avoid_: Away Delay (the single 30-minute DNS window it replaced)
 
 **Presence Unknown**:
 The state while Pi-hole cannot be read. For its first 10 minutes control keeps the last known state, so a brief Pi-hole restart changes nothing. After that it is treated as Someone Is Home, so a failed signal never keeps the heating down.
